@@ -1,0 +1,91 @@
+import { LineEdit } from "std-widgets.slint";
+
+export struct ResultItem {
+    title: string,
+    subtitle: string,
+}
+
+export component AppWindow inherits Window {
+    in property <[ResultItem]> results;
+    callback close-requested();
+
+    title: "rayslash";
+    preferred-width: 640px;
+    preferred-height: 420px;
+    background: #f4f2ed;
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: #f4f2ed;
+
+        FocusScope {
+            width: 100%;
+            height: 100%;
+
+            key-pressed(event) => {
+                if (event.text == Key.Escape) {
+                    root.close-requested();
+                    accept
+                } else {
+                    reject
+                }
+            }
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 14px;
+
+                Text {
+                    text: "rayslash";
+                    color: #222222;
+                    font-size: 24px;
+                    font-weight: 700;
+                }
+
+                LineEdit {
+                    placeholder-text: "Search apps, projects, or calculations";
+                    font-size: 18px;
+                }
+
+                Rectangle {
+                    height: 1px;
+                    background: #d8d2c8;
+                }
+
+                VerticalLayout {
+                    spacing: 8px;
+
+                    for item[i] in root.results: Rectangle {
+                        height: 72px;
+                        border-radius: 8px;
+                        background: i == 0 ? #ffffff : #ede8df;
+                        border-width: i == 0 ? 1px : 0px;
+                        border-color: #cdc5b8;
+
+                        VerticalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            padding-top: 10px;
+                            padding-bottom: 10px;
+                            spacing: 4px;
+
+                            Text {
+                                text: item.title;
+                                color: #1f1f1f;
+                                font-size: 16px;
+                                font-weight: 600;
+                            }
+
+                            Text {
+                                text: item.subtitle;
+                                color: #68635d;
+                                font-size: 13px;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
