@@ -1,27 +1,82 @@
-import { LineEdit } from "std-widgets.slint";
-
 export struct ResultItem {
     title: string,
     subtitle: string,
 }
 
+component SearchBox inherits Rectangle {
+    callback close-requested();
+
+    height: 62px;
+    border-radius: 8px;
+    background: search-input.has-focus ? #ffffff : #f7f3eb;
+    border-width: 2px;
+    border-color: search-input.has-focus ? #4b7bec : #b8ad9d;
+
+    forward-focus: search-input;
+
+    animate background { duration: 90ms; }
+    animate border-color { duration: 90ms; }
+
+    Text {
+        x: 18px;
+        y: 0px;
+        height: parent.height;
+        vertical-alignment: center;
+        text: "Search apps, projects, or calculations";
+        color: #6a6258;
+        font-size: 18px;
+        visible: search-input.text == "";
+    }
+
+    search-input := TextInput {
+        x: 18px;
+        y: 0px;
+        width: parent.width - 36px;
+        height: parent.height;
+        vertical-alignment: center;
+        color: #17191f;
+        font-size: 19px;
+        font-weight: 500;
+        single-line: true;
+        selection-background-color: #4b7bec;
+        selection-foreground-color: #ffffff;
+
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.close-requested();
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     in property <[ResultItem]> results;
     callback close-requested();
+    public function focus-search() {
+        search.focus();
+    }
 
     title: "rayslash";
-    preferred-width: 640px;
-    preferred-height: 420px;
-    background: #f4f2ed;
+    preferred-width: 660px;
+    preferred-height: 362px;
+    min-width: 520px;
+    min-height: 320px;
+    no-frame: true;
+    resize-border-width: 0px;
+    background: #17191f;
 
     Rectangle {
         width: 100%;
         height: 100%;
-        background: #f4f2ed;
+        background: #17191f;
 
         FocusScope {
             width: 100%;
             height: 100%;
+            forward-focus: search;
 
             key-pressed(event) => {
                 if (event.text == Key.Escape) {
@@ -32,55 +87,95 @@ export component AppWindow inherits Window {
                 }
             }
 
-            VerticalLayout {
-                padding: 24px;
-                spacing: 14px;
-
-                Text {
-                    text: "rayslash";
-                    color: #222222;
-                    font-size: 24px;
-                    font-weight: 700;
-                }
-
-                LineEdit {
-                    placeholder-text: "Search apps, projects, or calculations";
-                    font-size: 18px;
-                }
-
-                Rectangle {
-                    height: 1px;
-                    background: #d8d2c8;
-                }
+            Rectangle {
+                x: 0px;
+                y: 0px;
+                width: 100%;
+                height: 100%;
+                border-radius: 10px;
+                background: #f0e9df;
+                border-width: 1px;
+                border-color: #968a7b;
 
                 VerticalLayout {
-                    spacing: 8px;
+                    padding-left: 22px;
+                    padding-right: 22px;
+                    padding-top: 20px;
+                    padding-bottom: 18px;
+                    spacing: 12px;
 
-                    for item[i] in root.results: Rectangle {
-                        height: 72px;
-                        border-radius: 8px;
-                        background: i == 0 ? #ffffff : #ede8df;
-                        border-width: i == 0 ? 1px : 0px;
-                        border-color: #cdc5b8;
+                    HorizontalLayout {
+                        height: 28px;
+                        alignment: space-between;
 
-                        VerticalLayout {
-                            padding-left: 16px;
-                            padding-right: 16px;
-                            padding-top: 10px;
-                            padding-bottom: 10px;
-                            spacing: 4px;
+                        Text {
+                            text: "rayslash";
+                            color: #17191f;
+                            font-size: 22px;
+                            font-weight: 700;
+                        }
 
-                            Text {
-                                text: item.title;
-                                color: #1f1f1f;
-                                font-size: 16px;
-                                font-weight: 600;
-                            }
+                        Text {
+                            text: "ready";
+                            color: #5e6a5e;
+                            font-size: 12px;
+                            font-weight: 600;
+                            vertical-alignment: center;
+                        }
+                    }
 
-                            Text {
-                                text: item.subtitle;
-                                color: #68635d;
-                                font-size: 13px;
+                    search := SearchBox {
+                        close-requested => {
+                            root.close-requested();
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: #cfc5b8;
+                    }
+
+                    VerticalLayout {
+                        spacing: 8px;
+
+                        for item[i] in root.results: Rectangle {
+                            height: 64px;
+                            border-radius: 8px;
+                            background: i == 0 ? #252a33 : #fffaf1;
+                            border-width: 1px;
+                            border-color: i == 0 ? #3a4250 : #d7cdbc;
+
+                            HorizontalLayout {
+                                padding-left: 14px;
+                                padding-right: 14px;
+                                padding-top: 8px;
+                                padding-bottom: 8px;
+                                spacing: 12px;
+
+                                Rectangle {
+                                    width: 34px;
+                                    height: 34px;
+                                    border-radius: 6px;
+                                    background: i == 0 ? #4b7bec : #e1d7c8;
+                                    vertical-stretch: 0;
+                                }
+
+                                VerticalLayout {
+                                    spacing: 2px;
+
+                                    Text {
+                                        text: item.title;
+                                        color: i == 0 ? #ffffff : #17191f;
+                                        font-size: 16px;
+                                        font-weight: 700;
+                                    }
+
+                                    Text {
+                                        text: item.subtitle;
+                                        color: i == 0 ? #c9d4ec : #5f574f;
+                                        font-size: 13px;
+                                    }
+                                }
                             }
                         }
                     }

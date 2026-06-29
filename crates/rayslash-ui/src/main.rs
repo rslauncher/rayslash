@@ -18,6 +18,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let results_model = Rc::new(VecModel::from(results));
     ui.set_results(results_model.into());
+    ui.invoke_focus_search();
 
     ui.on_close_requested({
         let weak = ui.as_weak();
