@@ -90,7 +90,10 @@ export component AppWindow inherits Window {
     in property <int> result-count;
     in-out property <int> selected-index: 0;
     in-out property <string> query-text: "";
-    in-out property <string> status-text: "Type to filter apps, projects, and calculations. Enter launches or shows calculator results.";
+    in-out property <string> status-text: "Type to filter apps, projects, and calculations.";
+    private property <length> result-row-height: 64px;
+    private property <length> result-row-gap: 8px;
+    private property <length> result-row-stride: root.result-row-height + root.result-row-gap;
     callback close-requested();
     callback query-changed(string);
     callback activate-selected-result(int, bool);
@@ -100,15 +103,39 @@ export component AppWindow inherits Window {
         search.focus();
     }
 
+    public function reset-result-scroll() {
+        results-scroll.viewport-y = 0px;
+    }
+
+    function keep-selection-visible() {
+        if (root.result-count <= 0) {
+            root.reset-result-scroll();
+            return;
+        }
+
+        let selected-top = root.selected-index * root.result-row-stride;
+        let selected-bottom = selected-top + root.result-row-height;
+        let visible-top = -results-scroll.viewport-y;
+        let visible-bottom = visible-top + results-scroll.height;
+
+        if (selected-top < visible-top) {
+            results-scroll.viewport-y = -selected-top;
+        } else if (selected-bottom > visible-bottom) {
+            results-scroll.viewport-y = -(selected-bottom - results-scroll.height);
+        }
+    }
+
     function select-previous() {
         if (root.selected-index > 0) {
             root.selected-index = root.selected-index - 1;
+            root.keep-selection-visible();
         }
     }
 
     function select-next() {
         if (root.selected-index < root.result-count - 1) {
             root.selected-index = root.selected-index + 1;
+            root.keep-selection-visible();
         }
     }
 
@@ -120,9 +147,9 @@ export component AppWindow inherits Window {
 
     title: "rayslash";
     preferred-width: 660px;
-    preferred-height: 380px;
+    preferred-height: 430px;
     min-width: 520px;
-    min-height: 360px;
+    min-height: 380px;
     no-frame: true;
     resize-border-width: 0px;
     background: transparent;
@@ -189,11 +216,19 @@ export component AppWindow inherits Window {
                         HorizontalLayout {
                             spacing: 8px;
 
-                            Image {
+                            Rectangle {
                                 width: 24px;
-                                height: 24px;
-                                source: @image-url("../../../icons/rayslash-icon.svg");
-                                image-fit: contain;
+                                height: 100%;
+                                background: transparent;
+
+                                Image {
+                                    x: 0px;
+                                    y: (parent.height - self.height) / 2;
+                                    width: 22px;
+                                    height: 22px;
+                                    source: @image-url("../../../icons/rayslash-icon.svg");
+                                    image-fit: contain;
+                                }
                             }
 
                             Text {
@@ -239,179 +274,203 @@ export component AppWindow inherits Window {
                         background: #303030;
                     }
 
-                    VerticalLayout {
-                        spacing: 8px;
+                    results-scroll := Flickable {
+                        vertical-stretch: 1;
+                        viewport-width: self.width;
+                        viewport-height: root.result-count <= 0 ? 0px : root.result-count * root.result-row-stride - root.result-row-gap;
+                        interactive: true;
 
-                        for item[i] in root.results: Rectangle {
-                            height: 64px;
-                            border-radius: 12px;
-                            background: i == root.selected-index ? #343434 : #222222;
-                            border-width: 1px;
-                            border-color: i == root.selected-index ? #6a6a6a : #303030;
+                        VerticalLayout {
+                            width: results-scroll.width;
+                            spacing: root.result-row-gap;
 
-                            animate background { duration: 90ms; }
-                            animate border-color { duration: 90ms; }
+                            for item[i] in root.results: Rectangle {
+                                height: root.result-row-height;
+                                border-radius: 12px;
+                                background: i == root.selected-index ? #343434 : #222222;
+                                border-width: 1px;
+                                border-color: i == root.selected-index ? #6a6a6a : #303030;
 
-                            HorizontalLayout {
-                                padding-left: 14px;
-                                padding-right: 14px;
-                                padding-top: 8px;
-                                padding-bottom: 8px;
-                                spacing: 12px;
+                                animate background { duration: 90ms; }
+                                animate border-color { duration: 90ms; }
 
-                                Rectangle {
-                                    width: 38px;
-                                    height: 100%;
-                                    background: #00000000;
+                                HorizontalLayout {
+                                    padding-left: 14px;
+                                    padding-right: 14px;
+                                    padding-top: 8px;
+                                    padding-bottom: 8px;
+                                    spacing: 12px;
 
                                     Rectangle {
-                                        x: 0px;
-                                        y: (parent.height - self.height) / 2;
-                                        width: 36px;
-                                        height: 36px;
-                                        border-radius: 10px;
-                                        background: i == root.selected-index ? #d6d6d6 : #3a3a3a;
+                                        width: 38px;
+                                        height: 100%;
+                                        background: #00000000;
 
-                                        Image {
-                                            x: 5px;
-                                            y: 5px;
-                                            width: 26px;
-                                            height: 26px;
-                                            source: item.icon;
-                                            image-fit: contain;
-                                            visible: item.has_icon;
+                                        Rectangle {
+                                            x: 0px;
+                                            y: (parent.height - self.height) / 2;
+                                            width: 36px;
+                                            height: 36px;
+                                            border-radius: 10px;
+                                            background: i == root.selected-index ? #d6d6d6 : #3a3a3a;
+
+                                            Image {
+                                                x: 5px;
+                                                y: 5px;
+                                                width: 26px;
+                                                height: 26px;
+                                                source: item.icon;
+                                                image-fit: contain;
+                                                visible: item.has_icon;
+                                            }
+
+                                            Text {
+                                                x: 0px;
+                                                y: 0px;
+                                                width: 100%;
+                                                height: 100%;
+                                                text: item.icon_text;
+                                                color: i == root.selected-index ? #242424 : #d0d0d0;
+                                                font-size: 19px;
+                                                font-weight: 800;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                                visible: !item.has_icon && item.icon_text != "";
+                                            }
+
+                                            Rectangle {
+                                                x: 8px;
+                                                y: 11px;
+                                                width: 20px;
+                                                height: 14px;
+                                                border-radius: 3px;
+                                                background: i == root.selected-index ? #303030 : #d0d0d0;
+                                                visible: !item.has_icon && item.icon_kind == "folder";
+                                            }
+
+                                            Rectangle {
+                                                x: 9px;
+                                                y: 8px;
+                                                width: 10px;
+                                                height: 6px;
+                                                border-radius: 2px;
+                                                background: i == root.selected-index ? #303030 : #d0d0d0;
+                                                visible: !item.has_icon && item.icon_kind == "folder";
+                                            }
+
+                                            Rectangle {
+                                                x: 10px;
+                                                y: 9px;
+                                                width: 16px;
+                                                height: 20px;
+                                                border-radius: 3px;
+                                                background: transparent;
+                                                border-width: 2px;
+                                                border-color: i == root.selected-index ? #303030 : #d0d0d0;
+                                                visible: !item.has_icon && item.icon_kind == "calculator";
+                                            }
+
+                                            Rectangle {
+                                                x: 14px;
+                                                y: 13px;
+                                                width: 8px;
+                                                height: 2px;
+                                                background: i == root.selected-index ? #303030 : #d0d0d0;
+                                                visible: !item.has_icon && item.icon_kind == "calculator";
+                                            }
+
+                                            Rectangle {
+                                                x: 11px;
+                                                y: 11px;
+                                                width: 6px;
+                                                height: 6px;
+                                                border-radius: 2px;
+                                                background: i == root.selected-index ? #303030 : #d0d0d0;
+                                                visible: !item.has_icon && item.icon_kind == "app";
+                                            }
+
+                                            Rectangle {
+                                                x: 19px;
+                                                y: 11px;
+                                                width: 6px;
+                                                height: 6px;
+                                                border-radius: 2px;
+                                                background: i == root.selected-index ? #303030 : #d0d0d0;
+                                                visible: !item.has_icon && item.icon_kind == "app";
+                                            }
+
+                                            Rectangle {
+                                                x: 11px;
+                                                y: 19px;
+                                                width: 6px;
+                                                height: 6px;
+                                                border-radius: 2px;
+                                                background: i == root.selected-index ? #303030 : #d0d0d0;
+                                                visible: !item.has_icon && item.icon_kind == "app";
+                                            }
+
+                                            Rectangle {
+                                                x: 19px;
+                                                y: 19px;
+                                                width: 6px;
+                                                height: 6px;
+                                                border-radius: 2px;
+                                                background: i == root.selected-index ? #303030 : #d0d0d0;
+                                                visible: !item.has_icon && item.icon_kind == "app";
+                                            }
+
+                                            Rectangle {
+                                                x: 14px;
+                                                y: 14px;
+                                                width: 8px;
+                                                height: 8px;
+                                                border-radius: 4px;
+                                                background: i == root.selected-index ? #303030 : #d0d0d0;
+                                                visible: !item.has_icon && item.icon_kind == "placeholder";
+                                            }
+                                        }
+                                    }
+
+                                    VerticalLayout {
+                                        spacing: 2px;
+
+                                        Text {
+                                            text: item.title;
+                                            color: #f4f4f4;
+                                            font-size: 16px;
+                                            font-weight: 700;
                                         }
 
                                         Text {
-                                            x: 0px;
-                                            y: 0px;
-                                            width: 100%;
-                                            height: 100%;
-                                            text: item.icon_text;
-                                            color: i == root.selected-index ? #242424 : #d0d0d0;
-                                            font-size: 19px;
-                                            font-weight: 800;
-                                            horizontal-alignment: center;
-                                            vertical-alignment: center;
-                                            visible: !item.has_icon && item.icon_text != "";
+                                            text: item.subtitle;
+                                            color: i == root.selected-index ? #d0d0d0 : #a0a0a0;
+                                            font-size: 13px;
                                         }
-
-                                        Rectangle {
-                                            x: 8px;
-                                            y: 11px;
-                                            width: 20px;
-                                            height: 14px;
-                                            border-radius: 3px;
-                                            background: i == root.selected-index ? #303030 : #d0d0d0;
-                                            visible: !item.has_icon && item.icon_kind == "folder";
-                                        }
-
-                                        Rectangle {
-                                            x: 9px;
-                                            y: 8px;
-                                            width: 10px;
-                                            height: 6px;
-                                            border-radius: 2px;
-                                            background: i == root.selected-index ? #303030 : #d0d0d0;
-                                            visible: !item.has_icon && item.icon_kind == "folder";
-                                        }
-
-                                        Rectangle {
-                                            x: 10px;
-                                            y: 9px;
-                                            width: 16px;
-                                            height: 20px;
-                                            border-radius: 3px;
-                                            background: transparent;
-                                            border-width: 2px;
-                                            border-color: i == root.selected-index ? #303030 : #d0d0d0;
-                                            visible: !item.has_icon && item.icon_kind == "calculator";
-                                        }
-
-                                        Rectangle {
-                                            x: 14px;
-                                            y: 13px;
-                                            width: 8px;
-                                            height: 2px;
-                                            background: i == root.selected-index ? #303030 : #d0d0d0;
-                                            visible: !item.has_icon && item.icon_kind == "calculator";
-                                        }
-
-                                        Rectangle {
-                                            x: 11px;
-                                            y: 11px;
-                                            width: 6px;
-                                            height: 6px;
-                                            border-radius: 2px;
-                                            background: i == root.selected-index ? #303030 : #d0d0d0;
-                                            visible: !item.has_icon && item.icon_kind == "app";
-                                        }
-
-                                        Rectangle {
-                                            x: 19px;
-                                            y: 11px;
-                                            width: 6px;
-                                            height: 6px;
-                                            border-radius: 2px;
-                                            background: i == root.selected-index ? #303030 : #d0d0d0;
-                                            visible: !item.has_icon && item.icon_kind == "app";
-                                        }
-
-                                        Rectangle {
-                                            x: 11px;
-                                            y: 19px;
-                                            width: 6px;
-                                            height: 6px;
-                                            border-radius: 2px;
-                                            background: i == root.selected-index ? #303030 : #d0d0d0;
-                                            visible: !item.has_icon && item.icon_kind == "app";
-                                        }
-
-                                        Rectangle {
-                                            x: 19px;
-                                            y: 19px;
-                                            width: 6px;
-                                            height: 6px;
-                                            border-radius: 2px;
-                                            background: i == root.selected-index ? #303030 : #d0d0d0;
-                                            visible: !item.has_icon && item.icon_kind == "app";
-                                        }
-
-                                        Rectangle {
-                                            x: 14px;
-                                            y: 14px;
-                                            width: 8px;
-                                            height: 8px;
-                                            border-radius: 4px;
-                                            background: i == root.selected-index ? #303030 : #d0d0d0;
-                                            visible: !item.has_icon && item.icon_kind == "placeholder";
-                                        }
-                                    }
-                                }
-
-                                VerticalLayout {
-                                    spacing: 2px;
-
-                                    Text {
-                                        text: item.title;
-                                        color: #f4f4f4;
-                                        font-size: 16px;
-                                        font-weight: 700;
-                                    }
-
-                                    Text {
-                                        text: item.subtitle;
-                                        color: i == root.selected-index ? #d0d0d0 : #a0a0a0;
-                                        font-size: 13px;
                                     }
                                 }
                             }
                         }
                     }
 
-                    Rectangle {
-                        height: 4px;
-                        background: transparent;
+                    VerticalLayout {
+                        height: 34px;
+                        spacing: 2px;
+
+                        Text {
+                            text: "Enter: launch apps, open folders, show calculator results";
+                            color: #9a9a9a;
+                            font-size: 11px;
+                            height: 16px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: "Ctrl+Enter: open projects in VS Code   Esc: hide launcher";
+                            color: #8a8a8a;
+                            font-size: 11px;
+                            height: 16px;
+                            vertical-alignment: center;
+                        }
                     }
 
                     Text {

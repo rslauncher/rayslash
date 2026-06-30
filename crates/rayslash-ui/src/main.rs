@@ -19,8 +19,7 @@ use slint::{Image, VecModel};
 
 slint::include_modules!();
 
-const DEFAULT_STATUS_TEXT: &str =
-    "Type to filter apps, projects, and calculations. Enter launches or shows calculator results.";
+const DEFAULT_STATUS_TEXT: &str = "Type to filter apps, projects, and calculations.";
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -136,6 +135,7 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
                 ui.set_result_count(count);
                 ui.set_selected_index(0);
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+                ui.invoke_reset_result_scroll();
             }
         }
     });
@@ -167,6 +167,7 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
             if let Some(ui) = weak.upgrade() {
                 ui.set_result_count(count);
                 ui.set_selected_index(0);
+                ui.invoke_reset_result_scroll();
             }
         }
     });
