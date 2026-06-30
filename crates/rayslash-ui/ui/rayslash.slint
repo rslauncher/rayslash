@@ -8,6 +8,7 @@ component SearchBox inherits Rectangle {
     callback select-previous();
     callback select-next();
     callback activate-selected();
+    callback query-changed(string);
 
     height: 62px;
     border-radius: 12px;
@@ -44,6 +45,10 @@ component SearchBox inherits Rectangle {
         selection-background-color: #d4d4d4;
         selection-foreground-color: #181818;
 
+        edited => {
+            root.query-changed(search-input.text);
+        }
+
         key-pressed(event) => {
             if (event.text == Key.Escape) {
                 root.close-requested();
@@ -74,9 +79,10 @@ export component AppWindow inherits Window {
     in property <[ResultItem]> results;
     in property <int> result-count;
     in-out property <int> selected-index: 0;
-    in-out property <string> status-text: "Use Up/Down or Tab to select. Enter previews only.";
+    in-out property <string> status-text: "Type to filter projects. Enter prints the selection only.";
     callback close-requested();
-    callback activate-placeholder(int);
+    callback query-changed(string);
+    callback activate-selected-result(int);
 
     public function focus-search() {
         search.focus();
@@ -96,7 +102,7 @@ export component AppWindow inherits Window {
 
     function activate-selected() {
         if (root.result-count > 0) {
-            root.activate-placeholder(root.selected-index);
+            root.activate-selected-result(root.selected-index);
         }
     }
 
@@ -193,6 +199,9 @@ export component AppWindow inherits Window {
                         }
                         activate-selected => {
                             root.activate-selected();
+                        }
+                        query-changed(query) => {
+                            root.query-changed(query);
                         }
                     }
 
