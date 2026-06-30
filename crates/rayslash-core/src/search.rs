@@ -29,6 +29,7 @@ pub enum SearchResultIcon {
 pub enum SearchResultKind {
     Placeholder,
     Calculator { expression: String, result: String },
+    CalculatorError { expression: String, message: String },
     App { id: String, command: CommandSpec },
     Project { path: PathBuf },
 }
@@ -38,6 +39,7 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::Placeholder => None,
             SearchResultKind::Calculator { .. } => None,
+            SearchResultKind::CalculatorError { .. } => None,
             SearchResultKind::App { .. } => None,
             SearchResultKind::Project { path } => Some(path),
         }
@@ -48,6 +50,7 @@ impl SearchResult {
             SearchResultKind::App { command, .. } => Some(command),
             SearchResultKind::Placeholder
             | SearchResultKind::Calculator { .. }
+            | SearchResultKind::CalculatorError { .. }
             | SearchResultKind::Project { .. } => None,
         }
     }
@@ -56,6 +59,17 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::Calculator { result, .. } => Some(result),
             SearchResultKind::Placeholder
+            | SearchResultKind::CalculatorError { .. }
+            | SearchResultKind::App { .. }
+            | SearchResultKind::Project { .. } => None,
+        }
+    }
+
+    pub fn calculator_error_message(&self) -> Option<&str> {
+        match &self.kind {
+            SearchResultKind::CalculatorError { message, .. } => Some(message),
+            SearchResultKind::Placeholder
+            | SearchResultKind::Calculator { .. }
             | SearchResultKind::App { .. }
             | SearchResultKind::Project { .. } => None,
         }
@@ -182,6 +196,10 @@ pub fn mixed_results(projects: &[Project], apps: &[DesktopApp], query: &str) -> 
         results.insert(0, calculation);
     }
 
+    if results.is_empty() {
+        results.push(no_results(query));
+    }
+
     results
 }
 
@@ -219,14 +237,34 @@ fn app_result(app: &DesktopApp) -> SearchResult {
 }
 
 fn calculator_result(calculation: calc::Calculation) -> SearchResult {
-    SearchResult {
-        title: calculation.result.clone(),
-        subtitle: format!("Calculate: {}", calculation.expression),
-        icon: SearchResultIcon::Calculator,
-        kind: SearchResultKind::Calculator {
-            expression: calculation.expression,
-            result: calculation.result,
+    match calculation {
+        calc::Calculation::Value { expression, result } => SearchResult {
+            title: result.clone(),
+            subtitle: format!("Calculate: {expression}"),
+            icon: SearchResultIcon::Calculator,
+            kind: SearchResultKind::Calculator { expression, result },
         },
+        calc::Calculation::Error {
+            expression,
+            message,
+        } => SearchResult {
+            title: message.clone(),
+            subtitle: format!("Calculate: {expression}"),
+            icon: SearchResultIcon::Calculator,
+            kind: SearchResultKind::CalculatorError {
+                expression,
+                message,
+            },
+        },
+    }
+}
+
+fn no_results(query: &str) -> SearchResult {
+    SearchResult {
+        title: "No results".to_owned(),
+        subtitle: format!("No apps, projects, or calculations match \"{query}\""),
+        icon: SearchResultIcon::Placeholder,
+        kind: SearchResultKind::Placeholder,
     }
 }
 
@@ -276,6 +314,7 @@ fn search_result_order(a: &SearchResult, b: &SearchResult) -> std::cmp::Ordering
 fn result_type_order(kind: &SearchResultKind) -> u8 {
     match kind {
         SearchResultKind::Calculator { .. } => 0,
+        SearchResultKind::CalculatorError { .. } => 0,
         SearchResultKind::App { .. } => 1,
         SearchResultKind::Project { .. } => 2,
         SearchResultKind::Placeholder => 3,
@@ -536,6 +575,45 @@ mod tests {
     }
 
     #[test]
+    fn mixed_results_show_superscript_exponent_calculator_results() {
+        let results = mixed_results(&[], &[], "10²");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "100");
+        assert_eq!(results[0].subtitle, "Calculate: 10²");
+        assert_eq!(results[0].calculator_result(), Some("100"));
+        assert_eq!(results[0].icon, SearchResultIcon::Calculator);
+    }
+
+    #[test]
+    fn mixed_results_show_calculator_error_rows() {
+        let apps = vec![DesktopApp {
+            id: "calculator.desktop".to_owned(),
+            name: "Calculator".to_owned(),
+            generic_name: Some("Calculator".to_owned()),
+            comment: Some("Perform arithmetic".to_owned()),
+            exec: "calculator".to_owned(),
+            icon: None,
+            icon_path: None,
+            command: CommandSpec {
+                program: "calculator".into(),
+                args: Vec::new(),
+            },
+            desktop_file: PathBuf::from("/tmp/calculator.desktop"),
+        }];
+
+        let results = mixed_results(&[], &apps, "10 / 0");
+
+        assert_eq!(results[0].title, "Division by zero is not possible.");
+        assert_eq!(results[0].subtitle, "Calculate: 10 / 0");
+        assert_eq!(
+            results[0].calculator_error_message(),
+            Some("Division by zero is not possible.")
+        );
+        assert_eq!(results[0].icon, SearchResultIcon::Calculator);
+    }
+
+    #[test]
     fn mixed_results_do_not_treat_normal_queries_as_calculator_expressions() {
         let apps = vec![DesktopApp {
             id: "calculator.desktop".to_owned(),
@@ -563,5 +641,23 @@ mod tests {
     #[test]
     fn mixed_results_use_placeholders_only_when_no_real_results_exist() {
         assert_eq!(mixed_results(&[], &[], "anything"), placeholder_results());
+    }
+
+    #[test]
+    fn mixed_results_show_no_results_message_for_unmatched_real_indexes() {
+        let projects = vec![Project {
+            name: "rayslash".to_owned(),
+            path: PathBuf::from("/tmp/rayslash"),
+        }];
+
+        let results = mixed_results(&projects, &[], "zzz");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "No results");
+        assert_eq!(
+            results[0].subtitle,
+            "No apps, projects, or calculations match \"zzz\""
+        );
+        assert_eq!(results[0].kind, SearchResultKind::Placeholder);
     }
 }

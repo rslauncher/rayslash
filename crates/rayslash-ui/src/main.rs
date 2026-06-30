@@ -12,6 +12,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::Instant,
 };
 
 use rayslash_core::{actions, apps, config, projects, search};
@@ -99,25 +100,60 @@ fn run_resident(socket_path: std::path::PathBuf, request: ipc::IpcRequest) -> Re
 }
 
 fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::PlatformError> {
+    let profile = profile_enabled();
+    let startup_started = Instant::now();
+
     slint::BackendSelector::new().select()?;
     slint::set_xdg_app_id(rayslash_core::APP_ID)?;
 
+    let stage_started = Instant::now();
     let ui = AppWindow::new()?;
+    profile_stage(profile, "ui construct", stage_started);
 
     let is_visible = Arc::new(AtomicBool::new(true));
 
+    let stage_started = Instant::now();
     let config = config::load_config().unwrap_or_else(|error| {
         eprintln!("{error}; using default config");
         config::Config::default()
     });
+    profile_stage(profile, "config load", stage_started);
+
+    let stage_started = Instant::now();
     let projects = Rc::new(projects::scan_project_roots(&config.project_roots));
+    profile_stage(
+        profile,
+        &format!("project scan ({} projects)", projects.len()),
+        stage_started,
+    );
+
+    let stage_started = Instant::now();
     let apps = Rc::new(apps::discover_desktop_apps());
+    profile_stage(
+        profile,
+        &format!("app discovery ({} apps)", apps.len()),
+        stage_started,
+    );
+
+    let stage_started = Instant::now();
     let current_results = Rc::new(RefCell::new(search::mixed_results(&projects, &apps, "")));
+    profile_stage(
+        profile,
+        &format!(
+            "initial search ({} results)",
+            current_results.borrow().len()
+        ),
+        stage_started,
+    );
+
     let icon_cache = Rc::new(RefCell::new(HashMap::new()));
+    let stage_started = Instant::now();
     let results_model = Rc::new(VecModel::from(to_result_items(
         &current_results.borrow(),
         &mut icon_cache.borrow_mut(),
     )));
+    profile_stage(profile, "initial result item build", stage_started);
+    profile_stage(profile, "startup before event loop", startup_started);
 
     ui.set_result_count(current_results.borrow().len() as i32);
     ui.set_results(results_model.clone().into());
@@ -131,6 +167,7 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
             if matches!(event, winit::event::WindowEvent::Focused(false))
                 && let Some(ui) = weak.upgrade()
             {
+                ui.set_control_held(false);
                 hide_launcher(&ui, is_visible.as_ref());
             }
 
@@ -180,11 +217,17 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
         move |query| {
+            let stage_started = Instant::now();
             let results = search::mixed_results(&projects, &apps, query.as_str());
             let count = results.len() as i32;
 
             results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
             *current_results.borrow_mut() = results;
+            profile_stage(
+                profile,
+                &format!("query {:?} ({} results)", query.as_str(), count),
+                stage_started,
+            );
 
             if let Some(ui) = weak.upgrade() {
                 ui.set_result_count(count);
@@ -211,6 +254,12 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
 
                         if let Some(ui) = weak.upgrade() {
                             ui.set_status_text(format!("Result: {}", calculator_result).into());
+                        }
+                    } else if let Some(calculator_error) = result.calculator_error_message() {
+                        println!("calculator error: {}", calculator_error);
+
+                        if let Some(ui) = weak.upgrade() {
+                            ui.set_status_text(calculator_error.into());
                         }
                     } else if let Some(path) = result.project_path() {
                         let display_path = search::display_path(path);
@@ -352,6 +401,7 @@ fn handle_ipc_request(ui: &AppWindow, is_visible: &AtomicBool, request: ipc::Ipc
 
 fn show_launcher(ui: &AppWindow, is_visible: &AtomicBool) {
     ui.invoke_reset_requested();
+    ui.set_control_held(false);
 
     match ui.show() {
         Ok(()) => {
@@ -363,6 +413,8 @@ fn show_launcher(ui: &AppWindow, is_visible: &AtomicBool) {
 }
 
 fn hide_launcher(ui: &AppWindow, is_visible: &AtomicBool) {
+    ui.set_control_held(false);
+
     if let Err(error) = ui.hide() {
         eprintln!("failed to hide rayslash window: {error}");
     } else {
@@ -378,6 +430,16 @@ fn should_start_resident_after_send_error(error: &io::Error) -> bool {
             | io::ErrorKind::ConnectionReset
             | io::ErrorKind::BrokenPipe
     )
+}
+
+fn profile_enabled() -> bool {
+    env::var_os("RAYSLASH_PROFILE").is_some_and(|value| value != "0")
+}
+
+fn profile_stage(enabled: bool, label: &str, started: Instant) {
+    if enabled {
+        eprintln!("[rayslash profile] {label}: {:.2?}", started.elapsed());
+    }
 }
 
 fn command_display(command: &actions::CommandSpec) -> String {
