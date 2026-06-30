@@ -4,6 +4,8 @@ export struct ResultItem {
 }
 
 component SearchBox inherits Rectangle {
+    in-out property <string> query-text;
+
     callback close-requested();
     callback select-previous();
     callback select-next();
@@ -44,6 +46,7 @@ component SearchBox inherits Rectangle {
         single-line: true;
         selection-background-color: #d4d4d4;
         selection-foreground-color: #181818;
+        text <=> root.query-text;
 
         edited => {
             root.query-changed(search-input.text);
@@ -82,10 +85,12 @@ export component AppWindow inherits Window {
     in property <[ResultItem]> results;
     in property <int> result-count;
     in-out property <int> selected-index: 0;
+    in-out property <string> query-text: "";
     in-out property <string> status-text: "Type to filter apps and projects. Enter launches. Ctrl+Enter opens projects in VS Code.";
     callback close-requested();
     callback query-changed(string);
     callback activate-selected-result(int, bool);
+    callback reset-requested();
 
     public function focus-search() {
         search.focus();
@@ -194,6 +199,8 @@ export component AppWindow inherits Window {
                     }
 
                     search := SearchBox {
+                        query-text <=> root.query-text;
+
                         close-requested => {
                             root.close-requested();
                         }
