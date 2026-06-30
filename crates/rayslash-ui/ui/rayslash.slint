@@ -7,7 +7,7 @@ component SearchBox inherits Rectangle {
     callback close-requested();
     callback select-previous();
     callback select-next();
-    callback activate-selected();
+    callback activate-selected(bool);
     callback query-changed(string);
 
     height: 62px;
@@ -65,8 +65,11 @@ component SearchBox inherits Rectangle {
             } else if (event.text == Key.DownArrow) {
                 root.select-next();
                 accept
+            } else if (event.text == Key.Return && event.modifiers.control) {
+                root.activate-selected(true);
+                accept
             } else if (event.text == Key.Return) {
-                root.activate-selected();
+                root.activate-selected(false);
                 accept
             } else {
                 reject
@@ -79,10 +82,10 @@ export component AppWindow inherits Window {
     in property <[ResultItem]> results;
     in property <int> result-count;
     in-out property <int> selected-index: 0;
-    in-out property <string> status-text: "Type to filter projects. Enter opens projects in VS Code.";
+    in-out property <string> status-text: "Type to filter projects. Enter opens folder. Ctrl+Enter opens in VS Code.";
     callback close-requested();
     callback query-changed(string);
-    callback activate-selected-result(int);
+    callback activate-selected-result(int, bool);
 
     public function focus-search() {
         search.focus();
@@ -100,9 +103,9 @@ export component AppWindow inherits Window {
         }
     }
 
-    function activate-selected() {
+    function activate-selected(open-in-vscode: bool) {
         if (root.result-count > 0) {
-            root.activate-selected-result(root.selected-index);
+            root.activate-selected-result(root.selected-index, open-in-vscode);
         }
     }
 
@@ -141,8 +144,11 @@ export component AppWindow inherits Window {
                 } else if (event.text == Key.DownArrow) {
                     root.select-next();
                     accept
+                } else if (event.text == Key.Return && event.modifiers.control) {
+                    root.activate-selected(true);
+                    accept
                 } else if (event.text == Key.Return) {
-                    root.activate-selected();
+                    root.activate-selected(false);
                     accept
                 } else {
                     reject
@@ -197,8 +203,8 @@ export component AppWindow inherits Window {
                         select-next => {
                             root.select-next();
                         }
-                        activate-selected => {
-                            root.activate-selected();
+                        activate-selected(open-in-vscode) => {
+                            root.activate-selected(open-in-vscode);
                         }
                         query-changed(query) => {
                             root.query-changed(query);

@@ -51,37 +51,70 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_activate_selected_result({
         let weak = ui.as_weak();
         let current_results = current_results.clone();
-        move |index| {
+        move |index, open_in_vscode| {
             let result = current_results.borrow().get(index as usize).cloned();
 
             match result {
                 Some(result) => {
                     if let Some(path) = result.project_path() {
-                        match actions::open_project_in_vscode(path) {
-                            Ok(_child) => {
-                                println!("Opening project in VS Code: {}", path.display());
+                        let display_path = search::display_path(path);
 
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(
-                                        format!("Opening {} in VS Code", result.title).into(),
+                        if open_in_vscode {
+                            match actions::open_project_in_vscode(path) {
+                                Ok(_child) => {
+                                    println!("Opening project in VS Code: {}", path.display());
+
+                                    if let Some(ui) = weak.upgrade() {
+                                        ui.set_status_text(
+                                            format!("Opening {} in VS Code", result.title).into(),
+                                        );
+                                        hide_launcher(&ui);
+                                    }
+                                }
+                                Err(error) => {
+                                    eprintln!(
+                                        "failed to open project in VS Code with `code {}`: {error}",
+                                        path.display()
                                     );
 
-                                    if let Err(error) = ui.hide() {
-                                        eprintln!("failed to hide rayslash window: {error}");
+                                    if let Some(ui) = weak.upgrade() {
+                                        ui.set_status_text(
+                                            format!(
+                                                "Could not open {} in VS Code. Is `code` on PATH?",
+                                                display_path
+                                            )
+                                            .into(),
+                                        );
                                     }
                                 }
                             }
-                            Err(error) => {
-                                eprintln!(
-                                    "failed to open project in VS Code with `code {}`: {error}",
-                                    path.display()
-                                );
+                        } else {
+                            match actions::open_project_folder(path) {
+                                Ok(_child) => {
+                                    println!("Opening project folder: {}", path.display());
 
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(
-                                        "Could not open VS Code. Is `code` installed and on PATH?"
-                                            .into(),
+                                    if let Some(ui) = weak.upgrade() {
+                                        ui.set_status_text(
+                                            format!("Opening folder {}", display_path).into(),
+                                        );
+                                        hide_launcher(&ui);
+                                    }
+                                }
+                                Err(error) => {
+                                    eprintln!(
+                                        "failed to open project folder with `xdg-open {}`: {error}",
+                                        path.display()
                                     );
+
+                                    if let Some(ui) = weak.upgrade() {
+                                        ui.set_status_text(
+                                            format!(
+                                                "Could not open folder {}. Is `xdg-open` on PATH?",
+                                                display_path
+                                            )
+                                            .into(),
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -103,6 +136,12 @@ fn main() -> Result<(), slint::PlatformError> {
     });
 
     ui.run()
+}
+
+fn hide_launcher(ui: &AppWindow) {
+    if let Err(error) = ui.hide() {
+        eprintln!("failed to hide rayslash window: {error}");
+    }
 }
 
 fn to_result_items(results: &[search::SearchResult]) -> Vec<ResultItem> {

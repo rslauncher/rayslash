@@ -93,13 +93,41 @@ pub fn project_results(projects: &[Project], query: &str) -> Vec<SearchResult> {
 }
 
 fn project_result(project: &Project) -> SearchResult {
+    let subtitle = dirs::home_dir()
+        .map(|home| display_path_for_home(&project.path, &home))
+        .unwrap_or_else(|| project.path.display().to_string());
+
+    project_result_with_subtitle(project, subtitle)
+}
+
+fn project_result_with_subtitle(project: &Project, subtitle: String) -> SearchResult {
     SearchResult {
         title: project.name.clone(),
-        subtitle: project.path.display().to_string(),
+        subtitle,
         kind: SearchResultKind::Project {
             path: project.path.clone(),
         },
     }
+}
+
+pub fn display_path(path: &Path) -> String {
+    dirs::home_dir()
+        .map(|home| display_path_for_home(path, &home))
+        .unwrap_or_else(|| path.display().to_string())
+}
+
+fn display_path_for_home(path: &Path, home: &Path) -> String {
+    if path == home {
+        return "~".to_owned();
+    }
+
+    path.strip_prefix(home)
+        .ok()
+        .and_then(|relative| {
+            let relative = relative.to_str()?;
+            Some(format!("~/{relative}"))
+        })
+        .unwrap_or_else(|| path.display().to_string())
 }
 
 fn project_order(a: &Project, b: &Project) -> std::cmp::Ordering {
@@ -199,5 +227,46 @@ mod tests {
         let results = project_results(&[], "anything");
 
         assert_eq!(results, placeholder_results());
+    }
+
+    #[test]
+    fn display_path_shortens_paths_under_home() {
+        let home = PathBuf::from("/home/example");
+        let path = home.join("Documents/Projects/rayslash");
+
+        assert_eq!(
+            display_path_for_home(&path, &home),
+            "~/Documents/Projects/rayslash"
+        );
+    }
+
+    #[test]
+    fn display_path_shortens_home_itself() {
+        let home = PathBuf::from("/home/example");
+
+        assert_eq!(display_path_for_home(&home, &home), "~");
+    }
+
+    #[test]
+    fn display_path_keeps_paths_outside_home_unchanged() {
+        let home = PathBuf::from("/home/example");
+        let path = PathBuf::from("/tmp/rayslash");
+
+        assert_eq!(display_path_for_home(&path, &home), "/tmp/rayslash");
+    }
+
+    #[test]
+    fn project_results_use_shortened_subtitle_without_changing_launch_path() {
+        let home = PathBuf::from("/home/example");
+        let path = home.join("Projects/rayslash");
+        let project = Project {
+            name: "rayslash".to_owned(),
+            path: path.clone(),
+        };
+
+        let result = project_result_with_subtitle(&project, display_path_for_home(&path, &home));
+
+        assert_eq!(result.subtitle, "~/Projects/rayslash");
+        assert_eq!(result.project_path(), Some(path.as_path()));
     }
 }
