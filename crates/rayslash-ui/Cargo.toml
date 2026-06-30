@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[[bin]]
+name = "rayslash"
+path = "src/main.rs"
+
 [dependencies]
 rayslash-core = { path = "../rayslash-core" }
 slint.workspace = true
