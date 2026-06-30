@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use rayslash_core::{config, projects, search};
+use rayslash_core::{actions, config, projects, search};
 use slint::VecModel;
 
 slint::include_modules!();
@@ -57,12 +57,29 @@ fn main() -> Result<(), slint::PlatformError> {
             match result {
                 Some(result) => {
                     if let Some(path) = result.project_path() {
-                        println!("Selected project: {}", path.display());
+                        match actions::open_project_in_vscode(path) {
+                            Ok(_child) => {
+                                println!("Opening project in VS Code: {}", path.display());
 
-                        if let Some(ui) = weak.upgrade() {
-                            ui.set_status_text(
-                                format!("Selected project: {}", path.display()).into(),
-                            );
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        format!("Opening {} in VS Code", result.title).into(),
+                                    );
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!(
+                                    "failed to open project in VS Code with `code {}`: {error}",
+                                    path.display()
+                                );
+
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        "Could not open VS Code. Is `code` installed and on PATH?"
+                                            .into(),
+                                    );
+                                }
+                            }
                         }
                     } else {
                         println!("placeholder activation: {}", result.title);
