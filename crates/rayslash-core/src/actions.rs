@@ -2,7 +2,7 @@ use std::{
     ffi::OsString,
     io,
     path::Path,
-    process::{Child, Command},
+    process::{Child, Command, Stdio},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,7 +45,12 @@ pub fn launch_app(command: &CommandSpec) -> io::Result<Child> {
 }
 
 fn spawn_command(command: &CommandSpec) -> io::Result<Child> {
-    Command::new(&command.program).args(&command.args).spawn()
+    Command::new(&command.program)
+        .args(&command.args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
 }
 
 #[cfg(test)]
@@ -71,5 +76,29 @@ mod tests {
 
         assert_eq!(command.program, OsString::from("code"));
         assert_eq!(command.args, vec![path.into_os_string()]);
+    }
+
+    #[test]
+    fn spawn_command_runs_child_with_detached_stdio() {
+        let test_binary = std::env::current_exe().expect("test binary path should be available");
+        let command = CommandSpec {
+            program: test_binary.into_os_string(),
+            args: vec![
+                OsString::from("--exact"),
+                OsString::from("actions::tests::stdio_probe_child"),
+                OsString::from("--nocapture"),
+            ],
+        };
+
+        let mut child = spawn_command(&command).expect("test child should spawn");
+        let status = child.wait().expect("test child should exit");
+
+        assert!(status.success());
+    }
+
+    #[test]
+    fn stdio_probe_child() {
+        println!("stdout from child should be discarded by spawn_command");
+        eprintln!("stderr from child should be discarded by spawn_command");
     }
 }
