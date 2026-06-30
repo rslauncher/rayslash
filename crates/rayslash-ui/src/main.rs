@@ -65,6 +65,10 @@ fn main() -> Result<(), slint::PlatformError> {
                                     ui.set_status_text(
                                         format!("Opening {} in VS Code", result.title).into(),
                                     );
+
+                                    if let Err(error) = ui.hide() {
+                                        eprintln!("failed to hide rayslash window: {error}");
+                                    }
                                 }
                             }
                             Err(error) => {
