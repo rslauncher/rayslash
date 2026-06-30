@@ -94,12 +94,93 @@ component SearchBox inherits Rectangle {
     }
 }
 
+component SettingToggle inherits Rectangle {
+    in property <string> label;
+    in property <string> description;
+    in-out property <bool> checked;
+
+    height: 52px;
+    border-radius: 8px;
+    background: toggle-touch.has-hover ? #242424 : #202020;
+    border-width: 1px;
+    border-color: #363636;
+
+    animate background { duration: 90ms; }
+    animate border-color { duration: 90ms; }
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 12px;
+
+        Rectangle {
+            width: 30px;
+            height: 18px;
+            border-radius: 9px;
+            background: root.checked ? #d6d6d6 : #303030;
+            border-width: 1px;
+            border-color: root.checked ? #eeeeee : #666666;
+
+            Rectangle {
+                x: root.checked ? 14px : 2px;
+                y: 2px;
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: root.checked ? #181818 : #b8b8b8;
+            }
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+
+            Text {
+                text: root.label;
+                color: #eeeeee;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            Text {
+                text: root.description;
+                color: #9a9a9a;
+                font-size: 10px;
+                overflow: elide;
+            }
+        }
+    }
+
+    toggle-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+        }
+    }
+}
+
 export component AppWindow inherits Window {
     in property <[ResultItem]> results;
     in property <int> result-count;
     in-out property <int> selected-index: -1;
     in-out property <string> query-text: "";
     in-out property <string> status-text: "";
+    in-out property <bool> settings-open: false;
+    in-out property <string> settings-folder-sources: "";
+    in-out property <string> settings-alternate-folder-opener-command: "code";
+    in-out property <bool> settings-provider-apps: true;
+    in-out property <bool> settings-provider-folders: true;
+    in-out property <bool> settings-provider-calculator: true;
+    in-out property <bool> settings-alternate-folder-opener-enabled: true;
+    in-out property <string> settings-max-results: "50";
+    in-out property <string> settings-config-path: "";
+    in-out property <string> settings-state-path: "";
+    in-out property <string> settings-socket-path: "";
+    in-out property <string> settings-project-count: "0";
+    in-out property <string> settings-app-count: "0";
+    in-out property <bool> alternate-folder-opener-enabled: true;
+    in property <string> project-editor-label: "VS";
     private property <length> result-row-height: 64px;
     private property <length> result-row-gap: 8px;
     private property <length> result-row-stride: root.result-row-height + root.result-row-gap;
@@ -109,6 +190,10 @@ export component AppWindow inherits Window {
     callback query-changed(string);
     callback activate-selected-result(int, bool);
     callback reset-requested();
+    callback settings-requested();
+    callback settings-cancel-requested();
+    callback settings-browse-folder-requested(string);
+    callback settings-save-requested(string, string, bool, bool, bool, bool, string);
 
     public function focus-search() {
         search.focus();
@@ -159,9 +244,9 @@ export component AppWindow inherits Window {
     title: "rayslash";
     icon: @image-url("../../../icons/rayslash-icon.svg");
     preferred-width: 660px;
-    preferred-height: 400px;
+    preferred-height: 440px;
     min-width: 520px;
-    min-height: 360px;
+    min-height: 400px;
     no-frame: true;
     resize-border-width: 0px;
     background: transparent;
@@ -258,16 +343,83 @@ export component AppWindow inherits Window {
                             }
                         }
 
-                        Text {
-                            text: "preview";
-                            color: #b8b8b8;
-                            font-size: 12px;
-                            font-weight: 600;
-                            vertical-alignment: center;
+                        Rectangle {
+                            width: 34px;
+                            height: 34px;
+                            background: transparent;
+                            opacity: settings-button-touch.pressed ? 1 : settings-button-touch.has-hover || root.settings-open ? 1 : 0.72;
+                            property <brush> gear-color: settings-button-touch.pressed ? #ffffff : settings-button-touch.has-hover || root.settings-open ? #f2f2f2 : #b8b8b8;
+
+                            animate opacity { duration: 90ms; }
+
+                            Rectangle {
+                                x: 15px;
+                                y: 5px;
+                                width: 4px;
+                                height: 24px;
+                                border-radius: 2px;
+                                background: parent.gear-color;
+                            }
+
+                            Rectangle {
+                                x: 5px;
+                                y: 15px;
+                                width: 24px;
+                                height: 4px;
+                                border-radius: 2px;
+                                background: parent.gear-color;
+                            }
+
+                            Rectangle {
+                                x: 11px;
+                                y: 7px;
+                                width: 12px;
+                                height: 4px;
+                                border-radius: 2px;
+                                background: parent.gear-color;
+                            }
+
+                            Rectangle {
+                                x: 11px;
+                                y: 23px;
+                                width: 12px;
+                                height: 4px;
+                                border-radius: 2px;
+                                background: parent.gear-color;
+                            }
+
+                            Rectangle {
+                                x: 9px;
+                                y: 9px;
+                                width: 16px;
+                                height: 16px;
+                                border-radius: 8px;
+                                background: #181818;
+                                border-width: 3px;
+                                border-color: parent.gear-color;
+                            }
+
+                            Rectangle {
+                                x: 14px;
+                                y: 14px;
+                                width: 6px;
+                                height: 6px;
+                                border-radius: 3px;
+                                background: parent.gear-color;
+                            }
+
+                            settings-button-touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => {
+                                    root.settings-requested();
+                                }
+                            }
                         }
                     }
 
                     search := SearchBox {
+                        height: root.settings-open ? 0px : 62px;
+                        visible: !root.settings-open;
                         query-text <=> root.query-text;
 
                         close-requested => {
@@ -290,7 +442,7 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    if root.status-text != "": Text {
+                    if !root.settings-open && root.status-text != "": Text {
                         height: 16px;
                         text: root.status-text;
                         color: #b8b8b8;
@@ -299,7 +451,7 @@ export component AppWindow inherits Window {
                         vertical-alignment: center;
                     }
 
-                    if root.status-text == "": HorizontalLayout {
+                    if !root.settings-open && root.status-text == "": HorizontalLayout {
                         height: 16px;
                         spacing: 4px;
 
@@ -320,7 +472,7 @@ export component AppWindow inherits Window {
                             vertical-alignment: center;
                         }
 
-                        Text {
+                        if root.alternate-folder-opener-enabled: Text {
                             text: "  Ctrl+Enter";
                             color: #dedede;
                             font-size: 11px;
@@ -329,8 +481,8 @@ export component AppWindow inherits Window {
                             vertical-alignment: center;
                         }
 
-                        Text {
-                            text: ": VS Code projects";
+                        if root.alternate-folder-opener-enabled: Text {
+                            text: ": alt-open folders";
                             color: #9a9a9a;
                             font-size: 11px;
                             horizontal-stretch: 0;
@@ -360,11 +512,356 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    results-scroll := Flickable {
+                    if root.settings-open: settings-scroll := Flickable {
                         vertical-stretch: 1;
                         viewport-width: self.width;
-                        viewport-height: root.result-count <= 0 ? 0px : root.result-count * root.result-row-stride - root.result-row-gap;
+                        viewport-height: 540px;
                         interactive: true;
+
+                        VerticalLayout {
+                            width: settings-scroll.width;
+                            spacing: 9px;
+
+                            Text {
+                                text: "Settings";
+                                color: #f2f2f2;
+                                font-size: 18px;
+                                font-weight: 700;
+                            }
+
+                            Text {
+                                text: "Folder source";
+                                color: #d8d8d8;
+                                font-size: 12px;
+                                font-weight: 700;
+                            }
+
+                            HorizontalLayout {
+                                height: 42px;
+                                spacing: 8px;
+
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    border-radius: 8px;
+                                    background: #202020;
+                                    border-width: 1px;
+                                    border-color: settings-sources-input.has-focus ? #777777 : #363636;
+
+                                    settings-sources-input := TextInput {
+                                        x: 12px;
+                                        y: 0px;
+                                        width: parent.width - 24px;
+                                        height: parent.height;
+                                        text: root.settings-folder-sources;
+                                        color: #eeeeee;
+                                        font-size: 13px;
+                                        single-line: true;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: 42px;
+                                    border-radius: 8px;
+                                    background: browse-touch.pressed ? #333333 : browse-touch.has-hover ? #292929 : #202020;
+                                    border-width: 1px;
+                                    border-color: #3a3a3a;
+
+                                    Rectangle {
+                                        x: 9px;
+                                        y: 18px;
+                                        width: 24px;
+                                        height: 14px;
+                                        border-radius: 3px;
+                                        background: #d0d0d0;
+                                    }
+
+                                    Rectangle {
+                                        x: 10px;
+                                        y: 13px;
+                                        width: 12px;
+                                        height: 7px;
+                                        border-radius: 2px;
+                                        background: #d0d0d0;
+                                    }
+
+                                    browse-touch := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.settings-browse-folder-requested(settings-sources-input.text);
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: "Immediate child folders become folder results; separate multiple sources with semicolons";
+                                color: #9a9a9a;
+                                font-size: 11px;
+                            }
+
+                            Text {
+                                text: "Alternate folder opener";
+                                color: #d8d8d8;
+                                font-size: 12px;
+                                font-weight: 700;
+                            }
+
+                        Rectangle {
+                            height: 42px;
+                            border-radius: 8px;
+                            background: #202020;
+                            border-width: 1px;
+                            border-color: settings-editor-input.has-focus ? #777777 : #363636;
+
+                            settings-editor-input := TextInput {
+                                x: 12px;
+                                y: 0px;
+                                width: parent.width - 24px;
+                                height: parent.height;
+                                text: root.settings-alternate-folder-opener-command;
+                                color: #eeeeee;
+                                font-size: 13px;
+                                single-line: true;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Text {
+                            text: "Used with Ctrl+Enter or Ctrl+click instead of the system file manager";
+                            color: #9a9a9a;
+                            font-size: 11px;
+                        }
+
+                        Text {
+                            text: "Search features";
+                            color: #d8d8d8;
+                            font-size: 12px;
+                            font-weight: 700;
+                        }
+
+                        HorizontalLayout {
+                            height: 52px;
+                            spacing: 8px;
+
+                            SettingToggle {
+                                label: "Apps";
+                                description: "Desktop applications";
+                                checked <=> root.settings-provider-apps;
+                            }
+
+                            SettingToggle {
+                                label: "Folders";
+                                description: "Folder source results";
+                                checked <=> root.settings-provider-folders;
+                            }
+
+                            SettingToggle {
+                                label: "Calculator";
+                                description: "Local math results";
+                                checked <=> root.settings-provider-calculator;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            height: 42px;
+                            spacing: 8px;
+
+                            VerticalLayout {
+                                spacing: 4px;
+
+                                Text {
+                                    text: "Max results";
+                                    color: #d8d8d8;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                }
+
+                                Rectangle {
+                                    height: 26px;
+                                    border-radius: 7px;
+                                    background: #202020;
+                                    border-width: 1px;
+                                    border-color: settings-max-results-input.has-focus ? #777777 : #363636;
+
+                                    settings-max-results-input := TextInput {
+                                        x: 10px;
+                                        y: 0px;
+                                        width: parent.width - 20px;
+                                        height: parent.height;
+                                        text: root.settings-max-results;
+                                        color: #eeeeee;
+                                        font-size: 12px;
+                                        single-line: true;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+
+                            SettingToggle {
+                                label: "Alt opener";
+                                description: "Ctrl+Enter folders";
+                                checked <=> root.settings-alternate-folder-opener-enabled;
+                            }
+                        }
+
+                        Rectangle {
+                            height: 8px;
+                            background: transparent;
+                        }
+
+                        HorizontalLayout {
+                            height: 54px;
+                            spacing: 12px;
+
+                            VerticalLayout {
+                                spacing: 2px;
+
+                                Text {
+                                    text: "Config location";
+                                    color: #d8d8d8;
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                }
+
+                                Text {
+                                    text: root.settings-config-path;
+                                    color: #9a9a9a;
+                                    font-size: 10px;
+                                    overflow: elide;
+                                }
+                            }
+
+                            VerticalLayout {
+                                spacing: 2px;
+
+                                Text {
+                                    text: "State location";
+                                    color: #d8d8d8;
+                                    font-size: 11px;
+                                    font-weight: 700;
+                                }
+
+                                Text {
+                                    text: root.settings-state-path;
+                                    color: #9a9a9a;
+                                    font-size: 10px;
+                                    overflow: elide;
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            height: 18px;
+                            spacing: 14px;
+
+                            Text {
+                                text: "Folders: " + root.settings-project-count;
+                                color: #b8b8b8;
+                                font-size: 11px;
+                                horizontal-stretch: 0;
+                            }
+
+                            Text {
+                                text: "Apps: " + root.settings-app-count;
+                                color: #b8b8b8;
+                                font-size: 11px;
+                                horizontal-stretch: 0;
+                            }
+
+                            Text {
+                                text: "Socket: " + root.settings-socket-path;
+                                color: #8f8f8f;
+                                font-size: 10px;
+                                overflow: elide;
+                            }
+                        }
+
+                        Rectangle {
+                            vertical-stretch: 1;
+                            background: transparent;
+                        }
+
+                        HorizontalLayout {
+                            height: 34px;
+                            spacing: 10px;
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                                background: transparent;
+                            }
+
+                            Rectangle {
+                                width: 82px;
+                                height: 32px;
+                                border-radius: 8px;
+                                background: cancel-touch.pressed ? #333333 : cancel-touch.has-hover ? #292929 : #202020;
+                                border-width: 1px;
+                                border-color: #3a3a3a;
+
+                                Text {
+                                    width: 100%;
+                                    height: 100%;
+                                    text: "Cancel";
+                                    color: #dddddd;
+                                    font-size: 12px;
+                                    font-weight: 700;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                cancel-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.settings-cancel-requested();
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                width: 82px;
+                                height: 32px;
+                                border-radius: 8px;
+                                background: save-touch.pressed ? #f0f0f0 : save-touch.has-hover ? #e2e2e2 : #d6d6d6;
+                                border-width: 1px;
+                                border-color: #f4f4f4;
+
+                                Text {
+                                    width: 100%;
+                                    height: 100%;
+                                    text: "Save";
+                                    color: #181818;
+                                    font-size: 12px;
+                                    font-weight: 800;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+
+                                save-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.settings-save-requested(
+                                            settings-sources-input.text,
+                                            settings-editor-input.text,
+                                            root.settings-provider-apps,
+                                            root.settings-provider-folders,
+                                            root.settings-provider-calculator,
+                                            root.settings-alternate-folder-opener-enabled,
+                                            settings-max-results-input.text
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    }
+
+                    results-scroll := Flickable {
+                        height: root.settings-open ? 0px : self.preferred-height;
+                        vertical-stretch: root.settings-open ? 0 : 1;
+                        viewport-width: self.width;
+                        viewport-height: root.settings-open || root.result-count <= 0 ? 0px : root.result-count * root.result-row-stride - root.result-row-gap;
+                        interactive: !root.settings-open;
 
                         VerticalLayout {
                             width: results-scroll.width;
@@ -457,7 +954,7 @@ export component AppWindow inherits Window {
                                                 y: 0px;
                                                 width: 100%;
                                                 height: 100%;
-                                                text: "VS";
+                                                text: root.project-editor-label;
                                                 color: #ffffff;
                                                 font-size: 14px;
                                                 font-weight: 800;

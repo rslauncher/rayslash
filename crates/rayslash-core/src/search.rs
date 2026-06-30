@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use crate::actions::CommandSpec;
 use crate::apps::DesktopApp;
 use crate::calc;
+use crate::config::ProviderConfig;
 use crate::projects::Project;
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
@@ -153,20 +154,39 @@ pub fn project_results(projects: &[Project], query: &str) -> Vec<SearchResult> {
 }
 
 pub fn mixed_results(projects: &[Project], apps: &[DesktopApp], query: &str) -> Vec<SearchResult> {
-    let query = query.trim();
-    let calculation = calc::calculate(query).map(calculator_result);
+    mixed_results_with_providers(projects, apps, query, &ProviderConfig::default())
+}
 
-    if projects.is_empty() && apps.is_empty() {
+pub fn mixed_results_with_providers(
+    projects: &[Project],
+    apps: &[DesktopApp],
+    query: &str,
+    providers: &ProviderConfig,
+) -> Vec<SearchResult> {
+    let query = query.trim();
+    let calculation = providers
+        .calculator
+        .then(|| calc::calculate(query).map(calculator_result))
+        .flatten();
+
+    if !providers.apps && !providers.folders && !providers.calculator {
+        return vec![disabled_providers_result()];
+    }
+
+    let enabled_projects = providers.folders.then_some(projects).unwrap_or(&[]);
+    let enabled_apps = providers.apps.then_some(apps).unwrap_or(&[]);
+
+    if enabled_projects.is_empty() && enabled_apps.is_empty() {
         return calculation
             .map(|result| vec![result])
             .unwrap_or_else(placeholder_results);
     }
 
     if query.is_empty() {
-        let mut results = projects
+        let mut results = enabled_projects
             .iter()
             .map(project_result)
-            .chain(apps.iter().map(app_result))
+            .chain(enabled_apps.iter().map(app_result))
             .collect::<Vec<_>>();
         results.sort_by(search_result_order);
         return results;
@@ -178,14 +198,14 @@ pub fn mixed_results(projects: &[Project], apps: &[DesktopApp], query: &str) -> 
 
     let mut matches = Vec::new();
 
-    for project in projects {
+    for project in enabled_projects {
         let haystack = Utf32Str::new(&project.name, &mut char_buf);
         if let Some(score) = pattern.score(haystack, &mut matcher) {
             matches.push((project_result(project), score));
         }
     }
 
-    for app in apps {
+    for app in enabled_apps {
         let haystack = Utf32Str::new(&app.name, &mut char_buf);
         if let Some(score) = pattern.score(haystack, &mut matcher) {
             matches.push((app_result(app), score));
@@ -276,6 +296,15 @@ fn no_results(query: &str) -> SearchResult {
         kind: SearchResultKind::NoResults {
             query: query.to_owned(),
         },
+    }
+}
+
+fn disabled_providers_result() -> SearchResult {
+    SearchResult {
+        title: "No providers enabled".to_owned(),
+        subtitle: "Enable Apps, Folders, or Calculator in Settings".to_owned(),
+        icon: SearchResultIcon::Placeholder,
+        kind: SearchResultKind::Placeholder,
     }
 }
 
@@ -583,6 +612,70 @@ mod tests {
         assert_eq!(results[0].subtitle, "Calculate: 2 + 2");
         assert_eq!(results[0].calculator_result(), Some("4"));
         assert_eq!(results[0].icon, SearchResultIcon::Calculator);
+    }
+
+    #[test]
+    fn mixed_results_respect_disabled_provider_settings() {
+        let projects = vec![Project {
+            name: "rayslash".to_owned(),
+            path: PathBuf::from("/tmp/rayslash"),
+        }];
+        let apps = vec![DesktopApp {
+            id: "rayslash.desktop".to_owned(),
+            name: "Rayslash".to_owned(),
+            generic_name: None,
+            comment: None,
+            exec: "rayslash".to_owned(),
+            icon: None,
+            icon_path: None,
+            command: CommandSpec {
+                program: "rayslash".into(),
+                args: Vec::new(),
+            },
+            desktop_file: PathBuf::from("/tmp/rayslash.desktop"),
+        }];
+        let providers = ProviderConfig {
+            apps: false,
+            folders: true,
+            calculator: false,
+        };
+
+        let results = mixed_results_with_providers(&projects, &apps, "ray", &providers);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "rayslash");
+        assert!(results[0].project_path().is_some());
+    }
+
+    #[test]
+    fn mixed_results_hide_calculator_rows_when_calculator_provider_is_disabled() {
+        let providers = ProviderConfig {
+            apps: true,
+            folders: true,
+            calculator: false,
+        };
+
+        let results = mixed_results_with_providers(&[], &[], "2 + 2", &providers);
+
+        assert_eq!(results, placeholder_results());
+    }
+
+    #[test]
+    fn mixed_results_show_disabled_provider_row_when_all_providers_are_off() {
+        let providers = ProviderConfig {
+            apps: false,
+            folders: false,
+            calculator: false,
+        };
+
+        let results = mixed_results_with_providers(&[], &[], "2 + 2", &providers);
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "No providers enabled");
+        assert_eq!(
+            results[0].subtitle,
+            "Enable Apps, Folders, or Calculator in Settings"
+        );
     }
 
     #[test]

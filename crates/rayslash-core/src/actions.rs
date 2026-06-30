@@ -29,14 +29,22 @@ pub fn open_project_folder(path: &Path) -> io::Result<Child> {
 }
 
 pub fn open_project_in_vscode_command(path: &Path) -> CommandSpec {
+    open_project_in_editor_command(path, "code")
+}
+
+pub fn open_project_in_editor_command(path: &Path, editor_command: &str) -> CommandSpec {
     CommandSpec {
-        program: OsString::from("code"),
+        program: OsString::from(editor_command.trim()),
         args: vec![path.as_os_str().to_owned()],
     }
 }
 
 pub fn open_project_in_vscode(path: &Path) -> io::Result<Child> {
-    let command = open_project_in_vscode_command(path);
+    open_project_in_editor(path, "code")
+}
+
+pub fn open_project_in_editor(path: &Path, editor_command: &str) -> io::Result<Child> {
+    let command = open_project_in_editor_command(path, editor_command);
     spawn_command(&command)
 }
 
@@ -75,6 +83,16 @@ mod tests {
         let command = open_project_in_vscode_command(&path);
 
         assert_eq!(command.program, OsString::from("code"));
+        assert_eq!(command.args, vec![path.into_os_string()]);
+    }
+
+    #[test]
+    fn open_project_in_editor_command_uses_configured_editor_with_project_path_argument() {
+        let path = PathBuf::from("/tmp/rayslash");
+
+        let command = open_project_in_editor_command(&path, "codium");
+
+        assert_eq!(command.program, OsString::from("codium"));
         assert_eq!(command.args, vec![path.into_os_string()]);
     }
 

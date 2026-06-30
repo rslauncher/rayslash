@@ -2,7 +2,7 @@ mod cli;
 mod ipc;
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::HashMap,
     env, io,
     path::PathBuf,
@@ -86,7 +86,7 @@ fn run_resident(socket_path: std::path::PathBuf, request: ipc::IpcRequest) -> Re
         }
     };
 
-    let result = run_gui(listener);
+    let result = run_gui(listener, socket_path.clone());
     if let Err(error) = std::fs::remove_file(&socket_path)
         && error.kind() != io::ErrorKind::NotFound
     {
@@ -99,7 +99,10 @@ fn run_resident(socket_path: std::path::PathBuf, request: ipc::IpcRequest) -> Re
     result.map_err(|error| format!("failed to run rayslash UI: {error}"))
 }
 
-fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::PlatformError> {
+fn run_gui(
+    listener: std::os::unix::net::UnixListener,
+    socket_path: PathBuf,
+) -> Result<(), slint::PlatformError> {
     let profile = profile_enabled();
     let startup_started = Instant::now();
 
@@ -111,19 +114,23 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
     profile_stage(profile, "ui construct", stage_started);
 
     let is_visible = Arc::new(AtomicBool::new(true));
+    let suppress_next_focus_hide = Rc::new(Cell::new(false));
 
     let stage_started = Instant::now();
     let config = config::load_config().unwrap_or_else(|error| {
         eprintln!("{error}; using default config");
         config::Config::default()
     });
+    let config_state = Rc::new(RefCell::new(config));
     profile_stage(profile, "config load", stage_started);
 
     let stage_started = Instant::now();
-    let projects = Rc::new(projects::scan_project_roots(&config.project_roots));
+    let projects = Rc::new(RefCell::new(projects::scan_project_roots(
+        &config_state.borrow().folder_sources,
+    )));
     profile_stage(
         profile,
-        &format!("project scan ({} projects)", projects.len()),
+        &format!("project scan ({} projects)", projects.borrow().len()),
         stage_started,
     );
 
@@ -136,7 +143,12 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
     );
 
     let stage_started = Instant::now();
-    let current_results = Rc::new(RefCell::new(search::mixed_results(&projects, &apps, "")));
+    let current_results = Rc::new(RefCell::new(search_results(
+        &config_state.borrow(),
+        &projects.borrow(),
+        &apps,
+        "",
+    )));
     profile_stage(
         profile,
         &format!(
@@ -158,15 +170,42 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
     ui.set_result_count(current_results.borrow().len() as i32);
     ui.set_results(results_model.clone().into());
     ui.set_selected_index(-1);
+    ui.set_project_editor_label(
+        editor_label(
+            &config_state
+                .borrow()
+                .actions
+                .alternate_folder_opener_command,
+        )
+        .into(),
+    );
+    ui.set_alternate_folder_opener_enabled(
+        config_state
+            .borrow()
+            .actions
+            .alternate_folder_opener_enabled,
+    );
+    set_settings_properties(
+        &ui,
+        &config_state.borrow(),
+        &socket_path,
+        projects.borrow().len(),
+        apps.len(),
+    );
     ui.invoke_focus_search();
 
     ui.window().on_winit_window_event({
         let weak = ui.as_weak();
         let is_visible = is_visible.clone();
+        let suppress_next_focus_hide = suppress_next_focus_hide.clone();
         move |_, event| {
             if matches!(event, winit::event::WindowEvent::Focused(false))
                 && let Some(ui) = weak.upgrade()
             {
+                if suppress_next_focus_hide.replace(false) {
+                    return EventResult::Propagate;
+                }
+
                 ui.set_control_held(false);
                 hide_launcher(&ui, is_visible.as_ref());
             }
@@ -179,11 +218,12 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
         let weak = ui.as_weak();
         let projects = projects.clone();
         let apps = apps.clone();
+        let config_state = config_state.clone();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
         move || {
-            let results = search::mixed_results(&projects, &apps, "");
+            let results = search_results(&config_state.borrow(), &projects.borrow(), &apps, "");
             let count = results.len() as i32;
 
             results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
@@ -194,6 +234,7 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
                 ui.set_result_count(count);
                 ui.set_selected_index(-1);
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+                ui.set_settings_open(false);
                 ui.invoke_reset_result_scroll();
             }
         }
@@ -213,12 +254,18 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
         let weak = ui.as_weak();
         let projects = projects.clone();
         let apps = apps.clone();
+        let config_state = config_state.clone();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
         move |query| {
             let stage_started = Instant::now();
-            let results = search::mixed_results(&projects, &apps, query.as_str());
+            let results = search_results(
+                &config_state.borrow(),
+                &projects.borrow(),
+                &apps,
+                query.as_str(),
+            );
             let count = results.len() as i32;
 
             results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
@@ -241,6 +288,7 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
     ui.on_activate_selected_result({
         let weak = ui.as_weak();
         let current_results = current_results.clone();
+        let config_state = config_state.clone();
         let is_visible = is_visible.clone();
         move |index, open_in_vscode| {
             let result = usize::try_from(index)
@@ -287,29 +335,48 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
                     } else if let Some(path) = result.project_path() {
                         let display_path = search::display_path(path);
 
-                        if open_in_vscode {
-                            match actions::open_project_in_vscode(path) {
+                        if open_in_vscode
+                            && config_state
+                                .borrow()
+                                .actions
+                                .alternate_folder_opener_enabled
+                        {
+                            let editor_command = config_state
+                                .borrow()
+                                .actions
+                                .alternate_folder_opener_command
+                                .clone();
+                            match actions::open_project_in_editor(path, &editor_command) {
                                 Ok(_child) => {
-                                    println!("Opening project in VS Code: {}", path.display());
-
-                                    if let Some(ui) = weak.upgrade() {
-                                        ui.set_status_text(
-                                            format!("Opening {} in VS Code", result.title).into(),
-                                        );
-                                        hide_launcher(&ui, is_visible.as_ref());
-                                    }
-                                }
-                                Err(error) => {
-                                    eprintln!(
-                                        "failed to open project in VS Code with `code {}`: {error}",
+                                    println!(
+                                        "Opening project with {}: {}",
+                                        editor_command,
                                         path.display()
                                     );
 
                                     if let Some(ui) = weak.upgrade() {
                                         ui.set_status_text(
                                             format!(
-                                                "Could not open {} in VS Code. Is `code` on PATH?",
-                                                display_path
+                                                "Opening {} with {}",
+                                                result.title, editor_command
+                                            )
+                                            .into(),
+                                        );
+                                        hide_launcher(&ui, is_visible.as_ref());
+                                    }
+                                }
+                                Err(error) => {
+                                    eprintln!(
+                                        "failed to open project with `{} {}`: {error}",
+                                        editor_command,
+                                        path.display()
+                                    );
+
+                                    if let Some(ui) = weak.upgrade() {
+                                        ui.set_status_text(
+                                            format!(
+                                                "Could not open {}. Is `{}` on PATH?",
+                                                display_path, editor_command
                                             )
                                             .into(),
                                         );
@@ -398,6 +465,180 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
         }
     });
 
+    ui.on_settings_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let socket_path = socket_path.clone();
+        move || {
+            if let Some(ui) = weak.upgrade() {
+                if ui.get_settings_open() {
+                    ui.set_settings_open(false);
+                    ui.invoke_focus_search();
+                    return;
+                }
+
+                set_settings_properties(
+                    &ui,
+                    &config_state.borrow(),
+                    &socket_path,
+                    projects.borrow().len(),
+                    apps.len(),
+                );
+                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+                ui.set_settings_open(true);
+            }
+        }
+    });
+
+    ui.on_settings_cancel_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let socket_path = socket_path.clone();
+        move || {
+            if let Some(ui) = weak.upgrade() {
+                set_settings_properties(
+                    &ui,
+                    &config_state.borrow(),
+                    &socket_path,
+                    projects.borrow().len(),
+                    apps.len(),
+                );
+                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+                ui.set_settings_open(false);
+                ui.invoke_focus_search();
+            }
+        }
+    });
+
+    ui.on_settings_save_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let current_results = current_results.clone();
+        let results_model = results_model.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
+        move |folder_sources_text,
+              editor_command,
+              apps_enabled,
+              folders_enabled,
+              calculator_enabled,
+              alternate_folder_opener_enabled,
+              max_results_text| {
+            let editor_command = editor_command.trim();
+            if alternate_folder_opener_enabled && editor_command.is_empty() {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_status_text("Alternate folder opener cannot be empty.".into());
+                }
+                return;
+            }
+
+            let Some(max_results) = parse_max_results(max_results_text.as_str()) else {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_status_text("Max results must be a positive number.".into());
+                }
+                return;
+            };
+
+            let config_to_save = config::Config {
+                folder_sources: parse_folder_sources_text(folder_sources_text.as_str()),
+                providers: config::ProviderConfig {
+                    apps: apps_enabled,
+                    folders: folders_enabled,
+                    calculator: calculator_enabled,
+                },
+                actions: config::ActionConfig {
+                    alternate_folder_opener_enabled,
+                    alternate_folder_opener_command: editor_command.to_owned(),
+                },
+                appearance: config::AppearanceConfig { max_results },
+            };
+
+            if let Err(error) = config::save_config(&config_to_save) {
+                eprintln!("{error}");
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_status_text(format!("Could not save settings: {error}").into());
+                }
+                return;
+            }
+
+            let runtime_config = config_to_save.normalized();
+            *config_state.borrow_mut() = runtime_config;
+            let updated_projects =
+                projects::scan_project_roots(&config_state.borrow().folder_sources);
+            *projects.borrow_mut() = updated_projects;
+
+            if let Some(ui) = weak.upgrade() {
+                let query = ui.get_query_text();
+                let results = search_results(
+                    &config_state.borrow(),
+                    &projects.borrow(),
+                    &apps,
+                    query.as_str(),
+                );
+                let count = results.len() as i32;
+
+                results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
+                *current_results.borrow_mut() = results;
+
+                ui.set_result_count(count);
+                ui.set_selected_index(selected_index_for_query(query.as_str(), count));
+                ui.set_project_editor_label(
+                    editor_label(
+                        &config_state
+                            .borrow()
+                            .actions
+                            .alternate_folder_opener_command,
+                    )
+                    .into(),
+                );
+                ui.set_alternate_folder_opener_enabled(
+                    config_state
+                        .borrow()
+                        .actions
+                        .alternate_folder_opener_enabled,
+                );
+                set_settings_properties(
+                    &ui,
+                    &config_state.borrow(),
+                    &socket_path,
+                    projects.borrow().len(),
+                    apps.len(),
+                );
+                ui.set_settings_open(false);
+                ui.set_status_text("Settings saved.".into());
+                ui.invoke_reset_result_scroll();
+                ui.invoke_focus_search();
+            }
+        }
+    });
+
+    ui.on_settings_browse_folder_requested({
+        let weak = ui.as_weak();
+        let suppress_next_focus_hide = suppress_next_focus_hide.clone();
+        move |current_sources| {
+            suppress_next_focus_hide.set(true);
+            let initial_dir = first_existing_folder_source(current_sources.as_str())
+                .or_else(dirs::home_dir)
+                .unwrap_or_else(|| PathBuf::from("/"));
+            let selected = rfd::FileDialog::new()
+                .set_title("Choose folder source")
+                .set_directory(initial_dir)
+                .pick_folder();
+
+            if let (Some(ui), Some(folder)) = (weak.upgrade(), selected) {
+                ui.set_settings_folder_sources(search::display_path(&folder).into());
+                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+                ui.set_settings_open(true);
+            }
+        }
+    });
+
     let weak = ui.as_weak();
     let ipc_visibility = is_visible.clone();
     ipc::start_server(listener, move |request| {
@@ -463,6 +704,115 @@ fn profile_stage(enabled: bool, label: &str, started: Instant) {
     if enabled {
         eprintln!("[rayslash profile] {label}: {:.2?}", started.elapsed());
     }
+}
+
+fn search_results(
+    config: &config::Config,
+    projects: &[projects::Project],
+    apps: &[apps::DesktopApp],
+    query: &str,
+) -> Vec<search::SearchResult> {
+    let mut results =
+        search::mixed_results_with_providers(projects, apps, query, &config.providers);
+    results.truncate(config.appearance.max_results);
+    results
+}
+
+fn set_settings_properties(
+    ui: &AppWindow,
+    config: &config::Config,
+    socket_path: &std::path::Path,
+    project_count: usize,
+    app_count: usize,
+) {
+    ui.set_settings_folder_sources(folder_sources_text(&config.folder_sources).into());
+    ui.set_settings_alternate_folder_opener_command(
+        config
+            .actions
+            .alternate_folder_opener_command
+            .clone()
+            .into(),
+    );
+    ui.set_settings_provider_apps(config.providers.apps);
+    ui.set_settings_provider_folders(config.providers.folders);
+    ui.set_settings_provider_calculator(config.providers.calculator);
+    ui.set_settings_alternate_folder_opener_enabled(config.actions.alternate_folder_opener_enabled);
+    ui.set_settings_max_results(config.appearance.max_results.to_string().into());
+    ui.set_settings_config_path(path_option_label(config::config_file()).into());
+    ui.set_settings_state_path(path_option_label(config::state_dir()).into());
+    ui.set_settings_socket_path(socket_path.display().to_string().into());
+    ui.set_settings_project_count(project_count.to_string().into());
+    ui.set_settings_app_count(app_count.to_string().into());
+}
+
+fn folder_sources_text(sources: &[PathBuf]) -> String {
+    sources
+        .iter()
+        .map(|path| search::display_path(path))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn parse_folder_sources_text(text: &str) -> Vec<PathBuf> {
+    text.split([';', '\n'])
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .collect()
+}
+
+fn first_existing_folder_source(text: &str) -> Option<PathBuf> {
+    parse_folder_sources_text(text)
+        .into_iter()
+        .map(expand_home_for_ui)
+        .find(|path| path.is_dir())
+}
+
+fn expand_home_for_ui(path: PathBuf) -> PathBuf {
+    let Some(path_str) = path.to_str() else {
+        return path;
+    };
+
+    if path_str == "~" {
+        return dirs::home_dir().unwrap_or(path);
+    }
+
+    if let Some(rest) = path_str.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(rest);
+    }
+
+    path
+}
+
+fn parse_max_results(text: &str) -> Option<usize> {
+    let max_results = text.trim().parse().ok()?;
+    (max_results > 0).then_some(max_results)
+}
+
+fn path_option_label(path: Option<PathBuf>) -> String {
+    path.map(|path| path.display().to_string())
+        .unwrap_or_else(|| "Unavailable".to_owned())
+}
+
+fn editor_label(command: &str) -> String {
+    if command == "code" {
+        return "VS".to_owned();
+    }
+
+    let mut label = command
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .take(2)
+        .collect::<String>()
+        .to_uppercase();
+
+    if label.is_empty() {
+        label = "ED".to_owned();
+    }
+
+    label
 }
 
 fn command_display(command: &actions::CommandSpec) -> String {
@@ -570,5 +920,64 @@ mod tests {
         assert_eq!(selected_index_for_query("   ", 3), -1);
         assert_eq!(selected_index_for_query("code", 0), -1);
         assert_eq!(selected_index_for_query("code", 3), 0);
+    }
+
+    #[test]
+    fn folder_sources_text_uses_semicolon_separated_paths() {
+        let sources = vec![PathBuf::from("/tmp/alpha"), PathBuf::from("/tmp/beta")];
+
+        assert_eq!(folder_sources_text(&sources), "/tmp/alpha; /tmp/beta");
+    }
+
+    #[test]
+    fn parse_folder_sources_text_accepts_semicolons_and_newlines() {
+        let roots = parse_folder_sources_text(" ~/Documents ; /tmp/rayslash\n/tmp/other ");
+
+        assert_eq!(
+            roots,
+            vec![
+                PathBuf::from("~/Documents"),
+                PathBuf::from("/tmp/rayslash"),
+                PathBuf::from("/tmp/other")
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_max_results_requires_positive_number() {
+        assert_eq!(parse_max_results("25"), Some(25));
+        assert_eq!(parse_max_results("0"), None);
+        assert_eq!(parse_max_results("abc"), None);
+    }
+
+    #[test]
+    fn search_results_respect_configured_max_results() {
+        let config = config::Config {
+            folder_sources: Vec::new(),
+            providers: config::ProviderConfig::default(),
+            actions: config::ActionConfig::default(),
+            appearance: config::AppearanceConfig { max_results: 1 },
+        };
+        let projects = vec![
+            projects::Project {
+                name: "alpha".to_owned(),
+                path: PathBuf::from("/tmp/alpha"),
+            },
+            projects::Project {
+                name: "beta".to_owned(),
+                path: PathBuf::from("/tmp/beta"),
+            },
+        ];
+
+        let results = search_results(&config, &projects, &[], "");
+
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn editor_label_prefers_vs_for_default_code_command() {
+        assert_eq!(editor_label("code"), "VS");
+        assert_eq!(editor_label("codium"), "CO");
+        assert_eq!(editor_label("--"), "ED");
     }
 }
