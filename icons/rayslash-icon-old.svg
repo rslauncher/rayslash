@@ -1,0 +1,12 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Rayslash app icon</title>
+  <desc id="desc">A red diagonal ray shaped like a backslash inside a rounded gray square.</desc>
+
+  <rect x="96" y="96" width="832" height="832" rx="188" fill="#3B3D45"/>
+  <rect x="128" y="128" width="768" height="768" rx="160" fill="#4A4D57"/>
+
+  <path
+    d="M306 176L742 616H598L718 848L282 408H426L306 176Z"
+    fill="#F04444"
+  />
+</svg>
