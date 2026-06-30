@@ -18,7 +18,7 @@ use slint::VecModel;
 slint::include_modules!();
 
 const DEFAULT_STATUS_TEXT: &str =
-    "Type to filter apps and projects. Enter launches. Ctrl+Enter opens projects in VS Code.";
+    "Type to filter apps, projects, and calculations. Enter launches or shows calculator results.";
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -172,7 +172,13 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
 
             match result {
                 Some(result) => {
-                    if let Some(path) = result.project_path() {
+                    if let Some(calculator_result) = result.calculator_result() {
+                        println!("calculator result: {}", calculator_result);
+
+                        if let Some(ui) = weak.upgrade() {
+                            ui.set_status_text(format!("Result: {}", calculator_result).into());
+                        }
+                    } else if let Some(path) = result.project_path() {
                         let display_path = search::display_path(path);
 
                         if open_in_vscode {

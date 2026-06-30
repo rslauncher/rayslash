@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::actions::CommandSpec;
 use crate::apps::DesktopApp;
+use crate::calc;
 use crate::projects::Project;
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
@@ -18,6 +19,7 @@ pub struct SearchResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchResultKind {
     Placeholder,
+    Calculator { expression: String, result: String },
     App { id: String, command: CommandSpec },
     Project { path: PathBuf },
 }
@@ -26,6 +28,7 @@ impl SearchResult {
     pub fn project_path(&self) -> Option<&Path> {
         match &self.kind {
             SearchResultKind::Placeholder => None,
+            SearchResultKind::Calculator { .. } => None,
             SearchResultKind::App { .. } => None,
             SearchResultKind::Project { path } => Some(path),
         }
@@ -34,7 +37,18 @@ impl SearchResult {
     pub fn app_command(&self) -> Option<&CommandSpec> {
         match &self.kind {
             SearchResultKind::App { command, .. } => Some(command),
-            SearchResultKind::Placeholder | SearchResultKind::Project { .. } => None,
+            SearchResultKind::Placeholder
+            | SearchResultKind::Calculator { .. }
+            | SearchResultKind::Project { .. } => None,
+        }
+    }
+
+    pub fn calculator_result(&self) -> Option<&str> {
+        match &self.kind {
+            SearchResultKind::Calculator { result, .. } => Some(result),
+            SearchResultKind::Placeholder
+            | SearchResultKind::App { .. }
+            | SearchResultKind::Project { .. } => None,
         }
     }
 }
@@ -53,7 +67,7 @@ pub fn placeholder_results() -> Vec<SearchResult> {
         },
         SearchResult {
             title: "Calculate".to_owned(),
-            subtitle: "Calculator support will land in Phase 4".to_owned(),
+            subtitle: "Type an expression such as 2 + 2".to_owned(),
             kind: SearchResultKind::Placeholder,
         },
     ]
@@ -104,11 +118,14 @@ pub fn project_results(projects: &[Project], query: &str) -> Vec<SearchResult> {
 }
 
 pub fn mixed_results(projects: &[Project], apps: &[DesktopApp], query: &str) -> Vec<SearchResult> {
-    if projects.is_empty() && apps.is_empty() {
-        return placeholder_results();
-    }
-
     let query = query.trim();
+    let calculation = calc::calculate(query).map(calculator_result);
+
+    if projects.is_empty() && apps.is_empty() {
+        return calculation
+            .map(|result| vec![result])
+            .unwrap_or_else(placeholder_results);
+    }
 
     if query.is_empty() {
         let mut results = projects
@@ -144,7 +161,16 @@ pub fn mixed_results(projects: &[Project], apps: &[DesktopApp], query: &str) -> 
         b_score.cmp(a_score).then_with(|| search_result_order(a, b))
     });
 
-    matches.into_iter().map(|(result, _score)| result).collect()
+    let mut results = matches
+        .into_iter()
+        .map(|(result, _score)| result)
+        .collect::<Vec<_>>();
+
+    if let Some(calculation) = calculation {
+        results.insert(0, calculation);
+    }
+
+    results
 }
 
 fn project_result(project: &Project) -> SearchResult {
@@ -172,6 +198,17 @@ fn app_result(app: &DesktopApp) -> SearchResult {
         kind: SearchResultKind::App {
             id: app.id.clone(),
             command: app.command.clone(),
+        },
+    }
+}
+
+fn calculator_result(calculation: calc::Calculation) -> SearchResult {
+    SearchResult {
+        title: calculation.result.clone(),
+        subtitle: format!("Calculate: {}", calculation.expression),
+        kind: SearchResultKind::Calculator {
+            expression: calculation.expression,
+            result: calculation.result,
         },
     }
 }
@@ -221,9 +258,10 @@ fn search_result_order(a: &SearchResult, b: &SearchResult) -> std::cmp::Ordering
 
 fn result_type_order(kind: &SearchResultKind) -> u8 {
     match kind {
-        SearchResultKind::App { .. } => 0,
-        SearchResultKind::Project { .. } => 1,
-        SearchResultKind::Placeholder => 2,
+        SearchResultKind::Calculator { .. } => 0,
+        SearchResultKind::App { .. } => 1,
+        SearchResultKind::Project { .. } => 2,
+        SearchResultKind::Placeholder => 3,
     }
 }
 
@@ -438,6 +476,57 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Rayslash", "x-ray-sidecar"]
         );
+    }
+
+    #[test]
+    fn mixed_results_rank_calculator_result_first_for_valid_expression() {
+        let projects = vec![Project {
+            name: "2-plus-2-notes".to_owned(),
+            path: PathBuf::from("/tmp/2-plus-2-notes"),
+        }];
+        let apps = vec![DesktopApp {
+            id: "calculator.desktop".to_owned(),
+            name: "Calculator".to_owned(),
+            generic_name: Some("Calculator".to_owned()),
+            comment: Some("Perform arithmetic".to_owned()),
+            exec: "calculator".to_owned(),
+            icon: None,
+            command: CommandSpec {
+                program: "calculator".into(),
+                args: Vec::new(),
+            },
+            desktop_file: PathBuf::from("/tmp/calculator.desktop"),
+        }];
+
+        let results = mixed_results(&projects, &apps, "2 + 2");
+
+        assert_eq!(results[0].title, "4");
+        assert_eq!(results[0].subtitle, "Calculate: 2 + 2");
+        assert_eq!(results[0].calculator_result(), Some("4"));
+    }
+
+    #[test]
+    fn mixed_results_do_not_treat_normal_queries_as_calculator_expressions() {
+        let apps = vec![DesktopApp {
+            id: "calculator.desktop".to_owned(),
+            name: "Calculator".to_owned(),
+            generic_name: Some("Calculator".to_owned()),
+            comment: Some("Perform arithmetic".to_owned()),
+            exec: "calculator".to_owned(),
+            icon: None,
+            command: CommandSpec {
+                program: "calculator".into(),
+                args: Vec::new(),
+            },
+            desktop_file: PathBuf::from("/tmp/calculator.desktop"),
+        }];
+
+        let results = mixed_results(&[], &apps, "calculator");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Calculator");
+        assert!(results[0].calculator_result().is_none());
+        assert!(results[0].app_command().is_some());
     }
 
     #[test]
