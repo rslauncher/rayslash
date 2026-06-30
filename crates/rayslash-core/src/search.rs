@@ -13,7 +13,16 @@ use nucleo_matcher::{
 pub struct SearchResult {
     pub title: String,
     pub subtitle: String,
+    pub icon: SearchResultIcon,
     pub kind: SearchResultKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SearchResultIcon {
+    Placeholder,
+    Calculator,
+    App { path: Option<PathBuf> },
+    ProjectFolder,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,16 +67,19 @@ pub fn placeholder_results() -> Vec<SearchResult> {
         SearchResult {
             title: "Open applications".to_owned(),
             subtitle: "Desktop app search will land in Phase 3".to_owned(),
+            icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
         },
         SearchResult {
             title: "Find projects".to_owned(),
             subtitle: "Project folder search will land in Phase 2".to_owned(),
+            icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
         },
         SearchResult {
             title: "Calculate".to_owned(),
             subtitle: "Type an expression such as 2 + 2".to_owned(),
+            icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
         },
     ]
@@ -185,6 +197,7 @@ fn project_result_with_subtitle(project: &Project, subtitle: String) -> SearchRe
     SearchResult {
         title: project.name.clone(),
         subtitle,
+        icon: SearchResultIcon::ProjectFolder,
         kind: SearchResultKind::Project {
             path: project.path.clone(),
         },
@@ -195,6 +208,9 @@ fn app_result(app: &DesktopApp) -> SearchResult {
     SearchResult {
         title: app.name.clone(),
         subtitle: app_subtitle(app),
+        icon: SearchResultIcon::App {
+            path: app.icon_path.clone(),
+        },
         kind: SearchResultKind::App {
             id: app.id.clone(),
             command: app.command.clone(),
@@ -206,6 +222,7 @@ fn calculator_result(calculation: calc::Calculation) -> SearchResult {
     SearchResult {
         title: calculation.result.clone(),
         subtitle: format!("Calculate: {}", calculation.expression),
+        icon: SearchResultIcon::Calculator,
         kind: SearchResultKind::Calculator {
             expression: calculation.expression,
             result: calculation.result,
@@ -411,10 +428,12 @@ mod tests {
 
         assert_eq!(result.subtitle, "~/Projects/rayslash");
         assert_eq!(result.project_path(), Some(path.as_path()));
+        assert_eq!(result.icon, SearchResultIcon::ProjectFolder);
     }
 
     #[test]
     fn mixed_results_show_apps_and_projects_for_empty_query() {
+        let app_icon = PathBuf::from("/tmp/calculator.svg");
         let projects = vec![Project {
             name: "rayslash".to_owned(),
             path: PathBuf::from("/tmp/rayslash"),
@@ -426,6 +445,7 @@ mod tests {
             comment: Some("Perform arithmetic".to_owned()),
             exec: "calculator".to_owned(),
             icon: None,
+            icon_path: Some(app_icon.clone()),
             command: CommandSpec {
                 program: "calculator".into(),
                 args: Vec::new(),
@@ -444,7 +464,14 @@ mod tests {
         );
         assert_eq!(results[0].subtitle, "Application - Perform arithmetic");
         assert!(results[0].app_command().is_some());
+        assert_eq!(
+            results[0].icon,
+            SearchResultIcon::App {
+                path: Some(app_icon)
+            }
+        );
         assert_eq!(results[1].project_path(), Some(Path::new("/tmp/rayslash")));
+        assert_eq!(results[1].icon, SearchResultIcon::ProjectFolder);
     }
 
     #[test]
@@ -460,6 +487,7 @@ mod tests {
             comment: None,
             exec: "rayslash".to_owned(),
             icon: None,
+            icon_path: None,
             command: CommandSpec {
                 program: "rayslash".into(),
                 args: Vec::new(),
@@ -491,6 +519,7 @@ mod tests {
             comment: Some("Perform arithmetic".to_owned()),
             exec: "calculator".to_owned(),
             icon: None,
+            icon_path: None,
             command: CommandSpec {
                 program: "calculator".into(),
                 args: Vec::new(),
@@ -503,6 +532,7 @@ mod tests {
         assert_eq!(results[0].title, "4");
         assert_eq!(results[0].subtitle, "Calculate: 2 + 2");
         assert_eq!(results[0].calculator_result(), Some("4"));
+        assert_eq!(results[0].icon, SearchResultIcon::Calculator);
     }
 
     #[test]
@@ -514,6 +544,7 @@ mod tests {
             comment: Some("Perform arithmetic".to_owned()),
             exec: "calculator".to_owned(),
             icon: None,
+            icon_path: None,
             command: CommandSpec {
                 program: "calculator".into(),
                 args: Vec::new(),

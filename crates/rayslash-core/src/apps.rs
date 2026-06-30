@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ffi::OsString,
     fs, io,
     path::{Path, PathBuf},
@@ -15,6 +15,7 @@ pub struct DesktopApp {
     pub comment: Option<String>,
     pub exec: String,
     pub icon: Option<String>,
+    pub icon_path: Option<PathBuf>,
     pub command: CommandSpec,
     pub desktop_file: PathBuf,
 }
@@ -37,6 +38,7 @@ pub fn discover_desktop_apps() -> Vec<DesktopApp> {
 
 pub fn discover_desktop_apps_in_dirs(dirs: &[PathBuf]) -> Vec<DesktopApp> {
     let mut seen_ids = HashSet::new();
+    let mut icon_resolver = DesktopIconResolver::new(desktop_icon_dirs());
     let mut apps = Vec::new();
 
     for dir in dirs {
@@ -48,7 +50,13 @@ pub fn discover_desktop_apps_in_dirs(dirs: &[PathBuf]) -> Vec<DesktopApp> {
             }
 
             match parse_desktop_file_with_id(&path, id) {
-                Ok(Some(app)) => apps.push(app),
+                Ok(Some(mut app)) => {
+                    app.icon_path = app
+                        .icon
+                        .as_deref()
+                        .and_then(|icon| icon_resolver.resolve(icon));
+                    apps.push(app);
+                }
                 Ok(None) => {}
                 Err(error) => {
                     eprintln!("failed to read desktop entry {}: {error}", path.display());
@@ -70,6 +78,18 @@ fn desktop_application_dirs() -> Vec<PathBuf> {
 
     dirs.push(PathBuf::from("/usr/local/share/applications"));
     dirs.push(PathBuf::from("/usr/share/applications"));
+    dirs
+}
+
+fn desktop_icon_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
+    if let Some(home) = dirs::home_dir() {
+        dirs.push(home.join(".local/share/icons"));
+    }
+
+    dirs.push(PathBuf::from("/usr/share/icons/hicolor"));
+    dirs.push(PathBuf::from("/usr/share/pixmaps"));
     dirs
 }
 
@@ -134,8 +154,138 @@ pub fn parse_desktop_entry(
         comment: entry.comment,
         exec,
         icon: entry.icon,
+        icon_path: None,
         command,
         desktop_file,
+    })
+}
+
+#[derive(Debug)]
+struct DesktopIconResolver {
+    dirs: Vec<PathBuf>,
+    cache: HashMap<String, Option<PathBuf>>,
+}
+
+impl DesktopIconResolver {
+    fn new(dirs: Vec<PathBuf>) -> Self {
+        Self {
+            dirs,
+            cache: HashMap::new(),
+        }
+    }
+
+    fn resolve(&mut self, icon: &str) -> Option<PathBuf> {
+        if let Some(cached) = self.cache.get(icon) {
+            return cached.clone();
+        }
+
+        let resolved = resolve_desktop_icon_in_dirs(icon, &self.dirs);
+        self.cache.insert(icon.to_owned(), resolved.clone());
+        resolved
+    }
+}
+
+pub fn resolve_desktop_icon_in_dirs(icon: &str, dirs: &[PathBuf]) -> Option<PathBuf> {
+    let icon = icon.trim();
+
+    if icon.is_empty() {
+        return None;
+    }
+
+    let icon_path = Path::new(icon);
+    if icon_path.is_absolute() {
+        return supported_existing_icon(icon_path);
+    }
+
+    if icon_path.components().count() > 1 {
+        return None;
+    }
+
+    for dir in dirs {
+        if let Some(path) = resolve_desktop_icon_in_dir(icon, dir) {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+fn resolve_desktop_icon_in_dir(icon: &str, dir: &Path) -> Option<PathBuf> {
+    let names = icon_candidate_file_names(icon);
+
+    for name in &names {
+        if let Some(path) = supported_existing_icon(&dir.join(name)) {
+            return Some(path);
+        }
+    }
+
+    for theme_root in icon_theme_roots(dir) {
+        for relative_dir in icon_theme_app_dirs() {
+            for name in &names {
+                if let Some(path) =
+                    supported_existing_icon(&theme_root.join(&relative_dir).join(name))
+                {
+                    return Some(path);
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn icon_theme_roots(dir: &Path) -> Vec<PathBuf> {
+    let mut roots = vec![dir.to_path_buf()];
+
+    if dir.file_name().and_then(|name| name.to_str()) != Some("hicolor") {
+        roots.push(dir.join("hicolor"));
+    }
+
+    roots
+}
+
+fn icon_theme_app_dirs() -> Vec<PathBuf> {
+    [
+        "scalable/apps",
+        "512x512/apps",
+        "256x256/apps",
+        "128x128/apps",
+        "64x64/apps",
+        "48x48/apps",
+        "32x32/apps",
+        "24x24/apps",
+        "16x16/apps",
+    ]
+    .into_iter()
+    .map(PathBuf::from)
+    .collect()
+}
+
+fn icon_candidate_file_names(icon: &str) -> Vec<String> {
+    let path = Path::new(icon);
+
+    if path.extension().is_some_and(is_supported_icon_extension) {
+        return vec![icon.to_owned()];
+    }
+
+    ["svg", "png", "jpg", "jpeg"]
+        .into_iter()
+        .map(|extension| format!("{icon}.{extension}"))
+        .collect()
+}
+
+fn supported_existing_icon(path: &Path) -> Option<PathBuf> {
+    path.extension()
+        .filter(|extension| is_supported_icon_extension(extension))
+        .and_then(|_| path.is_file().then(|| path.to_path_buf()))
+}
+
+fn is_supported_icon_extension(extension: &std::ffi::OsStr) -> bool {
+    extension.to_str().is_some_and(|extension| {
+        matches!(
+            extension.to_ascii_lowercase().as_str(),
+            "svg" | "png" | "jpg" | "jpeg"
+        )
     })
 }
 
@@ -425,11 +575,16 @@ Icon=example-browser
     #[test]
     fn discover_desktop_apps_in_dirs_reads_desktop_files_without_a_desktop_session() {
         let dir = unique_temp_dir("rayslash-applications");
+        let icon = dir.join("app.svg");
         fs::write(
             dir.join("zeta.desktop"),
-            "[Desktop Entry]\nType=Application\nName=Zeta\nExec=zeta %U\n",
+            format!(
+                "[Desktop Entry]\nType=Application\nName=Zeta\nExec=zeta %U\nIcon={}\n",
+                icon.display()
+            ),
         )
         .expect("write zeta desktop file");
+        fs::write(&icon, "<svg xmlns=\"http://www.w3.org/2000/svg\"/>").expect("write icon");
         fs::write(
             dir.join("alpha.desktop"),
             "[Desktop Entry]\nType=Application\nName=Alpha\nExec=alpha\n",
@@ -449,6 +604,55 @@ Icon=example-browser
         );
         assert_eq!(apps[1].command.program, OsString::from("zeta"));
         assert!(apps[1].command.args.is_empty());
+        assert_eq!(apps[1].icon_path.as_deref(), Some(icon.as_path()));
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn resolve_desktop_icon_supports_absolute_paths() {
+        let dir = unique_temp_dir("rayslash-icons-absolute");
+        let icon = dir.join("absolute.svg");
+        fs::write(&icon, "<svg xmlns=\"http://www.w3.org/2000/svg\"/>").expect("write icon");
+
+        assert_eq!(
+            resolve_desktop_icon_in_dirs(icon.to_str().expect("utf-8 path"), &[]),
+            Some(icon.clone())
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn resolve_desktop_icon_checks_hicolor_app_directories() {
+        let dir = unique_temp_dir("rayslash-icons-hicolor");
+        let icon_dir = dir.join("hicolor/scalable/apps");
+        fs::create_dir_all(&icon_dir).expect("create icon dir");
+        let icon = icon_dir.join("example.svg");
+        fs::write(&icon, "<svg xmlns=\"http://www.w3.org/2000/svg\"/>").expect("write icon");
+
+        assert_eq!(
+            resolve_desktop_icon_in_dirs("example", std::slice::from_ref(&dir)),
+            Some(icon.clone())
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn resolve_desktop_icon_checks_pixmaps_style_directories() {
+        let dir = unique_temp_dir("rayslash-icons-pixmaps");
+        let icon = dir.join("example.png");
+        fs::write(&icon, "not a real png").expect("write icon");
+
+        assert_eq!(
+            resolve_desktop_icon_in_dirs("example", std::slice::from_ref(&dir)),
+            Some(icon.clone())
+        );
+        assert_eq!(
+            resolve_desktop_icon_in_dirs("example.xpm", std::slice::from_ref(&dir)),
+            None
+        );
 
         fs::remove_dir_all(dir).expect("cleanup temp dir");
     }

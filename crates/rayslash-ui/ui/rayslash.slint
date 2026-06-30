@@ -1,6 +1,10 @@
 export struct ResultItem {
     title: string,
     subtitle: string,
+    icon: image,
+    has_icon: bool,
+    icon_kind: string,
+    icon_text: string,
 }
 
 component SearchBox inherits Rectangle {
@@ -182,11 +186,23 @@ export component AppWindow inherits Window {
                         height: 28px;
                         alignment: space-between;
 
-                        Text {
-                            text: "rayslash";
-                            color: #f5f5f5;
-                            font-size: 22px;
-                            font-weight: 700;
+                        HorizontalLayout {
+                            spacing: 8px;
+
+                            Image {
+                                width: 24px;
+                                height: 24px;
+                                source: @image-url("../../../icons/rayslash-icon.svg");
+                                image-fit: contain;
+                            }
+
+                            Text {
+                                text: "rayslash";
+                                color: #f5f5f5;
+                                font-size: 22px;
+                                font-weight: 700;
+                                vertical-alignment: center;
+                            }
                         }
 
                         Text {
@@ -255,6 +271,121 @@ export component AppWindow inherits Window {
                                         height: 36px;
                                         border-radius: 10px;
                                         background: i == root.selected-index ? #d6d6d6 : #3a3a3a;
+
+                                        Image {
+                                            x: 5px;
+                                            y: 5px;
+                                            width: 26px;
+                                            height: 26px;
+                                            source: item.icon;
+                                            image-fit: contain;
+                                            visible: item.has_icon;
+                                        }
+
+                                        Text {
+                                            x: 0px;
+                                            y: 0px;
+                                            width: 100%;
+                                            height: 100%;
+                                            text: item.icon_text;
+                                            color: i == root.selected-index ? #242424 : #d0d0d0;
+                                            font-size: 19px;
+                                            font-weight: 800;
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                            visible: !item.has_icon && item.icon_text != "";
+                                        }
+
+                                        Rectangle {
+                                            x: 8px;
+                                            y: 11px;
+                                            width: 20px;
+                                            height: 14px;
+                                            border-radius: 3px;
+                                            background: i == root.selected-index ? #303030 : #d0d0d0;
+                                            visible: !item.has_icon && item.icon_kind == "folder";
+                                        }
+
+                                        Rectangle {
+                                            x: 9px;
+                                            y: 8px;
+                                            width: 10px;
+                                            height: 6px;
+                                            border-radius: 2px;
+                                            background: i == root.selected-index ? #303030 : #d0d0d0;
+                                            visible: !item.has_icon && item.icon_kind == "folder";
+                                        }
+
+                                        Rectangle {
+                                            x: 10px;
+                                            y: 9px;
+                                            width: 16px;
+                                            height: 20px;
+                                            border-radius: 3px;
+                                            background: transparent;
+                                            border-width: 2px;
+                                            border-color: i == root.selected-index ? #303030 : #d0d0d0;
+                                            visible: !item.has_icon && item.icon_kind == "calculator";
+                                        }
+
+                                        Rectangle {
+                                            x: 14px;
+                                            y: 13px;
+                                            width: 8px;
+                                            height: 2px;
+                                            background: i == root.selected-index ? #303030 : #d0d0d0;
+                                            visible: !item.has_icon && item.icon_kind == "calculator";
+                                        }
+
+                                        Rectangle {
+                                            x: 11px;
+                                            y: 11px;
+                                            width: 6px;
+                                            height: 6px;
+                                            border-radius: 2px;
+                                            background: i == root.selected-index ? #303030 : #d0d0d0;
+                                            visible: !item.has_icon && item.icon_kind == "app";
+                                        }
+
+                                        Rectangle {
+                                            x: 19px;
+                                            y: 11px;
+                                            width: 6px;
+                                            height: 6px;
+                                            border-radius: 2px;
+                                            background: i == root.selected-index ? #303030 : #d0d0d0;
+                                            visible: !item.has_icon && item.icon_kind == "app";
+                                        }
+
+                                        Rectangle {
+                                            x: 11px;
+                                            y: 19px;
+                                            width: 6px;
+                                            height: 6px;
+                                            border-radius: 2px;
+                                            background: i == root.selected-index ? #303030 : #d0d0d0;
+                                            visible: !item.has_icon && item.icon_kind == "app";
+                                        }
+
+                                        Rectangle {
+                                            x: 19px;
+                                            y: 19px;
+                                            width: 6px;
+                                            height: 6px;
+                                            border-radius: 2px;
+                                            background: i == root.selected-index ? #303030 : #d0d0d0;
+                                            visible: !item.has_icon && item.icon_kind == "app";
+                                        }
+
+                                        Rectangle {
+                                            x: 14px;
+                                            y: 14px;
+                                            width: 8px;
+                                            height: 8px;
+                                            border-radius: 4px;
+                                            background: i == root.selected-index ? #303030 : #d0d0d0;
+                                            visible: !item.has_icon && item.icon_kind == "placeholder";
+                                        }
                                     }
                                 }
 

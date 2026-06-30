@@ -3,7 +3,9 @@ mod ipc;
 
 use std::{
     cell::RefCell,
+    collections::HashMap,
     env, io,
+    path::PathBuf,
     process::ExitCode,
     rc::Rc,
     sync::{
@@ -13,7 +15,7 @@ use std::{
 };
 
 use rayslash_core::{actions, apps, config, projects, search};
-use slint::VecModel;
+use slint::{Image, VecModel};
 
 slint::include_modules!();
 
@@ -105,7 +107,11 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
     let projects = Rc::new(projects::scan_project_roots(&config.project_roots));
     let apps = Rc::new(apps::discover_desktop_apps());
     let current_results = Rc::new(RefCell::new(search::mixed_results(&projects, &apps, "")));
-    let results_model = Rc::new(VecModel::from(to_result_items(&current_results.borrow())));
+    let icon_cache = Rc::new(RefCell::new(HashMap::new()));
+    let results_model = Rc::new(VecModel::from(to_result_items(
+        &current_results.borrow(),
+        &mut icon_cache.borrow_mut(),
+    )));
 
     ui.set_result_count(current_results.borrow().len() as i32);
     ui.set_results(results_model.clone().into());
@@ -117,11 +123,12 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
         let apps = apps.clone();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
+        let icon_cache = icon_cache.clone();
         move || {
             let results = search::mixed_results(&projects, &apps, "");
             let count = results.len() as i32;
 
-            results_model.set_vec(to_result_items(&results));
+            results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
             *current_results.borrow_mut() = results;
 
             if let Some(ui) = weak.upgrade() {
@@ -149,11 +156,12 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
         let apps = apps.clone();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
+        let icon_cache = icon_cache.clone();
         move |query| {
             let results = search::mixed_results(&projects, &apps, query.as_str());
             let count = results.len() as i32;
 
-            results_model.set_vec(to_result_items(&results));
+            results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
             *current_results.borrow_mut() = results;
 
             if let Some(ui) = weak.upgrade() {
@@ -358,12 +366,72 @@ fn command_display(command: &actions::CommandSpec) -> String {
         .join(" ")
 }
 
-fn to_result_items(results: &[search::SearchResult]) -> Vec<ResultItem> {
+type IconImageCache = HashMap<PathBuf, Option<Image>>;
+
+fn to_result_items(
+    results: &[search::SearchResult],
+    icon_cache: &mut IconImageCache,
+) -> Vec<ResultItem> {
     results
         .iter()
-        .map(|result| ResultItem {
-            title: result.title.clone().into(),
-            subtitle: result.subtitle.clone().into(),
+        .map(|result| {
+            let icon = result_icon(&result.icon, icon_cache);
+
+            ResultItem {
+                title: result.title.clone().into(),
+                subtitle: result.subtitle.clone().into(),
+                icon: icon.image,
+                has_icon: icon.has_image,
+                icon_kind: icon.kind.into(),
+                icon_text: icon.text.into(),
+            }
         })
         .collect()
+}
+
+struct RowIcon {
+    image: Image,
+    has_image: bool,
+    kind: &'static str,
+    text: &'static str,
+}
+
+fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache) -> RowIcon {
+    match icon {
+        search::SearchResultIcon::App { path: Some(path) } => {
+            if let Some(image) = load_icon_image(path, icon_cache) {
+                RowIcon {
+                    image,
+                    has_image: true,
+                    kind: "app",
+                    text: "",
+                }
+            } else {
+                fallback_icon("app", "")
+            }
+        }
+        search::SearchResultIcon::App { path: None } => fallback_icon("app", ""),
+        search::SearchResultIcon::Calculator => fallback_icon("calculator", ""),
+        search::SearchResultIcon::ProjectFolder => fallback_icon("folder", ""),
+        search::SearchResultIcon::Placeholder => fallback_icon("placeholder", ""),
+    }
+}
+
+fn fallback_icon(kind: &'static str, text: &'static str) -> RowIcon {
+    RowIcon {
+        image: Image::default(),
+        has_image: false,
+        kind,
+        text,
+    }
+}
+
+fn load_icon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -> Option<Image> {
+    if let Some(cached) = icon_cache.get(path) {
+        return cached.clone();
+    }
+
+    let image = Image::load_from_path(path).ok();
+    icon_cache.insert(path.clone(), image.clone());
+    image
 }
