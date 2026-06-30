@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=rayslash
+Comment=Keyboard-driven desktop launcher
+Exec=rayslash toggle
+Icon=dev.rayan6ms.rayslash
+Terminal=false
+NoDisplay=true
+Categories=Utility;
+StartupNotify=false
