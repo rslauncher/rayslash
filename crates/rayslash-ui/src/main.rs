@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use rayslash_core::{actions, config, projects, search};
+use rayslash_core::{actions, apps, config, projects, search};
 use slint::VecModel;
 
 slint::include_modules!();
@@ -13,7 +13,8 @@ fn main() -> Result<(), slint::PlatformError> {
         config::Config::default()
     });
     let projects = Rc::new(projects::scan_project_roots(&config.project_roots));
-    let current_results = Rc::new(RefCell::new(search::project_results(&projects, "")));
+    let apps = Rc::new(apps::discover_desktop_apps());
+    let current_results = Rc::new(RefCell::new(search::mixed_results(&projects, &apps, "")));
     let results_model = Rc::new(VecModel::from(to_result_items(&current_results.borrow())));
 
     ui.set_result_count(current_results.borrow().len() as i32);
@@ -32,10 +33,11 @@ fn main() -> Result<(), slint::PlatformError> {
     ui.on_query_changed({
         let weak = ui.as_weak();
         let projects = projects.clone();
+        let apps = apps.clone();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         move |query| {
-            let results = search::project_results(&projects, query.as_str());
+            let results = search::mixed_results(&projects, &apps, query.as_str());
             let count = results.len() as i32;
 
             results_model.set_vec(to_result_items(&results));
@@ -118,6 +120,41 @@ fn main() -> Result<(), slint::PlatformError> {
                                 }
                             }
                         }
+                    } else if let Some(command) = result.app_command().cloned() {
+                        match actions::launch_app(&command) {
+                            Ok(_child) => {
+                                println!(
+                                    "Launching app {} with command: {}",
+                                    result.title,
+                                    command_display(&command)
+                                );
+
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        format!("Launching {}", result.title).into(),
+                                    );
+                                    hide_launcher(&ui);
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!(
+                                    "failed to launch app {} with command `{}`: {error}",
+                                    result.title,
+                                    command_display(&command)
+                                );
+
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        format!(
+                                            "Could not launch {}. Is `{}` on PATH?",
+                                            result.title,
+                                            command.program.to_string_lossy()
+                                        )
+                                        .into(),
+                                    );
+                                }
+                            }
+                        }
                     } else {
                         println!("placeholder activation: {}", result.title);
 
@@ -142,6 +179,18 @@ fn hide_launcher(ui: &AppWindow) {
     if let Err(error) = ui.hide() {
         eprintln!("failed to hide rayslash window: {error}");
     }
+}
+
+fn command_display(command: &actions::CommandSpec) -> String {
+    std::iter::once(command.program.to_string_lossy().into_owned())
+        .chain(
+            command
+                .args
+                .iter()
+                .map(|arg| arg.to_string_lossy().into_owned()),
+        )
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn to_result_items(results: &[search::SearchResult]) -> Vec<ResultItem> {

@@ -82,7 +82,7 @@ export component AppWindow inherits Window {
     in property <[ResultItem]> results;
     in property <int> result-count;
     in-out property <int> selected-index: 0;
-    in-out property <string> status-text: "Type to filter projects. Enter opens folder. Ctrl+Enter opens in VS Code.";
+    in-out property <string> status-text: "Type to filter apps and projects. Enter launches. Ctrl+Enter opens projects in VS Code.";
     callback close-requested();
     callback query-changed(string);
     callback activate-selected-result(int, bool);

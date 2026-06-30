@@ -25,7 +25,7 @@ pub fn open_project_folder_command(path: &Path) -> CommandSpec {
 
 pub fn open_project_folder(path: &Path) -> io::Result<Child> {
     let command = open_project_folder_command(path);
-    Command::new(command.program).args(command.args).spawn()
+    spawn_command(&command)
 }
 
 pub fn open_project_in_vscode_command(path: &Path) -> CommandSpec {
@@ -37,7 +37,15 @@ pub fn open_project_in_vscode_command(path: &Path) -> CommandSpec {
 
 pub fn open_project_in_vscode(path: &Path) -> io::Result<Child> {
     let command = open_project_in_vscode_command(path);
-    Command::new(command.program).args(command.args).spawn()
+    spawn_command(&command)
+}
+
+pub fn launch_app(command: &CommandSpec) -> io::Result<Child> {
+    spawn_command(command)
+}
+
+fn spawn_command(command: &CommandSpec) -> io::Result<Child> {
+    Command::new(&command.program).args(&command.args).spawn()
 }
 
 #[cfg(test)]
