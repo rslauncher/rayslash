@@ -88,12 +88,13 @@ component SearchBox inherits Rectangle {
 export component AppWindow inherits Window {
     in property <[ResultItem]> results;
     in property <int> result-count;
-    in-out property <int> selected-index: 0;
+    in-out property <int> selected-index: -1;
     in-out property <string> query-text: "";
-    in-out property <string> status-text: "Type to filter apps, projects, and calculations.";
+    in-out property <string> status-text: "";
     private property <length> result-row-height: 64px;
     private property <length> result-row-gap: 8px;
     private property <length> result-row-stride: root.result-row-height + root.result-row-gap;
+    private property <bool> click-open-in-vscode: false;
     callback close-requested();
     callback query-changed(string);
     callback activate-selected-result(int, bool);
@@ -107,8 +108,17 @@ export component AppWindow inherits Window {
         results-scroll.viewport-y = 0px;
     }
 
+    function row-fully-visible(index: int) -> bool {
+        let row-top = index * root.result-row-stride;
+        let row-bottom = row-top + root.result-row-height;
+        let visible-top = -results-scroll.viewport-y;
+        let visible-bottom = visible-top + results-scroll.height;
+
+        return row-top >= visible-top && row-bottom <= visible-bottom;
+    }
+
     function keep-selection-visible() {
-        if (root.result-count <= 0) {
+        if (root.result-count <= 0 || root.selected-index < 0) {
             root.reset-result-scroll();
             return;
         }
@@ -126,7 +136,7 @@ export component AppWindow inherits Window {
     }
 
     function select-previous() {
-        if (root.selected-index > 0) {
+        if (root.selected-index > -1) {
             root.selected-index = root.selected-index - 1;
             root.keep-selection-visible();
         }
@@ -140,16 +150,17 @@ export component AppWindow inherits Window {
     }
 
     function activate-selected(open-in-vscode: bool) {
-        if (root.result-count > 0) {
+        if (root.result-count > 0 && root.selected-index >= 0) {
             root.activate-selected-result(root.selected-index, open-in-vscode);
         }
     }
 
     title: "rayslash";
+    icon: @image-url("../../../icons/rayslash-icon.svg");
     preferred-width: 660px;
-    preferred-height: 430px;
+    preferred-height: 400px;
     min-width: 520px;
-    min-height: 380px;
+    min-height: 360px;
     no-frame: true;
     resize-border-width: 0px;
     background: transparent;
@@ -163,6 +174,12 @@ export component AppWindow inherits Window {
             width: 100%;
             height: 100%;
             forward-focus: search;
+
+            focus-lost(reason) => {
+                if (reason == FocusReason.window-activation) {
+                    root.close-requested();
+                }
+            }
 
             key-pressed(event) => {
                 if (event.text == Key.Escape) {
@@ -206,26 +223,26 @@ export component AppWindow inherits Window {
                     padding-left: 22px;
                     padding-right: 22px;
                     padding-top: 20px;
-                    padding-bottom: 20px;
+                    padding-bottom: 8px;
                     spacing: 12px;
 
                     HorizontalLayout {
-                        height: 28px;
+                        height: 36px;
                         alignment: space-between;
 
                         HorizontalLayout {
                             spacing: 8px;
 
                             Rectangle {
-                                width: 24px;
+                                width: 32px;
                                 height: 100%;
                                 background: transparent;
 
                                 Image {
                                     x: 0px;
-                                    y: (parent.height - self.height) / 2;
-                                    width: 22px;
-                                    height: 22px;
+                                    y: (parent.height - self.height) / 2 + 2px;
+                                    width: 28px;
+                                    height: 28px;
                                     source: @image-url("../../../icons/rayslash-icon.svg");
                                     image-fit: contain;
                                 }
@@ -269,9 +286,63 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    Rectangle {
-                        height: 1px;
-                        background: #303030;
+                    if root.status-text != "": Text {
+                        height: 16px;
+                        text: root.status-text;
+                        color: #b8b8b8;
+                        font-size: 11px;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+
+                    if root.status-text == "": HorizontalLayout {
+                        height: 16px;
+                        spacing: 4px;
+
+                        Text {
+                            text: "Enter";
+                            color: #dedede;
+                            font-size: 11px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: ": launch/open/show result";
+                            color: #9a9a9a;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: "  Ctrl+Enter";
+                            color: #dedede;
+                            font-size: 11px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: ": VS Code projects";
+                            color: #9a9a9a;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: "  Esc";
+                            color: #dedede;
+                            font-size: 11px;
+                            font-weight: 700;
+                            vertical-alignment: center;
+                        }
+
+                        Text {
+                            text: ": hide";
+                            color: #9a9a9a;
+                            font-size: 11px;
+                            vertical-alignment: center;
+                        }
                     }
 
                     results-scroll := Flickable {
@@ -287,9 +358,9 @@ export component AppWindow inherits Window {
                             for item[i] in root.results: Rectangle {
                                 height: root.result-row-height;
                                 border-radius: 12px;
-                                background: i == root.selected-index ? #343434 : #222222;
+                                background: row-touch.pressed ? #3c3c3c : i == root.selected-index ? #343434 : row-touch.has-hover && root.row-fully-visible(i) ? #2a2a2a : #222222;
                                 border-width: 1px;
-                                border-color: i == root.selected-index ? #6a6a6a : #303030;
+                                border-color: i == root.selected-index ? #6a6a6a : row-touch.has-hover && root.row-fully-visible(i) ? #474747 : #303030;
 
                                 animate background { duration: 90ms; }
                                 animate border-color { duration: 90ms; }
@@ -302,27 +373,28 @@ export component AppWindow inherits Window {
                                     spacing: 12px;
 
                                     Rectangle {
-                                        width: 38px;
+                                        width: 50px;
                                         height: 100%;
                                         background: #00000000;
 
+                                        Image {
+                                            x: 1px;
+                                            y: (parent.height - self.height) / 2;
+                                            width: 48px;
+                                            height: 48px;
+                                            source: item.icon;
+                                            image-fit: contain;
+                                            visible: item.has_icon;
+                                        }
+
                                         Rectangle {
-                                            x: 0px;
+                                            x: 6px;
                                             y: (parent.height - self.height) / 2;
                                             width: 36px;
                                             height: 36px;
                                             border-radius: 10px;
                                             background: i == root.selected-index ? #d6d6d6 : #3a3a3a;
-
-                                            Image {
-                                                x: 5px;
-                                                y: 5px;
-                                                width: 26px;
-                                                height: 26px;
-                                                source: item.icon;
-                                                image-fit: contain;
-                                                visible: item.has_icon;
-                                            }
+                                            visible: !item.has_icon;
 
                                             Text {
                                                 x: 0px;
@@ -448,37 +520,32 @@ export component AppWindow inherits Window {
                                         }
                                     }
                                 }
+
+                                row-touch := TouchArea {
+                                    mouse-cursor: pointer;
+
+                                    clicked => {
+                                        root.selected-index = i;
+                                        root.activate-selected-result(i, root.click-open-in-vscode);
+                                    }
+
+                                    pointer-event(event) => {
+                                        if (event.kind == PointerEventKind.down || event.kind == PointerEventKind.up) {
+                                            root.click-open-in-vscode = event.modifiers.control;
+                                            root.selected-index = i;
+                                        } else if (event.kind == PointerEventKind.move && root.row-fully-visible(i)) {
+                                            root.selected-index = i;
+                                        }
+                                    }
+
+                                    changed has-hover => {
+                                        if (self.has-hover && root.row-fully-visible(i)) {
+                                            root.selected-index = i;
+                                        }
+                                    }
+                                }
                             }
                         }
-                    }
-
-                    VerticalLayout {
-                        height: 34px;
-                        spacing: 2px;
-
-                        Text {
-                            text: "Enter: launch apps, open folders, show calculator results";
-                            color: #9a9a9a;
-                            font-size: 11px;
-                            height: 16px;
-                            vertical-alignment: center;
-                        }
-
-                        Text {
-                            text: "Ctrl+Enter: open projects in VS Code   Esc: hide launcher";
-                            color: #8a8a8a;
-                            font-size: 11px;
-                            height: 16px;
-                            vertical-alignment: center;
-                        }
-                    }
-
-                    Text {
-                        text: root.status-text;
-                        color: #9a9a9a;
-                        font-size: 12px;
-                        height: 18px;
-                        vertical-alignment: center;
                     }
                 }
             }

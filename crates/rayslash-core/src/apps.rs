@@ -246,14 +246,14 @@ fn icon_theme_roots(dir: &Path) -> Vec<PathBuf> {
 
 fn icon_theme_app_dirs() -> Vec<PathBuf> {
     [
-        "scalable/apps",
-        "512x512/apps",
-        "256x256/apps",
-        "128x128/apps",
-        "64x64/apps",
         "48x48/apps",
         "32x32/apps",
+        "64x64/apps",
         "24x24/apps",
+        "scalable/apps",
+        "128x128/apps",
+        "256x256/apps",
+        "512x512/apps",
         "16x16/apps",
     ]
     .into_iter()
@@ -634,6 +634,30 @@ Icon=example-browser
         assert_eq!(
             resolve_desktop_icon_in_dirs("example", std::slice::from_ref(&dir)),
             Some(icon.clone())
+        );
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn resolve_desktop_icon_prefers_launcher_sized_hicolor_icons() {
+        let dir = unique_temp_dir("rayslash-icons-preferred-size");
+        let icon_48_dir = dir.join("hicolor/48x48/apps");
+        let icon_scalable_dir = dir.join("hicolor/scalable/apps");
+        fs::create_dir_all(&icon_48_dir).expect("create 48px icon dir");
+        fs::create_dir_all(&icon_scalable_dir).expect("create scalable icon dir");
+        let icon_48 = icon_48_dir.join("example.png");
+        let icon_scalable = icon_scalable_dir.join("example.svg");
+        fs::write(&icon_48, "not a real png").expect("write 48px icon");
+        fs::write(
+            &icon_scalable,
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .expect("write scalable icon");
+
+        assert_eq!(
+            resolve_desktop_icon_in_dirs("example", std::slice::from_ref(&dir)),
+            Some(icon_48.clone())
         );
 
         fs::remove_dir_all(dir).expect("cleanup temp dir");

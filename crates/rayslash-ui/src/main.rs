@@ -19,7 +19,7 @@ use slint::{Image, VecModel};
 
 slint::include_modules!();
 
-const DEFAULT_STATUS_TEXT: &str = "Type to filter apps, projects, and calculations.";
+const DEFAULT_STATUS_TEXT: &str = "";
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -97,6 +97,8 @@ fn run_resident(socket_path: std::path::PathBuf, request: ipc::IpcRequest) -> Re
 
 fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
+    slint::set_xdg_app_id(rayslash_core::APP_ID)?;
+
     let is_visible = Arc::new(AtomicBool::new(true));
 
     let config = config::load_config().unwrap_or_else(|error| {
@@ -114,6 +116,7 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
 
     ui.set_result_count(current_results.borrow().len() as i32);
     ui.set_results(results_model.clone().into());
+    ui.set_selected_index(-1);
     ui.invoke_focus_search();
 
     ui.on_reset_requested({
@@ -133,7 +136,7 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
             if let Some(ui) = weak.upgrade() {
                 ui.set_query_text("".into());
                 ui.set_result_count(count);
-                ui.set_selected_index(0);
+                ui.set_selected_index(-1);
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.invoke_reset_result_scroll();
             }
@@ -166,7 +169,8 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
 
             if let Some(ui) = weak.upgrade() {
                 ui.set_result_count(count);
-                ui.set_selected_index(0);
+                ui.set_selected_index(selected_index_for_query(query.as_str(), count));
+                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.invoke_reset_result_scroll();
             }
         }
@@ -177,7 +181,9 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
         let current_results = current_results.clone();
         let is_visible = is_visible.clone();
         move |index, open_in_vscode| {
-            let result = current_results.borrow().get(index as usize).cloned();
+            let result = usize::try_from(index)
+                .ok()
+                .and_then(|index| current_results.borrow().get(index).cloned());
 
             match result {
                 Some(result) => {
@@ -367,6 +373,14 @@ fn command_display(command: &actions::CommandSpec) -> String {
         .join(" ")
 }
 
+fn selected_index_for_query(query: &str, result_count: i32) -> i32 {
+    if query.trim().is_empty() || result_count <= 0 {
+        -1
+    } else {
+        0
+    }
+}
+
 type IconImageCache = HashMap<PathBuf, Option<Image>>;
 
 fn to_result_items(
@@ -435,4 +449,17 @@ fn load_icon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -> Option<Im
     let image = Image::load_from_path(path).ok();
     icon_cache.insert(path.clone(), image.clone());
     image
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_index_requires_non_empty_query_with_results() {
+        assert_eq!(selected_index_for_query("", 3), -1);
+        assert_eq!(selected_index_for_query("   ", 3), -1);
+        assert_eq!(selected_index_for_query("code", 0), -1);
+        assert_eq!(selected_index_for_query("code", 3), 0);
+    }
 }
