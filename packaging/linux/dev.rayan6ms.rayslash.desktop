@@ -8,3 +8,4 @@ Terminal=false
 NoDisplay=true
 Categories=Utility;
 StartupNotify=false
+StartupWMClass=dev.rayan6ms.rayslash

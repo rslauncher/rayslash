@@ -15,7 +15,10 @@ use std::{
 };
 
 use rayslash_core::{actions, apps, config, projects, search};
-use slint::{Image, VecModel};
+use slint::{
+    ComponentHandle, Image, VecModel,
+    winit_030::{EventResult, WinitWindowAccessor, winit},
+};
 
 slint::include_modules!();
 
@@ -96,8 +99,10 @@ fn run_resident(socket_path: std::path::PathBuf, request: ipc::IpcRequest) -> Re
 }
 
 fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::PlatformError> {
-    let ui = AppWindow::new()?;
+    slint::BackendSelector::new().select()?;
     slint::set_xdg_app_id(rayslash_core::APP_ID)?;
+
+    let ui = AppWindow::new()?;
 
     let is_visible = Arc::new(AtomicBool::new(true));
 
@@ -118,6 +123,20 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
     ui.set_results(results_model.clone().into());
     ui.set_selected_index(-1);
     ui.invoke_focus_search();
+
+    ui.window().on_winit_window_event({
+        let weak = ui.as_weak();
+        let is_visible = is_visible.clone();
+        move |_, event| {
+            if matches!(event, winit::event::WindowEvent::Focused(false))
+                && let Some(ui) = weak.upgrade()
+            {
+                hide_launcher(&ui, is_visible.as_ref());
+            }
+
+            EventResult::Propagate
+        }
+    });
 
     ui.on_reset_requested({
         let weak = ui.as_weak();
