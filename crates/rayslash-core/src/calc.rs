@@ -18,6 +18,26 @@ pub fn calculate(query: &str) -> Option<Calculation> {
         });
     }
 
+    if expression.contains('=') {
+        return Some(match solve_equation(expression) {
+            Ok(result) => Calculation::Value {
+                expression: expression.to_owned(),
+                result,
+            },
+            Err(error) => Calculation::Error {
+                expression: expression.to_owned(),
+                message: error.message().to_owned(),
+            },
+        });
+    }
+
+    if has_invalid_operator_sequence(expression) {
+        return Some(Calculation::Error {
+            expression: expression.to_owned(),
+            message: CalcError::UnexpectedToken('+').message().to_owned(),
+        });
+    }
+
     let mut parser = Parser::new(expression);
     let value = match parser.parse_expression() {
         Ok(value) => value,
@@ -65,7 +85,7 @@ fn has_calculation_hint(expression: &str) -> bool {
     }
 
     if expression.chars().any(|ch| {
-        matches!(ch, '+' | '-' | '*' | '/' | '^' | '(' | ')' | '.')
+        matches!(ch, '+' | '-' | '*' | '/' | '^' | '=' | '(' | ')' | '.')
             || superscript_digit_value(ch).is_some()
             || matches!(ch, '⁺' | '⁻')
     }) {
@@ -102,9 +122,13 @@ fn contains_only_math_chars(expression: &str) -> bool {
             || superscript_digit_value(ch).is_some()
             || matches!(
                 ch,
-                '+' | '-' | '*' | '/' | '^' | '(' | ')' | '.' | ' ' | '\t' | '⁺' | '⁻'
+                '+' | '-' | '*' | '/' | '^' | '=' | '(' | ')' | '.' | ' ' | '\t' | '⁺' | '⁻'
             )
     })
+}
+
+fn has_invalid_operator_sequence(expression: &str) -> bool {
+    expression.contains("++")
 }
 
 fn format_result(value: f64) -> String {
@@ -163,6 +187,10 @@ enum CalcError {
     UnknownIdentifier,
     DomainError,
     NonFiniteResult,
+    MissingEquationSide,
+    TooManyEquals,
+    NonlinearEquation,
+    NoSolution,
 }
 
 impl CalcError {
@@ -182,7 +210,384 @@ impl CalcError {
             CalcError::NonFiniteResult => {
                 "This calculation is too large to show as a finite result."
             }
+            CalcError::MissingEquationSide => "Both sides of the equation need a value.",
+            CalcError::TooManyEquals => "Use only one equals sign in an equation.",
+            CalcError::NonlinearEquation => "Only linear equations in x are supported.",
+            CalcError::NoSolution => "This equation has no solution.",
         }
+    }
+}
+
+fn solve_equation(expression: &str) -> Result<String, CalcError> {
+    let mut parts = expression.split('=');
+    let lhs = parts.next().unwrap_or_default().trim();
+    let rhs = parts.next().ok_or(CalcError::MissingEquationSide)?.trim();
+
+    if parts.next().is_some() {
+        return Err(CalcError::TooManyEquals);
+    }
+
+    if lhs.is_empty() || rhs.is_empty() {
+        return Err(CalcError::MissingEquationSide);
+    }
+
+    if has_invalid_operator_sequence(lhs) || has_invalid_operator_sequence(rhs) {
+        return Err(CalcError::UnexpectedToken('+'));
+    }
+
+    let lhs = parse_linear_expression(lhs)?;
+    let rhs = parse_linear_expression(rhs)?;
+    let coefficient = lhs.x - rhs.x;
+    let constant = rhs.constant - lhs.constant;
+
+    if nearly_zero(coefficient) {
+        return if nearly_zero(constant) {
+            Ok("True".to_owned())
+        } else {
+            Err(CalcError::NoSolution)
+        };
+    }
+
+    let value = constant / coefficient;
+    if value.is_finite() {
+        Ok(format!("x = {}", format_result(value)))
+    } else {
+        Err(CalcError::NonFiniteResult)
+    }
+}
+
+fn parse_linear_expression(input: &str) -> Result<LinearValue, CalcError> {
+    let mut parser = LinearParser::new(input);
+    let value = parser.parse_expression()?;
+    parser.skip_whitespace();
+
+    if let Some(ch) = parser.peek() {
+        return Err(CalcError::UnexpectedToken(ch));
+    }
+
+    Ok(value)
+}
+
+fn nearly_zero(value: f64) -> bool {
+    value.abs() < 1e-10
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct LinearValue {
+    x: f64,
+    constant: f64,
+}
+
+impl LinearValue {
+    fn constant(value: f64) -> Self {
+        Self {
+            x: 0.0,
+            constant: value,
+        }
+    }
+
+    fn variable() -> Self {
+        Self {
+            x: 1.0,
+            constant: 0.0,
+        }
+    }
+
+    fn add(self, rhs: Self) -> Self {
+        Self {
+            x: self.x + rhs.x,
+            constant: self.constant + rhs.constant,
+        }
+    }
+
+    fn sub(self, rhs: Self) -> Self {
+        Self {
+            x: self.x - rhs.x,
+            constant: self.constant - rhs.constant,
+        }
+    }
+
+    fn neg(self) -> Self {
+        Self {
+            x: -self.x,
+            constant: -self.constant,
+        }
+    }
+
+    fn mul(self, rhs: Self) -> Result<Self, CalcError> {
+        if !nearly_zero(self.x) && !nearly_zero(rhs.x) {
+            return Err(CalcError::NonlinearEquation);
+        }
+
+        Ok(Self {
+            x: self.x * rhs.constant + rhs.x * self.constant,
+            constant: self.constant * rhs.constant,
+        })
+    }
+
+    fn div(self, rhs: Self) -> Result<Self, CalcError> {
+        if !nearly_zero(rhs.x) {
+            return Err(CalcError::NonlinearEquation);
+        }
+
+        if nearly_zero(rhs.constant) {
+            return Err(CalcError::DivisionByZero);
+        }
+
+        Ok(Self {
+            x: self.x / rhs.constant,
+            constant: self.constant / rhs.constant,
+        })
+    }
+
+    fn pow(self, rhs: Self) -> Result<Self, CalcError> {
+        if !nearly_zero(rhs.x) {
+            return Err(CalcError::NonlinearEquation);
+        }
+
+        if nearly_zero(self.x) {
+            let value = self.constant.powf(rhs.constant);
+            return if value.is_finite() {
+                Ok(Self::constant(value))
+            } else {
+                Err(CalcError::NonFiniteResult)
+            };
+        }
+
+        if nearly_zero(rhs.constant - 1.0) {
+            Ok(self)
+        } else if nearly_zero(rhs.constant) {
+            Ok(Self::constant(1.0))
+        } else {
+            Err(CalcError::NonlinearEquation)
+        }
+    }
+}
+
+struct LinearParser<'a> {
+    input: &'a str,
+    position: usize,
+}
+
+impl<'a> LinearParser<'a> {
+    fn new(input: &'a str) -> Self {
+        Self { input, position: 0 }
+    }
+
+    fn parse_expression(&mut self) -> Result<LinearValue, CalcError> {
+        self.parse_addition()
+    }
+
+    fn parse_addition(&mut self) -> Result<LinearValue, CalcError> {
+        let mut value = self.parse_multiplication()?;
+
+        loop {
+            self.skip_whitespace();
+
+            if self.consume('+') {
+                value = value.add(self.parse_multiplication().map_err(incomplete_rhs)?);
+            } else if self.consume('-') {
+                value = value.sub(self.parse_multiplication().map_err(incomplete_rhs)?);
+            } else {
+                break;
+            }
+        }
+
+        Ok(value)
+    }
+
+    fn parse_multiplication(&mut self) -> Result<LinearValue, CalcError> {
+        let mut value = self.parse_unary()?;
+
+        loop {
+            self.skip_whitespace();
+
+            if self.consume('*') {
+                value = value.mul(self.parse_unary().map_err(incomplete_rhs)?)?;
+            } else if self.consume('/') {
+                value = value.div(self.parse_unary().map_err(incomplete_rhs)?)?;
+            } else if self.starts_implicit_multiplication() {
+                value = value.mul(self.parse_unary()?)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(value)
+    }
+
+    fn parse_unary(&mut self) -> Result<LinearValue, CalcError> {
+        self.skip_whitespace();
+
+        if self.consume('+') {
+            self.parse_unary().map_err(incomplete_rhs)
+        } else if self.consume('-') {
+            Ok(self.parse_unary().map_err(incomplete_rhs)?.neg())
+        } else {
+            self.parse_power()
+        }
+    }
+
+    fn parse_power(&mut self) -> Result<LinearValue, CalcError> {
+        let mut base = self.parse_primary()?;
+        self.skip_whitespace();
+
+        if self.consume_power_operator() {
+            base = base.pow(self.parse_unary().map_err(incomplete_rhs)?)?;
+        } else if let Some(exponent) = self.consume_superscript_exponent() {
+            base = base.pow(LinearValue::constant(exponent))?;
+        }
+
+        Ok(base)
+    }
+
+    fn parse_primary(&mut self) -> Result<LinearValue, CalcError> {
+        self.skip_whitespace();
+
+        if self.consume('(') {
+            let value = self.parse_expression()?;
+            self.skip_whitespace();
+            if self.consume(')') {
+                Ok(value)
+            } else {
+                Err(CalcError::MissingClosingParenthesis)
+            }
+        } else if self.peek().is_some_and(|ch| ch.is_ascii_alphabetic()) {
+            self.parse_identifier()
+        } else {
+            self.parse_number().map(LinearValue::constant)
+        }
+    }
+
+    fn parse_identifier(&mut self) -> Result<LinearValue, CalcError> {
+        let start = self.position;
+
+        while let Some(ch) = self.peek()
+            && ch.is_ascii_alphanumeric()
+        {
+            self.advance(ch);
+        }
+
+        let identifier = self.input[start..self.position].to_ascii_lowercase();
+        self.skip_whitespace();
+
+        if self.consume('(') {
+            let value = self.parse_expression()?;
+            self.skip_whitespace();
+            if !self.consume(')') {
+                return Err(CalcError::MissingClosingParenthesis);
+            }
+
+            if !nearly_zero(value.x) {
+                return Err(CalcError::NonlinearEquation);
+            }
+
+            return apply_function(&identifier, value.constant).map(LinearValue::constant);
+        }
+
+        match identifier.as_str() {
+            "x" => Ok(LinearValue::variable()),
+            "pi" => Ok(LinearValue::constant(std::f64::consts::PI)),
+            "e" => Ok(LinearValue::constant(std::f64::consts::E)),
+            _ => Err(CalcError::UnknownIdentifier),
+        }
+    }
+
+    fn parse_number(&mut self) -> Result<f64, CalcError> {
+        self.skip_whitespace();
+
+        let start = self.position;
+        let mut digit_count = 0;
+        let mut saw_decimal_point = false;
+
+        while let Some(ch) = self.peek() {
+            if ch.is_ascii_digit() {
+                digit_count += 1;
+                self.advance(ch);
+            } else if ch == '.' && !saw_decimal_point {
+                saw_decimal_point = true;
+                self.advance(ch);
+            } else {
+                break;
+            }
+        }
+
+        if digit_count == 0 {
+            return Err(CalcError::ExpectedNumber);
+        }
+
+        self.input[start..self.position]
+            .parse::<f64>()
+            .map_err(|_| CalcError::ExpectedNumber)
+    }
+
+    fn skip_whitespace(&mut self) {
+        while let Some(ch) = self.peek()
+            && ch.is_ascii_whitespace()
+        {
+            self.advance(ch);
+        }
+    }
+
+    fn consume(&mut self, expected: char) -> bool {
+        if self.peek() == Some(expected) {
+            self.position += expected.len_utf8();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn consume_power_operator(&mut self) -> bool {
+        if self.input[self.position..].starts_with("**") {
+            self.position += 2;
+            true
+        } else {
+            self.consume('^')
+        }
+    }
+
+    fn consume_superscript_exponent(&mut self) -> Option<f64> {
+        let start = self.position;
+        let mut sign = 1.0;
+
+        if self.consume('⁻') {
+            sign = -1.0;
+        } else {
+            self.consume('⁺');
+        }
+
+        let mut value: i64 = 0;
+        let mut digit_count = 0;
+
+        while let Some(ch) = self.peek() {
+            let Some(digit) = superscript_digit_value(ch) else {
+                break;
+            };
+            digit_count += 1;
+            value = value.saturating_mul(10).saturating_add(i64::from(digit));
+            self.advance(ch);
+        }
+
+        if digit_count == 0 {
+            self.position = start;
+            None
+        } else {
+            Some(sign * value as f64)
+        }
+    }
+
+    fn starts_implicit_multiplication(&self) -> bool {
+        self.peek()
+            .is_some_and(|ch| ch == '(' || ch.is_ascii_alphabetic())
+    }
+
+    fn peek(&self) -> Option<char> {
+        self.input[self.position..].chars().next()
+    }
+
+    fn advance(&mut self, ch: char) {
+        self.position += ch.len_utf8();
     }
 }
 
@@ -551,6 +956,25 @@ mod tests {
     }
 
     #[test]
+    fn solves_linear_equations_for_x() {
+        assert_eq!(value("x+10/2=8"), Some("x = 3".to_owned()));
+        assert_eq!(value("2x + 4 = 10"), Some("x = 3".to_owned()));
+        assert_eq!(value("10/2 + x = 8"), Some("x = 3".to_owned()));
+        assert_eq!(value("x / 2 = 4"), Some("x = 8".to_owned()));
+        assert_eq!(value("2(x + 3) = 10"), Some("x = 2".to_owned()));
+        assert_eq!(value("x + pi = 2pi"), Some("x = 3.14159265359".to_owned()));
+    }
+
+    #[test]
+    fn handles_constant_equations() {
+        assert_eq!(value("2 + 2 = 4"), Some("True".to_owned()));
+        assert_eq!(
+            error("2 + 2 = 5"),
+            Some("This equation has no solution.".to_owned())
+        );
+    }
+
+    #[test]
     fn does_not_treat_plain_queries_or_plain_values_as_calculations() {
         assert_eq!(value(""), None);
         assert_eq!(value("code"), None);
@@ -576,6 +1000,18 @@ mod tests {
         assert_eq!(
             error("2^"),
             Some("Finish the expression to calculate it.".to_owned())
+        );
+        assert_eq!(
+            error("10+/2"),
+            Some("Finish the expression to calculate it.".to_owned())
+        );
+    }
+
+    #[test]
+    fn reports_repeated_operator_errors() {
+        assert_eq!(
+            error("10++2"),
+            Some("This calculation has an unexpected value.".to_owned())
         );
     }
 
@@ -624,6 +1060,26 @@ mod tests {
         assert_eq!(
             error("10^10000"),
             Some("This calculation is too large to show as a finite result.".to_owned())
+        );
+    }
+
+    #[test]
+    fn reports_equation_errors() {
+        assert_eq!(
+            error("x^2 = 4"),
+            Some("Only linear equations in x are supported.".to_owned())
+        );
+        assert_eq!(
+            error("1 / x = 2"),
+            Some("Only linear equations in x are supported.".to_owned())
+        );
+        assert_eq!(
+            error("x + 1 ="),
+            Some("Both sides of the equation need a value.".to_owned())
+        );
+        assert_eq!(
+            error("x = 1 = 2"),
+            Some("Use only one equals sign in an equation.".to_owned())
         );
     }
 

@@ -252,14 +252,37 @@ fn run_gui(listener: std::os::unix::net::UnixListener) -> Result<(), slint::Plat
                     if let Some(calculator_result) = result.calculator_result() {
                         println!("calculator result: {}", calculator_result);
 
-                        if let Some(ui) = weak.upgrade() {
-                            ui.set_status_text(format!("Result: {}", calculator_result).into());
+                        match copy_to_clipboard(calculator_result) {
+                            Ok(()) => {
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        format!("Copied result: {}", calculator_result).into(),
+                                    );
+                                    hide_launcher(&ui, is_visible.as_ref());
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!("failed to copy calculator result: {error}");
+
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        format!("Could not copy result: {}", calculator_result)
+                                            .into(),
+                                    );
+                                }
+                            }
                         }
                     } else if let Some(calculator_error) = result.calculator_error_message() {
                         println!("calculator error: {}", calculator_error);
 
                         if let Some(ui) = weak.upgrade() {
                             ui.set_status_text(calculator_error.into());
+                        }
+                    } else if result.is_no_results() {
+                        println!("no results for query");
+
+                        if let Some(ui) = weak.upgrade() {
+                            hide_launcher(&ui, is_visible.as_ref());
                         }
                     } else if let Some(path) = result.project_path() {
                         let display_path = search::display_path(path);
@@ -452,6 +475,11 @@ fn command_display(command: &actions::CommandSpec) -> String {
         )
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn copy_to_clipboard(text: &str) -> Result<(), arboard::Error> {
+    let mut clipboard = arboard::Clipboard::new()?;
+    clipboard.set_text(text.to_owned())
 }
 
 fn selected_index_for_query(query: &str, result_count: i32) -> i32 {

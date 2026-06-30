@@ -10,6 +10,7 @@ name = "rayslash"
 path = "src/main.rs"
 
 [dependencies]
+arboard.workspace = true
 rayslash-core = { path = "../rayslash-core" }
 slint.workspace = true
 

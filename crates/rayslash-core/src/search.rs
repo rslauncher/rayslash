@@ -28,6 +28,7 @@ pub enum SearchResultIcon {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchResultKind {
     Placeholder,
+    NoResults { query: String },
     Calculator { expression: String, result: String },
     CalculatorError { expression: String, message: String },
     App { id: String, command: CommandSpec },
@@ -38,6 +39,7 @@ impl SearchResult {
     pub fn project_path(&self) -> Option<&Path> {
         match &self.kind {
             SearchResultKind::Placeholder => None,
+            SearchResultKind::NoResults { .. } => None,
             SearchResultKind::Calculator { .. } => None,
             SearchResultKind::CalculatorError { .. } => None,
             SearchResultKind::App { .. } => None,
@@ -49,6 +51,7 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::App { command, .. } => Some(command),
             SearchResultKind::Placeholder
+            | SearchResultKind::NoResults { .. }
             | SearchResultKind::Calculator { .. }
             | SearchResultKind::CalculatorError { .. }
             | SearchResultKind::Project { .. } => None,
@@ -59,6 +62,7 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::Calculator { result, .. } => Some(result),
             SearchResultKind::Placeholder
+            | SearchResultKind::NoResults { .. }
             | SearchResultKind::CalculatorError { .. }
             | SearchResultKind::App { .. }
             | SearchResultKind::Project { .. } => None,
@@ -69,10 +73,15 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::CalculatorError { message, .. } => Some(message),
             SearchResultKind::Placeholder
+            | SearchResultKind::NoResults { .. }
             | SearchResultKind::Calculator { .. }
             | SearchResultKind::App { .. }
             | SearchResultKind::Project { .. } => None,
         }
+    }
+
+    pub fn is_no_results(&self) -> bool {
+        matches!(self.kind, SearchResultKind::NoResults { .. })
     }
 }
 
@@ -264,7 +273,9 @@ fn no_results(query: &str) -> SearchResult {
         title: "No results".to_owned(),
         subtitle: format!("No apps, projects, or calculations match \"{query}\""),
         icon: SearchResultIcon::Placeholder,
-        kind: SearchResultKind::Placeholder,
+        kind: SearchResultKind::NoResults {
+            query: query.to_owned(),
+        },
     }
 }
 
@@ -317,7 +328,7 @@ fn result_type_order(kind: &SearchResultKind) -> u8 {
         SearchResultKind::CalculatorError { .. } => 0,
         SearchResultKind::App { .. } => 1,
         SearchResultKind::Project { .. } => 2,
-        SearchResultKind::Placeholder => 3,
+        SearchResultKind::Placeholder | SearchResultKind::NoResults { .. } => 3,
     }
 }
 
@@ -586,6 +597,17 @@ mod tests {
     }
 
     #[test]
+    fn mixed_results_show_linear_equation_results() {
+        let results = mixed_results(&[], &[], "x + 10 / 2 = 8");
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "x = 3");
+        assert_eq!(results[0].subtitle, "Calculate: x + 10 / 2 = 8");
+        assert_eq!(results[0].calculator_result(), Some("x = 3"));
+        assert_eq!(results[0].icon, SearchResultIcon::Calculator);
+    }
+
+    #[test]
     fn mixed_results_show_calculator_error_rows() {
         let apps = vec![DesktopApp {
             id: "calculator.desktop".to_owned(),
@@ -658,6 +680,12 @@ mod tests {
             results[0].subtitle,
             "No apps, projects, or calculations match \"zzz\""
         );
-        assert_eq!(results[0].kind, SearchResultKind::Placeholder);
+        assert_eq!(
+            results[0].kind,
+            SearchResultKind::NoResults {
+                query: "zzz".to_owned()
+            }
+        );
+        assert!(results[0].is_no_results());
     }
 }
