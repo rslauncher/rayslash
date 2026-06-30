@@ -8,13 +8,12 @@ component SearchBox inherits Rectangle {
     callback select-previous();
     callback select-next();
     callback activate-selected();
-    in property <bool> dark-theme;
 
     height: 62px;
-    border-radius: 8px;
-    background: dark-theme ? (search-input.has-focus ? #111827 : #1f2937) : (search-input.has-focus ? #ffffff : #f8fafc);
+    border-radius: 12px;
+    background: search-input.has-focus ? #242424 : #202020;
     border-width: 2px;
-    border-color: search-input.has-focus ? #2563eb : (dark-theme ? #475569 : #cbd5e1);
+    border-color: search-input.has-focus ? #7a7a7a : #3a3a3a;
 
     forward-focus: search-input;
 
@@ -27,7 +26,7 @@ component SearchBox inherits Rectangle {
         height: parent.height;
         vertical-alignment: center;
         text: "Search apps, projects, or calculations";
-        color: dark-theme ? #94a3b8 : #64748b;
+        color: #9a9a9a;
         font-size: 18px;
         visible: search-input.text == "";
     }
@@ -38,16 +37,22 @@ component SearchBox inherits Rectangle {
         width: parent.width - 36px;
         height: parent.height;
         vertical-alignment: center;
-        color: dark-theme ? #f8fafc : #0f172a;
+        color: #f2f2f2;
         font-size: 19px;
         font-weight: 500;
         single-line: true;
-        selection-background-color: #2563eb;
-        selection-foreground-color: #ffffff;
+        selection-background-color: #d4d4d4;
+        selection-foreground-color: #181818;
 
         key-pressed(event) => {
             if (event.text == Key.Escape) {
                 root.close-requested();
+                accept
+            } else if (event.text == Key.Tab && event.modifiers.shift) {
+                root.select-previous();
+                accept
+            } else if (event.text == Key.Tab) {
+                root.select-next();
                 accept
             } else if (event.text == Key.UpArrow) {
                 root.select-previous();
@@ -68,9 +73,8 @@ component SearchBox inherits Rectangle {
 export component AppWindow inherits Window {
     in property <[ResultItem]> results;
     in property <int> result-count;
-    in property <bool> dark-theme: true;
     in-out property <int> selected-index: 0;
-    in-out property <string> status-text: "Use Up/Down to select. Enter previews only.";
+    in-out property <string> status-text: "Use Up/Down or Tab to select. Enter previews only.";
     callback close-requested();
     callback activate-placeholder(int);
 
@@ -103,7 +107,7 @@ export component AppWindow inherits Window {
     min-height: 320px;
     no-frame: true;
     resize-border-width: 0px;
-    background: dark-theme ? #020617 : #e2e8f0;
+    background: #181818;
 
     Rectangle {
         width: 100%;
@@ -118,6 +122,12 @@ export component AppWindow inherits Window {
             key-pressed(event) => {
                 if (event.text == Key.Escape) {
                     root.close-requested();
+                    accept
+                } else if (event.text == Key.Tab && event.modifiers.shift) {
+                    root.select-previous();
+                    accept
+                } else if (event.text == Key.Tab) {
+                    root.select-next();
                     accept
                 } else if (event.text == Key.UpArrow) {
                     root.select-previous();
@@ -138,16 +148,16 @@ export component AppWindow inherits Window {
                 y: 0px;
                 width: 100%;
                 height: 100%;
-                border-radius: 10px;
-                background: root.dark-theme ? #0f172a : #ffffff;
+                border-radius: 14px;
+                background: #181818;
                 border-width: 1px;
-                border-color: root.dark-theme ? #334155 : #cbd5e1;
+                border-color: #343434;
 
                 VerticalLayout {
                     padding-left: 22px;
                     padding-right: 22px;
                     padding-top: 20px;
-                    padding-bottom: 18px;
+                    padding-bottom: 24px;
                     spacing: 12px;
 
                     HorizontalLayout {
@@ -156,14 +166,14 @@ export component AppWindow inherits Window {
 
                         Text {
                             text: "rayslash";
-                            color: root.dark-theme ? #f8fafc : #0f172a;
+                            color: #f5f5f5;
                             font-size: 22px;
                             font-weight: 700;
                         }
 
                         Text {
                             text: "preview";
-                            color: root.dark-theme ? #38bdf8 : #2563eb;
+                            color: #b8b8b8;
                             font-size: 12px;
                             font-weight: 600;
                             vertical-alignment: center;
@@ -171,7 +181,6 @@ export component AppWindow inherits Window {
                     }
 
                     search := SearchBox {
-                        dark-theme: root.dark-theme;
                         close-requested => {
                             root.close-requested();
                         }
@@ -188,7 +197,7 @@ export component AppWindow inherits Window {
 
                     Rectangle {
                         height: 1px;
-                        background: root.dark-theme ? #334155 : #e2e8f0;
+                        background: #303030;
                     }
 
                     VerticalLayout {
@@ -196,10 +205,10 @@ export component AppWindow inherits Window {
 
                         for item[i] in root.results: Rectangle {
                             height: 64px;
-                            border-radius: 8px;
-                            background: i == root.selected-index ? (root.dark-theme ? #1d4ed8 : #dbeafe) : (root.dark-theme ? #111827 : #f8fafc);
+                            border-radius: 12px;
+                            background: i == root.selected-index ? #343434 : #222222;
                             border-width: 1px;
-                            border-color: i == root.selected-index ? (root.dark-theme ? #60a5fa : #93c5fd) : (root.dark-theme ? #253245 : #e2e8f0);
+                            border-color: i == root.selected-index ? #6a6a6a : #303030;
 
                             animate background { duration: 90ms; }
                             animate border-color { duration: 90ms; }
@@ -212,11 +221,18 @@ export component AppWindow inherits Window {
                                 spacing: 12px;
 
                                 Rectangle {
-                                    width: 34px;
-                                    height: 34px;
-                                    border-radius: 6px;
-                                    background: i == root.selected-index ? (root.dark-theme ? #bfdbfe : #2563eb) : (root.dark-theme ? #334155 : #e2e8f0);
-                                    vertical-stretch: 0;
+                                    width: 38px;
+                                    height: 100%;
+                                    background: #00000000;
+
+                                    Rectangle {
+                                        x: 0px;
+                                        y: (parent.height - self.height) / 2;
+                                        width: 36px;
+                                        height: 36px;
+                                        border-radius: 10px;
+                                        background: i == root.selected-index ? #d6d6d6 : #3a3a3a;
+                                    }
                                 }
 
                                 VerticalLayout {
@@ -224,14 +240,14 @@ export component AppWindow inherits Window {
 
                                     Text {
                                         text: item.title;
-                                        color: i == root.selected-index ? (root.dark-theme ? #ffffff : #0f172a) : (root.dark-theme ? #e2e8f0 : #0f172a);
+                                        color: #f4f4f4;
                                         font-size: 16px;
                                         font-weight: 700;
                                     }
 
                                     Text {
                                         text: item.subtitle;
-                                        color: i == root.selected-index ? (root.dark-theme ? #dbeafe : #1e40af) : (root.dark-theme ? #94a3b8 : #475569);
+                                        color: i == root.selected-index ? #d0d0d0 : #a0a0a0;
                                         font-size: 13px;
                                     }
                                 }
@@ -241,7 +257,7 @@ export component AppWindow inherits Window {
 
                     Text {
                         text: root.status-text;
-                        color: root.dark-theme ? #94a3b8 : #64748b;
+                        color: #9a9a9a;
                         font-size: 12px;
                         height: 18px;
                         vertical-alignment: center;
