@@ -7,6 +7,13 @@ export struct ResultItem {
     icon_text: string,
 }
 
+export struct AppChoiceItem {
+    name: string,
+    command: string,
+    icon: image,
+    has_icon: bool,
+}
+
 component SearchBox inherits Rectangle {
     in-out property <string> query-text;
 
@@ -162,6 +169,7 @@ component SettingToggle inherits Rectangle {
 
 export component AppWindow inherits Window {
     in property <[ResultItem]> results;
+    in property <[AppChoiceItem]> alternate-opener-choices;
     in property <int> result-count;
     in-out property <int> selected-index: -1;
     in-out property <string> query-text: "";
@@ -180,14 +188,19 @@ export component AppWindow inherits Window {
     in-out property <string> settings-socket-path: "";
     in-out property <string> settings-project-count: "0";
     in-out property <string> settings-app-count: "0";
+    in-out property <string> settings-icon-count: "0";
     in-out property <string> settings-ranking-entry-count: "0";
     in-out property <bool> alternate-folder-opener-enabled: true;
-    in property <string> project-editor-label: "VS";
+    in property <image> alternate-folder-opener-icon;
+    in property <bool> alternate-folder-opener-has-icon: false;
+    in property <color> alternate-folder-opener-background: #3a3a3a;
+    in property <string> alternate-folder-opener-label: "TM";
     private property <length> result-row-height: 64px;
     private property <length> result-row-gap: 8px;
     private property <length> result-row-stride: root.result-row-height + root.result-row-gap;
     private property <bool> click-open-in-vscode: false;
     in-out property <bool> control-held: false;
+    in-out property <bool> settings-alternate-picker-open: false;
     callback close-requested();
     callback query-changed(string);
     callback activate-selected-result(int, bool);
@@ -195,6 +208,7 @@ export component AppWindow inherits Window {
     callback settings-requested();
     callback settings-cancel-requested();
     callback settings-browse-folder-requested(string);
+    callback settings-choose-alternate-opener-requested(string);
     callback settings-clear-ranking-requested();
     callback settings-save-requested(string, string, bool, bool, bool, bool, bool, string);
 
@@ -467,11 +481,14 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    if root.settings-open: settings-scroll := Flickable {
-                        vertical-stretch: 1;
+                    settings-scroll := Flickable {
+                        min-height: 0px;
+                        preferred-height: root.settings-open ? 320px : 0px;
+                        visible: root.settings-open;
+                        vertical-stretch: root.settings-open ? 1 : 0;
                         viewport-width: self.width;
-                        viewport-height: 540px;
-                        interactive: true;
+                        viewport-height: root.settings-open ? 540px : 0px;
+                        interactive: root.settings-open;
 
                         VerticalLayout {
                             width: settings-scroll.width;
@@ -562,31 +579,145 @@ export component AppWindow inherits Window {
                                 font-weight: 700;
                             }
 
-                        Rectangle {
-                            height: 42px;
-                            border-radius: 8px;
-                            background: #202020;
-                            border-width: 1px;
-                            border-color: settings-editor-input.has-focus ? #777777 : #363636;
+                            HorizontalLayout {
+                                height: 42px;
+                                spacing: 8px;
 
-                            settings-editor-input := TextInput {
-                                x: 12px;
-                                y: 0px;
-                                width: parent.width - 24px;
-                                height: parent.height;
-                                text: root.settings-alternate-folder-opener-command;
-                                color: #eeeeee;
-                                font-size: 13px;
-                                single-line: true;
-                                vertical-alignment: center;
+                                Rectangle {
+                                    horizontal-stretch: 1;
+                                    border-radius: 8px;
+                                    background: #202020;
+                                    border-width: 1px;
+                                    border-color: settings-editor-input.has-focus ? #777777 : #363636;
+
+                                    settings-editor-input := TextInput {
+                                        x: 12px;
+                                        y: 0px;
+                                        width: parent.width - 24px;
+                                        height: parent.height;
+                                        text: root.settings-alternate-folder-opener-command;
+                                        color: #eeeeee;
+                                        font-size: 13px;
+                                        single-line: true;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Rectangle {
+                                    width: 82px;
+                                    height: 42px;
+                                    border-radius: 8px;
+                                    background: picker-touch.pressed ? #333333 : picker-touch.has-hover || root.settings-alternate-picker-open ? #292929 : #202020;
+                                    border-width: 1px;
+                                    border-color: #3a3a3a;
+
+                                    Text {
+                                        width: 100%;
+                                        height: 100%;
+                                        text: "Pick";
+                                        color: #dddddd;
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+
+                                    picker-touch := TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.settings-alternate-picker-open = !root.settings-alternate-picker-open;
+                                        }
+                                    }
+                                }
                             }
-                        }
 
-                        Text {
-                            text: "Used with Ctrl+Enter or Ctrl+click instead of the system file manager";
-                            color: #9a9a9a;
-                            font-size: 11px;
-                        }
+                            if root.settings-alternate-picker-open: Flickable {
+                                height: 154px;
+                                viewport-width: self.width;
+                                viewport-height: root.alternate-opener-choices.length * 38px;
+                                interactive: true;
+
+                                VerticalLayout {
+                                    width: parent.width;
+                                    spacing: 4px;
+
+                                    for choice in root.alternate-opener-choices: Rectangle {
+                                        height: 34px;
+                                        border-radius: 8px;
+                                        background: choice-touch.pressed ? #333333 : choice-touch.has-hover ? #292929 : #202020;
+                                        border-width: 1px;
+                                        border-color: #353535;
+
+                                        HorizontalLayout {
+                                            padding-left: 10px;
+                                            padding-right: 10px;
+                                            padding-top: 5px;
+                                            padding-bottom: 5px;
+                                            spacing: 8px;
+
+                                            Image {
+                                                width: 22px;
+                                                height: 22px;
+                                                source: choice.icon;
+                                                image-fit: contain;
+                                                visible: choice.has_icon;
+                                            }
+
+                                            Rectangle {
+                                                width: 22px;
+                                                height: 22px;
+                                                border-radius: 5px;
+                                                background: #3a3a3a;
+                                                visible: !choice.has_icon;
+
+                                                Text {
+                                                    width: 100%;
+                                                    height: 100%;
+                                                    text: "AP";
+                                                    color: #d0d0d0;
+                                                    font-size: 9px;
+                                                    font-weight: 800;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+
+                                            Text {
+                                                text: choice.name;
+                                                color: #eeeeee;
+                                                font-size: 12px;
+                                                font-weight: 700;
+                                                horizontal-stretch: 1;
+                                                overflow: elide;
+                                                vertical-alignment: center;
+                                            }
+
+                                            Text {
+                                                text: choice.command;
+                                                color: #9a9a9a;
+                                                font-size: 10px;
+                                                horizontal-stretch: 0;
+                                                overflow: elide;
+                                                vertical-alignment: center;
+                                            }
+                                        }
+
+                                        choice-touch := TouchArea {
+                                            mouse-cursor: pointer;
+                                            clicked => {
+                                                root.settings-choose-alternate-opener-requested(choice.command);
+                                                root.settings-alternate-picker-open = false;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: "Used with Ctrl+Enter or Ctrl+click instead of the system file manager";
+                                color: #9a9a9a;
+                                font-size: 11px;
+                            }
 
                         Text {
                             text: "Search features";
@@ -775,6 +906,13 @@ export component AppWindow inherits Window {
                             }
 
                             Text {
+                                text: "Icons: " + root.settings-icon-count;
+                                color: #b8b8b8;
+                                font-size: 11px;
+                                horizontal-stretch: 0;
+                            }
+
+                            Text {
                                 text: "Socket: " + root.settings-socket-path;
                                 color: #8f8f8f;
                                 font-size: 10px;
@@ -863,6 +1001,8 @@ export component AppWindow inherits Window {
                     }
 
                     results-scroll := Flickable {
+                        min-height: 0px;
+                        preferred-height: root.settings-open ? 0px : 240px;
                         visible: !root.settings-open;
                         vertical-stretch: root.settings-open ? 0 : 1;
                         viewport-width: self.width;
@@ -911,8 +1051,8 @@ export component AppWindow inherits Window {
                                             width: 42px;
                                             height: 42px;
                                             border-radius: 10px;
-                                            property <bool> vscode-icon: root.control-held && item.icon_kind == "folder";
-                                            background: self.vscode-icon ? #2478c8 : i == root.selected-index ? #d6d6d6 : #3a3a3a;
+                                            property <bool> alternate-icon: root.control-held && item.icon_kind == "folder";
+                                            background: self.alternate-icon ? root.alternate-folder-opener-background : i == root.selected-index ? #d6d6d6 : #3a3a3a;
                                             visible: !item.has_icon;
 
                                             animate background { duration: 120ms; easing: ease; }
@@ -928,7 +1068,31 @@ export component AppWindow inherits Window {
                                                 font-weight: 800;
                                                 horizontal-alignment: center;
                                                 vertical-alignment: center;
-                                                visible: !item.has_icon && item.icon_text != "";
+                                                visible: !parent.alternate-icon && !item.has_icon && item.icon_text != "";
+                                            }
+
+                                            Image {
+                                                x: 7px;
+                                                y: 7px;
+                                                width: 28px;
+                                                height: 28px;
+                                                source: root.alternate-folder-opener-icon;
+                                                image-fit: contain;
+                                                visible: parent.alternate-icon && root.alternate-folder-opener-has-icon;
+                                            }
+
+                                            Text {
+                                                x: 0px;
+                                                y: 0px;
+                                                width: 100%;
+                                                height: 100%;
+                                                text: root.alternate-folder-opener-label;
+                                                color: #ffffff;
+                                                font-size: 13px;
+                                                font-weight: 800;
+                                                horizontal-alignment: center;
+                                                vertical-alignment: center;
+                                                visible: parent.alternate-icon && !root.alternate-folder-opener-has-icon;
                                             }
 
                                             Rectangle {
@@ -939,7 +1103,7 @@ export component AppWindow inherits Window {
                                                 border-radius: 3px;
                                                 background: i == root.selected-index ? #303030 : #d0d0d0;
                                                 visible: !item.has_icon && item.icon_kind == "folder";
-                                                opacity: parent.vscode-icon ? 0 : 1;
+                                                opacity: parent.alternate-icon ? 0 : 1;
                                                 animate opacity { duration: 120ms; easing: ease; }
                                             }
 
@@ -951,23 +1115,7 @@ export component AppWindow inherits Window {
                                                 border-radius: 2px;
                                                 background: i == root.selected-index ? #303030 : #d0d0d0;
                                                 visible: !item.has_icon && item.icon_kind == "folder";
-                                                opacity: parent.vscode-icon ? 0 : 1;
-                                                animate opacity { duration: 120ms; easing: ease; }
-                                            }
-
-                                            Text {
-                                                x: 0px;
-                                                y: 0px;
-                                                width: 100%;
-                                                height: 100%;
-                                                text: root.project-editor-label;
-                                                color: #ffffff;
-                                                font-size: 14px;
-                                                font-weight: 800;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
-                                                visible: !item.has_icon && item.icon_kind == "folder";
-                                                opacity: parent.vscode-icon ? 1 : 0;
+                                                opacity: parent.alternate-icon ? 0 : 1;
                                                 animate opacity { duration: 120ms; easing: ease; }
                                             }
 

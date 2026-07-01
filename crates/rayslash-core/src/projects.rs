@@ -66,7 +66,7 @@ mod tests {
         fs::write(root.join("README.md"), "not a directory").expect("create file");
         fs::create_dir(root.join("alpha").join("nested")).expect("create nested");
 
-        let projects = scan_project_roots(&[root.clone()]);
+        let projects = scan_project_roots(std::slice::from_ref(&root));
 
         assert_eq!(
             projects,

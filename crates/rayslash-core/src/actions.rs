@@ -33,6 +33,13 @@ pub fn open_project_in_vscode_command(path: &Path) -> CommandSpec {
 }
 
 pub fn open_project_in_editor_command(path: &Path, editor_command: &str) -> CommandSpec {
+    if editor_command.trim() == "xdg-terminal-exec" {
+        return CommandSpec {
+            program: OsString::from("xdg-terminal-exec"),
+            args: Vec::new(),
+        };
+    }
+
     CommandSpec {
         program: OsString::from(editor_command.trim()),
         args: vec![path.as_os_str().to_owned()],
@@ -45,7 +52,11 @@ pub fn open_project_in_vscode(path: &Path) -> io::Result<Child> {
 
 pub fn open_project_in_editor(path: &Path, editor_command: &str) -> io::Result<Child> {
     let command = open_project_in_editor_command(path, editor_command);
-    spawn_command(&command)
+    if editor_command.trim() == "xdg-terminal-exec" {
+        spawn_command_in_dir(&command, path)
+    } else {
+        spawn_command(&command)
+    }
 }
 
 pub fn launch_app(command: &CommandSpec) -> io::Result<Child> {
@@ -53,12 +64,21 @@ pub fn launch_app(command: &CommandSpec) -> io::Result<Child> {
 }
 
 fn spawn_command(command: &CommandSpec) -> io::Result<Child> {
-    Command::new(&command.program)
+    command_builder(command).spawn()
+}
+
+fn spawn_command_in_dir(command: &CommandSpec, dir: &Path) -> io::Result<Child> {
+    command_builder(command).current_dir(dir).spawn()
+}
+
+fn command_builder(command: &CommandSpec) -> Command {
+    let mut builder = Command::new(&command.program);
+    builder
         .args(&command.args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
+        .stderr(Stdio::null());
+    builder
 }
 
 #[cfg(test)]
@@ -94,6 +114,16 @@ mod tests {
 
         assert_eq!(command.program, OsString::from("codium"));
         assert_eq!(command.args, vec![path.into_os_string()]);
+    }
+
+    #[test]
+    fn open_project_in_editor_command_uses_terminal_default_without_path_argument() {
+        let path = PathBuf::from("/tmp/rayslash");
+
+        let command = open_project_in_editor_command(&path, "xdg-terminal-exec");
+
+        assert_eq!(command.program, OsString::from("xdg-terminal-exec"));
+        assert!(command.args.is_empty());
     }
 
     #[test]

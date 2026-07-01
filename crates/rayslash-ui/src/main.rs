@@ -5,7 +5,7 @@ use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
     env, io,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::ExitCode,
     rc::Rc,
     sync::{
@@ -17,7 +17,7 @@ use std::{
 
 use rayslash_core::{actions, apps, config, projects, ranking, search};
 use slint::{
-    ComponentHandle, Image, VecModel,
+    Color, ComponentHandle, Image, VecModel,
     winit_030::{EventResult, WinitWindowAccessor, winit},
 };
 
@@ -182,15 +182,6 @@ fn run_gui(
     ui.set_result_count(current_results.borrow().len() as i32);
     ui.set_results(results_model.clone().into());
     ui.set_selected_index(-1);
-    ui.set_project_editor_label(
-        editor_label(
-            &config_state
-                .borrow()
-                .actions
-                .alternate_folder_opener_command,
-        )
-        .into(),
-    );
     ui.set_alternate_folder_opener_enabled(
         config_state
             .borrow()
@@ -203,7 +194,23 @@ fn run_gui(
         &socket_path,
         projects.borrow().len(),
         apps.len(),
+        app_icon_count(&apps),
         ranking_state.borrow().entries.len(),
+    );
+
+    let alternate_opener_choices = Rc::new(VecModel::from(to_app_choice_items(
+        &apps,
+        &mut icon_cache.borrow_mut(),
+    )));
+    ui.set_alternate_opener_choices(alternate_opener_choices.clone().into());
+    set_alternate_opener_visual(
+        &ui,
+        &config_state
+            .borrow()
+            .actions
+            .alternate_folder_opener_command,
+        &apps,
+        &mut icon_cache.borrow_mut(),
     );
     ui.invoke_focus_search();
 
@@ -212,15 +219,18 @@ fn run_gui(
         let is_visible = is_visible.clone();
         let suppress_next_focus_hide = suppress_next_focus_hide.clone();
         move |_, event| {
-            if matches!(event, winit::event::WindowEvent::Focused(false))
-                && let Some(ui) = weak.upgrade()
-            {
+            if matches!(event, winit::event::WindowEvent::Focused(false)) {
                 if suppress_next_focus_hide.replace(false) {
                     return EventResult::Propagate;
                 }
 
-                ui.set_control_held(false);
-                hide_launcher(&ui, is_visible.as_ref());
+                let is_visible = is_visible.clone();
+                if let Err(error) = weak.upgrade_in_event_loop(move |ui| {
+                    ui.set_control_held(false);
+                    hide_launcher(&ui, is_visible.as_ref());
+                }) {
+                    eprintln!("failed to queue rayslash focus-lost hide on UI event loop: {error}");
+                }
             }
 
             EventResult::Propagate
@@ -530,6 +540,7 @@ fn run_gui(
                     &socket_path,
                     projects.borrow().len(),
                     apps.len(),
+                    app_icon_count(&apps),
                     ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
@@ -553,6 +564,7 @@ fn run_gui(
                     &socket_path,
                     projects.borrow().len(),
                     apps.len(),
+                    app_icon_count(&apps),
                     ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
@@ -640,20 +652,20 @@ fn run_gui(
 
                 ui.set_result_count(count);
                 ui.set_selected_index(selected_index_for_query(query.as_str(), count));
-                ui.set_project_editor_label(
-                    editor_label(
-                        &config_state
-                            .borrow()
-                            .actions
-                            .alternate_folder_opener_command,
-                    )
-                    .into(),
-                );
                 ui.set_alternate_folder_opener_enabled(
                     config_state
                         .borrow()
                         .actions
                         .alternate_folder_opener_enabled,
+                );
+                set_alternate_opener_visual(
+                    &ui,
+                    &config_state
+                        .borrow()
+                        .actions
+                        .alternate_folder_opener_command,
+                    &apps,
+                    &mut icon_cache.borrow_mut(),
                 );
                 set_settings_properties(
                     &ui,
@@ -661,12 +673,23 @@ fn run_gui(
                     &socket_path,
                     projects.borrow().len(),
                     apps.len(),
+                    app_icon_count(&apps),
                     ranking_state.borrow().entries.len(),
                 );
                 ui.set_settings_open(false);
                 ui.set_status_text("Settings saved.".into());
                 ui.invoke_reset_result_scroll();
                 ui.invoke_focus_search();
+            }
+        }
+    });
+
+    ui.on_settings_choose_alternate_opener_requested({
+        let weak = ui.as_weak();
+        move |command| {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_settings_alternate_folder_opener_command(command.clone());
+                ui.set_status_text(format!("Selected alternate opener: {command}").into());
             }
         }
     });
@@ -735,6 +758,7 @@ fn run_gui(
                     &socket_path,
                     projects.borrow().len(),
                     apps.len(),
+                    app_icon_count(&apps),
                     ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text("Ranking history cleared.".into());
@@ -840,6 +864,7 @@ fn set_settings_properties(
     socket_path: &std::path::Path,
     project_count: usize,
     app_count: usize,
+    icon_count: usize,
     ranking_entry_count: usize,
 ) {
     ui.set_settings_folder_sources(folder_sources_text(&config.folder_sources).into());
@@ -861,7 +886,191 @@ fn set_settings_properties(
     ui.set_settings_socket_path(socket_path.display().to_string().into());
     ui.set_settings_project_count(project_count.to_string().into());
     ui.set_settings_app_count(app_count.to_string().into());
+    ui.set_settings_icon_count(format!("{icon_count}/{app_count}").into());
     ui.set_settings_ranking_entry_count(ranking_entry_count.to_string().into());
+}
+
+fn app_icon_count(apps: &[apps::DesktopApp]) -> usize {
+    apps.iter().filter(|app| app.icon_path.is_some()).count()
+}
+
+fn to_app_choice_items(
+    apps: &[apps::DesktopApp],
+    icon_cache: &mut IconImageCache,
+) -> Vec<AppChoiceItem> {
+    apps.iter()
+        .filter_map(|app| {
+            let command = app.command.program.to_string_lossy().trim().to_owned();
+            if command.is_empty() {
+                return None;
+            }
+
+            let icon = app
+                .icon_path
+                .as_ref()
+                .and_then(|path| load_icon_image(path, icon_cache));
+
+            Some(AppChoiceItem {
+                name: app.name.clone().into(),
+                command: command.into(),
+                icon: icon.clone().unwrap_or_default(),
+                has_icon: icon.is_some(),
+            })
+        })
+        .collect()
+}
+
+fn set_alternate_opener_visual(
+    ui: &AppWindow,
+    command: &str,
+    apps: &[apps::DesktopApp],
+    icon_cache: &mut IconImageCache,
+) {
+    let app = alternate_opener_app(command, apps);
+    let icon_path = app.and_then(|app| app.icon_path.as_ref());
+    let icon = icon_path.and_then(|path| load_icon_image(path, icon_cache));
+
+    ui.set_alternate_folder_opener_icon(icon.clone().unwrap_or_default());
+    ui.set_alternate_folder_opener_has_icon(icon.is_some());
+    ui.set_alternate_folder_opener_label(opener_label(command).into());
+    ui.set_alternate_folder_opener_background(accent_color_for_opener(command, icon_path));
+}
+
+fn alternate_opener_app<'a>(
+    command: &str,
+    apps: &'a [apps::DesktopApp],
+) -> Option<&'a apps::DesktopApp> {
+    let command_name = command_basename(command);
+    if command_name.is_empty() {
+        return None;
+    }
+
+    apps.iter()
+        .find(|app| command_basename(&app.command.program.to_string_lossy()) == command_name)
+        .or_else(|| {
+            (command_name == "xdg-terminal-exec")
+                .then(|| terminal_like_app(apps))
+                .flatten()
+        })
+}
+
+fn terminal_like_app(apps: &[apps::DesktopApp]) -> Option<&apps::DesktopApp> {
+    apps.iter().find(|app| {
+        let text = format!(
+            "{} {} {}",
+            app.name,
+            app.generic_name.as_deref().unwrap_or_default(),
+            app.comment.as_deref().unwrap_or_default()
+        )
+        .to_ascii_lowercase();
+        text.contains("terminal")
+    })
+}
+
+fn command_basename(command: &str) -> String {
+    Path::new(command.trim())
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command.trim())
+        .to_ascii_lowercase()
+}
+
+fn opener_label(command: &str) -> String {
+    let command_name = command_basename(command);
+    if command_name == "xdg-terminal-exec" || command_name.contains("terminal") {
+        return "TM".to_owned();
+    }
+
+    let mut label = command_name
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .take(2)
+        .collect::<String>()
+        .to_uppercase();
+
+    if label.is_empty() {
+        label = "OP".to_owned();
+    }
+
+    label
+}
+
+fn accent_color_for_opener(command: &str, icon_path: Option<&PathBuf>) -> Color {
+    icon_path
+        .and_then(|path| svg_accent_color(path))
+        .unwrap_or_else(|| fallback_accent_color(command))
+}
+
+fn svg_accent_color(path: &Path) -> Option<Color> {
+    if !path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("svg"))
+    {
+        return None;
+    }
+
+    let contents = std::fs::read_to_string(path).ok()?;
+    let mut best = None;
+    let mut best_score = 0u16;
+    let bytes = contents.as_bytes();
+
+    for index in 0..bytes.len().saturating_sub(6) {
+        if bytes[index] != b'#' {
+            continue;
+        }
+
+        let hex = &contents[index + 1..index + 7];
+        if !hex.chars().all(|character| character.is_ascii_hexdigit()) {
+            continue;
+        }
+
+        let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        let score = color_score(red, green, blue);
+
+        if score > best_score {
+            best_score = score;
+            best = Some((red, green, blue));
+        }
+    }
+
+    best.map(|(red, green, blue)| muted_background_color(red, green, blue))
+}
+
+fn color_score(red: u8, green: u8, blue: u8) -> u16 {
+    let max = red.max(green).max(blue) as u16;
+    let min = red.min(green).min(blue) as u16;
+    let saturation = max.saturating_sub(min);
+    let brightness = (red as u16 + green as u16 + blue as u16) / 3;
+
+    if !(48..=220).contains(&brightness) || saturation < 24 {
+        return 0;
+    }
+
+    saturation + brightness / 4
+}
+
+fn muted_background_color(red: u8, green: u8, blue: u8) -> Color {
+    Color::from_rgb_u8(
+        ((red as u16 * 3) / 5).max(24) as u8,
+        ((green as u16 * 3) / 5).max(24) as u8,
+        ((blue as u16 * 3) / 5).max(24) as u8,
+    )
+}
+
+fn fallback_accent_color(seed: &str) -> Color {
+    let mut hash = 0u32;
+    for byte in seed.bytes() {
+        hash = hash.wrapping_mul(16777619) ^ u32::from(byte);
+    }
+
+    let red = 64 + (hash & 0x3f) as u8;
+    let green = 64 + ((hash >> 8) & 0x3f) as u8;
+    let blue = 64 + ((hash >> 16) & 0x3f) as u8;
+
+    Color::from_rgb_u8(red, green, blue)
 }
 
 fn record_learned_launch(
@@ -937,25 +1146,6 @@ fn parse_max_results(text: &str) -> Option<usize> {
 fn path_option_label(path: Option<PathBuf>) -> String {
     path.map(|path| path.display().to_string())
         .unwrap_or_else(|| "Unavailable".to_owned())
-}
-
-fn editor_label(command: &str) -> String {
-    if command == "code" {
-        return "VS".to_owned();
-    }
-
-    let mut label = command
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .take(2)
-        .collect::<String>()
-        .to_uppercase();
-
-    if label.is_empty() {
-        label = "ED".to_owned();
-    }
-
-    label
 }
 
 fn command_display(command: &actions::CommandSpec) -> String {
@@ -1153,9 +1343,9 @@ mod tests {
     }
 
     #[test]
-    fn editor_label_prefers_vs_for_default_code_command() {
-        assert_eq!(editor_label("code"), "VS");
-        assert_eq!(editor_label("codium"), "CO");
-        assert_eq!(editor_label("--"), "ED");
+    fn opener_label_uses_terminal_and_command_fallbacks() {
+        assert_eq!(opener_label("xdg-terminal-exec"), "TM");
+        assert_eq!(opener_label("codium"), "CO");
+        assert_eq!(opener_label("--"), "OP");
     }
 }

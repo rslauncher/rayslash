@@ -207,8 +207,8 @@ pub fn mixed_results_with_ranking(
         return vec![disabled_providers_result()];
     }
 
-    let enabled_projects = providers.folders.then_some(projects).unwrap_or(&[]);
-    let enabled_apps = providers.apps.then_some(apps).unwrap_or(&[]);
+    let enabled_projects = if providers.folders { projects } else { &[] };
+    let enabled_apps = if providers.apps { apps } else { &[] };
 
     if enabled_projects.is_empty() && enabled_apps.is_empty() {
         return calculation

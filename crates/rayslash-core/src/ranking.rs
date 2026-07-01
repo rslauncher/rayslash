@@ -24,7 +24,7 @@ pub struct RankingState {
     pub entries: BTreeMap<String, RankingEntry>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RankingEntry {
     #[serde(default)]
     pub launch_count: u32,
@@ -64,16 +64,6 @@ impl Default for RankingState {
         Self {
             version: RANKING_STATE_VERSION,
             entries: BTreeMap::new(),
-        }
-    }
-}
-
-impl Default for RankingEntry {
-    fn default() -> Self {
-        Self {
-            launch_count: 0,
-            last_launched_unix: 0,
-            query_prefixes: BTreeMap::new(),
         }
     }
 }

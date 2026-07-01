@@ -270,7 +270,7 @@ fn default_true() -> bool {
 }
 
 fn default_alternate_folder_opener_command() -> String {
-    "code".to_owned()
+    "xdg-terminal-exec".to_owned()
 }
 
 fn default_max_results() -> usize {
@@ -482,7 +482,10 @@ max_results = 0
                 calculator: true,
             }
         );
-        assert_eq!(config.actions.alternate_folder_opener_command, "code");
+        assert_eq!(
+            config.actions.alternate_folder_opener_command,
+            "xdg-terminal-exec"
+        );
         assert!(config.actions.alternate_folder_opener_enabled);
         assert_eq!(config.appearance.max_results, 50);
         assert!(config.ranking.learn_from_usage);
