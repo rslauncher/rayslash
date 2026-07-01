@@ -20,6 +20,17 @@ fn resolve_desktop_icon_supports_absolute_paths() {
 }
 
 #[test]
+fn resolve_desktop_icon_supports_absolute_extensionless_paths() {
+    let dir = TempDir::new("rayslash-icons-absolute-extensionless");
+    let icon = dir.write("appimage-icon", "png bytes").expect("write icon");
+
+    assert_eq!(
+        resolve_desktop_icon_in_dirs(icon.to_str().expect("utf-8 path"), &[]),
+        Some(icon)
+    );
+}
+
+#[test]
 fn resolve_desktop_icon_checks_hicolor_app_directories() {
     let dir = TempDir::new("rayslash-icons-hicolor");
     let icon = dir

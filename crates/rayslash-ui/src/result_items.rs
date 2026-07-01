@@ -1,4 +1,10 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::{HashMap, hash_map::DefaultHasher},
+    fs,
+    hash::{Hash, Hasher},
+    path::{Path, PathBuf},
+    time::UNIX_EPOCH,
+};
 
 use rayslash_core::search;
 use slint::Image;
@@ -33,9 +39,74 @@ pub(crate) fn load_icon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -
         return cached.clone();
     }
 
-    let image = Image::load_from_path(path).ok();
+    let image = Image::load_from_path(path)
+        .ok()
+        .or_else(|| load_extensionless_icon_image(path));
     icon_cache.insert(path.clone(), image.clone());
     image
+}
+
+fn load_extensionless_icon_image(path: &Path) -> Option<Image> {
+    if path.extension().is_some() {
+        return None;
+    }
+
+    let cache_path = cached_extensionless_icon_path(path)?;
+    Image::load_from_path(&cache_path).ok()
+}
+
+fn cached_extensionless_icon_path(path: &Path) -> Option<PathBuf> {
+    let bytes = fs::read(path).ok()?;
+    let extension = image_extension_from_bytes(&bytes)?;
+    let cache_dir = dirs::cache_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("rayslash/icons");
+
+    fs::create_dir_all(&cache_dir).ok()?;
+    let cache_path = cache_dir.join(format!("{}.{extension}", icon_cache_key(path)));
+
+    if !cache_path.is_file() {
+        fs::write(&cache_path, bytes).ok()?;
+    }
+
+    Some(cache_path)
+}
+
+fn image_extension_from_bytes(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Some("png");
+    }
+
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Some("jpg");
+    }
+
+    let trimmed = bytes
+        .iter()
+        .copied()
+        .skip_while(u8::is_ascii_whitespace)
+        .collect::<Vec<_>>();
+    if trimmed.starts_with(b"<svg") || trimmed.starts_with(b"<?xml") {
+        return Some("svg");
+    }
+
+    None
+}
+
+fn icon_cache_key(path: &Path) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    path.hash(&mut hasher);
+
+    if let Ok(metadata) = fs::metadata(path) {
+        metadata.len().hash(&mut hasher);
+        if let Ok(modified) = metadata.modified()
+            && let Ok(duration) = modified.duration_since(UNIX_EPOCH)
+        {
+            duration.as_nanos().hash(&mut hasher);
+        }
+    }
+
+    hasher.finish()
 }
 
 struct RowIcon {
@@ -72,5 +143,27 @@ fn fallback_icon(kind: &'static str, text: &'static str) -> RowIcon {
         has_image: false,
         kind,
         text,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_extension_from_bytes_detects_supported_extensionless_icons() {
+        assert_eq!(
+            image_extension_from_bytes(b"\x89PNG\r\n\x1a\nrest"),
+            Some("png")
+        );
+        assert_eq!(
+            image_extension_from_bytes(&[0xff, 0xd8, 0xff, 0x00]),
+            Some("jpg")
+        );
+        assert_eq!(
+            image_extension_from_bytes(b"  <svg xmlns=\"http://www.w3.org/2000/svg\"/>"),
+            Some("svg")
+        );
+        assert_eq!(image_extension_from_bytes(b"not an icon"), None);
     }
 }

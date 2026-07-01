@@ -160,10 +160,10 @@ fn run_gui(
     );
 
     let stage_started = Instant::now();
-    let apps = Rc::new(apps::discover_desktop_apps());
+    let apps = Rc::new(RefCell::new(apps::discover_desktop_apps()));
     profile_stage(
         profile,
-        &format!("app discovery ({} apps)", apps.len()),
+        &format!("app discovery ({} apps)", apps.borrow().len()),
         stage_started,
     );
 
@@ -172,7 +172,7 @@ fn run_gui(
         &config_state.borrow(),
         &ranking_state.borrow(),
         &projects.borrow(),
-        &apps,
+        &apps.borrow(),
         "",
     )));
     profile_stage(
@@ -207,13 +207,13 @@ fn run_gui(
         &config_state.borrow(),
         &socket_path,
         projects.borrow().len(),
-        apps.len(),
-        app_icon_count(&apps),
+        apps.borrow().len(),
+        app_icon_count(&apps.borrow()),
         ranking_state.borrow().entries.len(),
     );
 
     let alternate_opener_choices = Rc::new(VecModel::from(to_app_choice_items(
-        &apps,
+        &apps.borrow(),
         &mut icon_cache.borrow_mut(),
     )));
     ui.set_alternate_opener_choices(alternate_opener_choices.clone().into());
@@ -223,7 +223,7 @@ fn run_gui(
             .borrow()
             .actions
             .alternate_folder_opener_command,
-        &apps,
+        &apps.borrow(),
         &mut icon_cache.borrow_mut(),
     );
     ui.invoke_focus_search();
@@ -255,17 +255,19 @@ fn run_gui(
         let weak = ui.as_weak();
         let projects = projects.clone();
         let apps = apps.clone();
+        let alternate_opener_choices = alternate_opener_choices.clone();
         let config_state = config_state.clone();
         let ranking_state = ranking_state.clone();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
         move || {
+            refresh_desktop_apps(&apps, &alternate_opener_choices, &icon_cache);
             let results = search_results(
                 &config_state.borrow(),
                 &ranking_state.borrow(),
                 &projects.borrow(),
-                &apps,
+                &apps.borrow(),
                 "",
             );
             let count = results.len() as i32;
@@ -309,7 +311,7 @@ fn run_gui(
                 &config_state.borrow(),
                 &ranking_state.borrow(),
                 &projects.borrow(),
-                &apps,
+                &apps.borrow(),
                 query.as_str(),
             );
             let count = results.len() as i32;
@@ -346,6 +348,7 @@ fn run_gui(
             ranking_state: ranking_state.clone(),
             projects: projects.clone(),
             apps: apps.clone(),
+            alternate_opener_choices: alternate_opener_choices.clone(),
             current_results: current_results.clone(),
             results_model: results_model.clone(),
             icon_cache: icon_cache.clone(),
@@ -366,4 +369,17 @@ fn run_gui(
     });
 
     ui.run()
+}
+
+fn refresh_desktop_apps(
+    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
+    choices_model: &Rc<VecModel<AppChoiceItem>>,
+    icon_cache: &Rc<RefCell<IconImageCache>>,
+) {
+    let discovered_apps = apps::discover_desktop_apps();
+    choices_model.set_vec(to_app_choice_items(
+        &discovered_apps,
+        &mut icon_cache.borrow_mut(),
+    ));
+    *apps_state.borrow_mut() = discovered_apps;
 }

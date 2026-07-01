@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    ffi::OsString,
     fs,
     path::{Path, PathBuf},
 };
@@ -48,15 +49,56 @@ pub fn discover_desktop_apps_in_dirs(dirs: &[PathBuf]) -> Vec<DesktopApp> {
 }
 
 fn desktop_application_dirs() -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
+    desktop_application_dirs_from_env(
+        std::env::var_os("XDG_DATA_HOME"),
+        std::env::var_os("XDG_DATA_DIRS"),
+        dirs::home_dir(),
+    )
+}
 
-    if let Some(home) = dirs::home_dir() {
-        dirs.push(home.join(".local/share/applications"));
+fn desktop_application_dirs_from_env(
+    data_home: Option<OsString>,
+    data_dirs: Option<OsString>,
+    home: Option<PathBuf>,
+) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    let mut seen_paths = HashSet::new();
+
+    if let Some(data_home) = data_home.filter(|value| !value.is_empty()) {
+        push_unique_path(
+            &mut dirs,
+            &mut seen_paths,
+            PathBuf::from(data_home).join("applications"),
+        );
+    } else if let Some(home) = home {
+        push_unique_path(
+            &mut dirs,
+            &mut seen_paths,
+            home.join(".local/share/applications"),
+        );
     }
 
-    dirs.push(PathBuf::from("/usr/local/share/applications"));
-    dirs.push(PathBuf::from("/usr/share/applications"));
+    let data_dirs = data_dirs
+        .filter(|value| !value.is_empty())
+        .map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .unwrap_or_else(|| {
+            vec![
+                PathBuf::from("/usr/local/share"),
+                PathBuf::from("/usr/share"),
+            ]
+        });
+
+    for data_dir in data_dirs {
+        push_unique_path(&mut dirs, &mut seen_paths, data_dir.join("applications"));
+    }
+
     dirs
+}
+
+fn push_unique_path(paths: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, path: PathBuf) {
+    if seen.insert(path.clone()) {
+        paths.push(path);
+    }
 }
 
 fn desktop_files_in_dir(dir: &Path) -> Vec<PathBuf> {
@@ -101,4 +143,37 @@ fn app_order(a: &DesktopApp, b: &DesktopApp) -> std::cmp::Ordering {
         .cmp(&b.name.to_lowercase())
         .then_with(|| a.id.cmp(&b.id))
         .then_with(|| a.desktop_file.cmp(&b.desktop_file))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn desktop_application_dirs_follow_xdg_base_directories() {
+        assert_eq!(
+            desktop_application_dirs_from_env(
+                Some(OsString::from("/tmp/data-home")),
+                Some(OsString::from("/tmp/flatpak:/tmp/system")),
+                Some(PathBuf::from("/home/example")),
+            ),
+            vec![
+                PathBuf::from("/tmp/data-home/applications"),
+                PathBuf::from("/tmp/flatpak/applications"),
+                PathBuf::from("/tmp/system/applications"),
+            ]
+        );
+    }
+
+    #[test]
+    fn desktop_application_dirs_use_default_xdg_locations() {
+        assert_eq!(
+            desktop_application_dirs_from_env(None, None, Some(PathBuf::from("/home/example"))),
+            vec![
+                PathBuf::from("/home/example/.local/share/applications"),
+                PathBuf::from("/usr/local/share/applications"),
+                PathBuf::from("/usr/share/applications"),
+            ]
+        );
+    }
 }

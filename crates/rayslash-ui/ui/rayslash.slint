@@ -3,7 +3,7 @@ import { AppChoiceItem, ResultItem } from "./models.slint";
 import { ResultList } from "./result_list.slint";
 import { SettingsPanel } from "./settings_panel.slint";
 
-export { AppChoiceItem, ResultItem } from "./models.slint";
+export { AppChoiceItem, ResultItem }from "./models.slint";
 
 component HeaderBar inherits HorizontalLayout {
     in property <bool> settings-open;
@@ -96,14 +96,28 @@ component LauncherHint inherits Rectangle {
         height: 16px;
         spacing: 4px;
 
-        HintKey { text: "Enter"; }
-        HintText { text: ": launch/open/show result"; }
+        HintKey {
+            text: "Enter";
+        }
 
-        if root.alternate-folder-opener-enabled: HintKey { text: "  Ctrl+Enter"; }
-        if root.alternate-folder-opener-enabled: HintText { text: ": alt-open folders"; }
+        HintText {
+            text: ": launch/open/show result";
+        }
 
-        HintKey { text: "  Esc"; }
-        HintText { text: ": hide"; }
+        if root.alternate-folder-opener-enabled: HintKey {
+            text: "  Ctrl+Enter";
+        }
+        if root.alternate-folder-opener-enabled: HintText {
+            text: ": alt-open folders";
+        }
+
+        HintKey {
+            text: "  Esc";
+        }
+
+        HintText {
+            text: ": hide";
+        }
 
         Rectangle {
             horizontal-stretch: 1;
@@ -263,13 +277,18 @@ export component AppWindow inherits Window {
                     padding-right: 22px;
                     padding-top: 20px;
                     padding-bottom: 8px;
-                    spacing: 12px;
+                    spacing: 0px;
 
                     HeaderBar {
                         settings-open: root.settings-open;
                         settings-requested => {
                             root.settings-requested();
                         }
+                    }
+
+                    Rectangle {
+                        height: root.settings-open ? 8px : 12px;
+                        background: transparent;
                     }
 
                     search := SearchBox {
@@ -297,10 +316,21 @@ export component AppWindow inherits Window {
                         }
                     }
 
+                    Rectangle {
+                        height: root.settings-open ? 0px : 12px;
+                        background: transparent;
+                    }
+
                     LauncherHint {
+                        height: root.settings-open ? 0px : 16px;
                         visible: !root.settings-open;
                         status-text: root.status-text;
                         alternate-folder-opener-enabled: root.alternate-folder-opener-enabled;
+                    }
+
+                    Rectangle {
+                        height: root.settings-open ? 0px : 10px;
+                        background: transparent;
                     }
 
                     settings-panel := SettingsPanel {
@@ -335,16 +365,7 @@ export component AppWindow inherits Window {
                         clear-ranking-requested => {
                             root.settings-clear-ranking-requested();
                         }
-                        save-requested(
-                            folder-sources,
-                            alternate-opener-command,
-                            provider-apps,
-                            provider-folders,
-                            provider-calculator,
-                            alternate-opener-enabled,
-                            ranking-learn-from-usage,
-                            max-results,
-                        ) => {
+                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, alternate-opener-enabled, ranking-learn-from-usage, max-results, ) => {
                             root.settings-save-requested(
                                 folder-sources,
                                 alternate-opener-command,
@@ -353,8 +374,7 @@ export component AppWindow inherits Window {
                                 provider-calculator,
                                 alternate-opener-enabled,
                                 ranking-learn-from-usage,
-                                max-results
-                            );
+                                max-results);
                         }
                     }
 

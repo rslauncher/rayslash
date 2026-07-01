@@ -9,7 +9,7 @@ pub fn resolve_desktop_icon_in_dirs(icon: &str, dirs: &[PathBuf]) -> Option<Path
 
     let icon_path = Path::new(icon);
     if icon_path.is_absolute() {
-        return supported_existing_icon(icon_path);
+        return supported_existing_absolute_icon(icon_path);
     }
 
     if icon_path.components().count() > 1 {
@@ -97,6 +97,14 @@ fn supported_existing_icon(path: &Path) -> Option<PathBuf> {
     path.extension()
         .filter(|extension| is_supported_icon_extension(extension))
         .and_then(|_| path.is_file().then(|| path.to_path_buf()))
+}
+
+fn supported_existing_absolute_icon(path: &Path) -> Option<PathBuf> {
+    if supported_existing_icon(path).is_some() || path.extension().is_none() && path.is_file() {
+        Some(path.to_path_buf())
+    } else {
+        None
+    }
 }
 
 fn is_supported_icon_extension(extension: &std::ffi::OsStr) -> bool {

@@ -28,6 +28,7 @@ export component SettingsPanel inherits FocusScope {
     callback save-requested(string, string, bool, bool, bool, bool, bool, string);
 
     public function focus-settings() {
+        settings-scroll.viewport-y = 0px;
         root.focus();
     }
 
@@ -40,8 +41,7 @@ export component SettingsPanel inherits FocusScope {
             root.provider-calculator,
             root.alternate-folder-opener-enabled,
             root.ranking-learn-from-usage,
-            settings-max-results-input.text
-        );
+            settings-max-results-input.text);
     }
 
     min-height: 0px;
@@ -49,6 +49,12 @@ export component SettingsPanel inherits FocusScope {
     visible: root.open;
     vertical-stretch: root.open ? 1 : 0;
     forward-focus: settings-sources-input;
+
+    changed open => {
+        if (root.open) {
+            settings-scroll.viewport-y = 0px;
+        }
+    }
 
     key-pressed(event) => {
         if (event.text == Key.Escape) {
@@ -267,30 +273,36 @@ export component SettingsPanel inherits FocusScope {
                             padding-bottom: 5px;
                             spacing: 8px;
 
-                            Image {
-                                width: 22px;
-                                height: 22px;
-                                source: choice.icon;
-                                image-fit: contain;
-                                visible: choice.has_icon;
-                            }
-
                             Rectangle {
                                 width: 22px;
                                 height: 22px;
-                                border-radius: 5px;
-                                background: #3a3a3a;
-                                visible: !choice.has_icon;
+                                background: transparent;
 
-                                Text {
-                                    width: 100%;
-                                    height: 100%;
-                                    text: "AP";
-                                    color: #d0d0d0;
-                                    font-size: 9px;
-                                    font-weight: 800;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
+                                Image {
+                                    width: 22px;
+                                    height: 22px;
+                                    source: choice.icon;
+                                    image-fit: contain;
+                                    visible: choice.has_icon;
+                                }
+
+                                Rectangle {
+                                    width: 22px;
+                                    height: 22px;
+                                    border-radius: 5px;
+                                    background: #3a3a3a;
+                                    visible: !choice.has_icon;
+
+                                    Text {
+                                        width: 100%;
+                                        height: 100%;
+                                        text: "AP";
+                                        color: #d0d0d0;
+                                        font-size: 9px;
+                                        font-weight: 800;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
                                 }
                             }
 

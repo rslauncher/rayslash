@@ -1,11 +1,11 @@
-use std::{cell::Cell, cell::RefCell, path::PathBuf, rc::Rc};
+use std::{cell::Cell, cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
 
 use rayslash_core::{apps, config, projects, ranking, search};
-use slint::{ComponentHandle, VecModel};
+use slint::{ComponentHandle, Timer, VecModel};
 
 use crate::{
-    AppWindow, DEFAULT_STATUS_TEXT, ResultItem,
-    opener_visual::{app_icon_count, set_alternate_opener_visual},
+    AppChoiceItem, AppWindow, DEFAULT_STATUS_TEXT, ResultItem,
+    opener_visual::{app_icon_count, set_alternate_opener_visual, to_app_choice_items},
     result_items::{IconImageCache, to_result_items},
     runtime_state::{search_results, selected_index_for_query},
     settings::{
@@ -18,7 +18,8 @@ pub(crate) struct SettingsCallbackContext {
     pub config_state: Rc<RefCell<config::Config>>,
     pub ranking_state: Rc<RefCell<ranking::RankingState>>,
     pub projects: Rc<RefCell<Vec<projects::Project>>>,
-    pub apps: Rc<Vec<apps::DesktopApp>>,
+    pub apps: Rc<RefCell<Vec<apps::DesktopApp>>>,
+    pub alternate_opener_choices: Rc<VecModel<AppChoiceItem>>,
     pub current_results: Rc<RefCell<Vec<search::SearchResult>>>,
     pub results_model: Rc<VecModel<ResultItem>>,
     pub icon_cache: Rc<RefCell<IconImageCache>>,
@@ -32,6 +33,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         ranking_state,
         projects,
         apps,
+        alternate_opener_choices,
         current_results,
         results_model,
         icon_cache,
@@ -44,6 +46,8 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let config_state = config_state.clone();
         let projects = projects.clone();
         let apps = apps.clone();
+        let alternate_opener_choices = alternate_opener_choices.clone();
+        let icon_cache = icon_cache.clone();
         let ranking_state = ranking_state.clone();
         let socket_path = socket_path.clone();
         move || {
@@ -54,13 +58,14 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     return;
                 }
 
+                refresh_desktop_apps(&apps, &alternate_opener_choices, &icon_cache);
                 set_settings_properties(
                     &ui,
                     &config_state.borrow(),
                     &socket_path,
                     projects.borrow().len(),
-                    apps.len(),
-                    app_icon_count(&apps),
+                    apps.borrow().len(),
+                    app_icon_count(&apps.borrow()),
                     ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
@@ -84,8 +89,8 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     &config_state.borrow(),
                     &socket_path,
                     projects.borrow().len(),
-                    apps.len(),
-                    app_icon_count(&apps),
+                    apps.borrow().len(),
+                    app_icon_count(&apps.borrow()),
                     ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
@@ -163,7 +168,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     &config_state.borrow(),
                     &ranking_state.borrow(),
                     &projects.borrow(),
-                    &apps,
+                    &apps.borrow(),
                     query.as_str(),
                 );
                 let count = results.len() as i32;
@@ -185,7 +190,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                         .borrow()
                         .actions
                         .alternate_folder_opener_command,
-                    &apps,
+                    &apps.borrow(),
                     &mut icon_cache.borrow_mut(),
                 );
                 set_settings_properties(
@@ -193,11 +198,11 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     &config_state.borrow(),
                     &socket_path,
                     projects.borrow().len(),
-                    apps.len(),
-                    app_icon_count(&apps),
+                    apps.borrow().len(),
+                    app_icon_count(&apps.borrow()),
                     ranking_state.borrow().entries.len(),
                 );
-                ui.set_status_text("Settings saved.".into());
+                set_ephemeral_status(&ui, "Settings saved.");
                 ui.invoke_reset_result_scroll();
             }
         }
@@ -269,7 +274,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     &config_state.borrow(),
                     &ranking_state.borrow(),
                     &projects.borrow(),
-                    &apps,
+                    &apps.borrow(),
                     query.as_str(),
                 );
                 let count = results.len() as i32;
@@ -284,13 +289,40 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     &config_state.borrow(),
                     &socket_path,
                     projects.borrow().len(),
-                    apps.len(),
-                    app_icon_count(&apps),
+                    apps.borrow().len(),
+                    app_icon_count(&apps.borrow()),
                     ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text("Ranking history cleared.".into());
                 ui.invoke_reset_result_scroll();
             }
+        }
+    });
+}
+
+fn refresh_desktop_apps(
+    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
+    choices_model: &Rc<VecModel<AppChoiceItem>>,
+    icon_cache: &Rc<RefCell<IconImageCache>>,
+) {
+    let discovered_apps = apps::discover_desktop_apps();
+    choices_model.set_vec(to_app_choice_items(
+        &discovered_apps,
+        &mut icon_cache.borrow_mut(),
+    ));
+    *apps_state.borrow_mut() = discovered_apps;
+}
+
+fn set_ephemeral_status(ui: &AppWindow, message: &str) {
+    ui.set_status_text(message.into());
+
+    let expected = message.to_owned();
+    let weak = ui.as_weak();
+    Timer::single_shot(Duration::from_millis(1800), move || {
+        if let Some(ui) = weak.upgrade()
+            && ui.get_status_text().as_str() == expected
+        {
+            ui.set_status_text(DEFAULT_STATUS_TEXT.into());
         }
     });
 }
