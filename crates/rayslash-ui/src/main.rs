@@ -545,6 +545,7 @@ fn run_gui(
                 );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
+                ui.invoke_focus_settings();
             }
         }
     });
@@ -676,10 +677,8 @@ fn run_gui(
                     app_icon_count(&apps),
                     ranking_state.borrow().entries.len(),
                 );
-                ui.set_settings_open(false);
                 ui.set_status_text("Settings saved.".into());
                 ui.invoke_reset_result_scroll();
-                ui.invoke_focus_search();
             }
         }
     });
@@ -711,6 +710,16 @@ fn run_gui(
                 ui.set_settings_folder_sources(search::display_path(&folder).into());
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
+                ui.invoke_settings_save_requested(
+                    ui.get_settings_folder_sources(),
+                    ui.get_settings_alternate_folder_opener_command(),
+                    ui.get_settings_provider_apps(),
+                    ui.get_settings_provider_folders(),
+                    ui.get_settings_provider_calculator(),
+                    ui.get_settings_alternate_folder_opener_enabled(),
+                    ui.get_settings_ranking_learn_from_usage(),
+                    ui.get_settings_max_results(),
+                );
             }
         }
     });

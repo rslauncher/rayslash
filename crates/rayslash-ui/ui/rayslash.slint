@@ -105,6 +105,7 @@ component SettingToggle inherits Rectangle {
     in property <string> label;
     in property <string> description;
     in-out property <bool> checked;
+    callback toggled();
 
     height: 52px;
     border-radius: 8px;
@@ -163,6 +164,7 @@ component SettingToggle inherits Rectangle {
         mouse-cursor: pointer;
         clicked => {
             root.checked = !root.checked;
+            root.toggled();
         }
     }
 }
@@ -216,6 +218,10 @@ export component AppWindow inherits Window {
         search.focus();
     }
 
+    public function focus-settings() {
+        settings-focus.focus();
+    }
+
     public function reset-result-scroll() {
         results-scroll.viewport-y = 0px;
     }
@@ -258,6 +264,19 @@ export component AppWindow inherits Window {
         }
     }
 
+    function save-settings() {
+        root.settings-save-requested(
+            settings-sources-input.text,
+            settings-editor-input.text,
+            root.settings-provider-apps,
+            root.settings-provider-folders,
+            root.settings-provider-calculator,
+            root.settings-alternate-folder-opener-enabled,
+            root.settings-ranking-learn-from-usage,
+            settings-max-results-input.text
+        );
+    }
+
     title: "rayslash";
     icon: @image-url("../../../icons/rayslash-icon.svg");
     preferred-width: 660px;
@@ -281,7 +300,11 @@ export component AppWindow inherits Window {
             key-pressed(event) => {
                 root.control-held = event.modifiers.control;
                 if (event.text == Key.Escape) {
-                    root.close-requested();
+                    if (root.settings-open) {
+                        root.settings-cancel-requested();
+                    } else {
+                        root.close-requested();
+                    }
                     accept
                 } else if (event.text == Key.Tab && event.modifiers.shift) {
                     root.select-previous();
@@ -481,14 +504,27 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    settings-scroll := Flickable {
+                    settings-focus := FocusScope {
                         min-height: 0px;
                         preferred-height: root.settings-open ? 320px : 0px;
                         visible: root.settings-open;
                         vertical-stretch: root.settings-open ? 1 : 0;
-                        viewport-width: self.width;
-                        viewport-height: root.settings-open ? 540px : 0px;
-                        interactive: root.settings-open;
+
+                        key-pressed(event) => {
+                            if (event.text == Key.Escape) {
+                                root.settings-cancel-requested();
+                                accept
+                            } else {
+                                reject
+                            }
+                        }
+
+                        settings-scroll := Flickable {
+                            width: 100%;
+                            height: 100%;
+                            viewport-width: self.width;
+                            viewport-height: root.settings-open ? 540px : 0px;
+                            interactive: root.settings-open;
 
                         VerticalLayout {
                             width: settings-scroll.width;
@@ -529,6 +565,24 @@ export component AppWindow inherits Window {
                                         font-size: 13px;
                                         single-line: true;
                                         vertical-alignment: center;
+
+                                        key-pressed(event) => {
+                                            if (event.text == Key.Return) {
+                                                root.save-settings();
+                                                accept
+                                            } else if (event.text == Key.Escape) {
+                                                root.settings-cancel-requested();
+                                                accept
+                                            } else {
+                                                reject
+                                            }
+                                        }
+
+                                        changed has-focus => {
+                                            if (!self.has-focus) {
+                                                root.save-settings();
+                                            }
+                                        }
                                     }
                                 }
 
@@ -600,6 +654,24 @@ export component AppWindow inherits Window {
                                         font-size: 13px;
                                         single-line: true;
                                         vertical-alignment: center;
+
+                                        key-pressed(event) => {
+                                            if (event.text == Key.Return) {
+                                                root.save-settings();
+                                                accept
+                                            } else if (event.text == Key.Escape) {
+                                                root.settings-cancel-requested();
+                                                accept
+                                            } else {
+                                                reject
+                                            }
+                                        }
+
+                                        changed has-focus => {
+                                            if (!self.has-focus) {
+                                                root.save-settings();
+                                            }
+                                        }
                                     }
                                 }
 
@@ -705,8 +777,10 @@ export component AppWindow inherits Window {
                                         choice-touch := TouchArea {
                                             mouse-cursor: pointer;
                                             clicked => {
-                                                root.settings-choose-alternate-opener-requested(choice.command);
+                                                root.settings-alternate-folder-opener-command = choice.command;
                                                 root.settings-alternate-picker-open = false;
+                                                root.settings-choose-alternate-opener-requested(choice.command);
+                                                root.save-settings();
                                             }
                                         }
                                     }
@@ -734,18 +808,27 @@ export component AppWindow inherits Window {
                                 label: "Apps";
                                 description: "Desktop applications";
                                 checked <=> root.settings-provider-apps;
+                                toggled => {
+                                    root.save-settings();
+                                }
                             }
 
                             SettingToggle {
                                 label: "Folders";
                                 description: "Folder source results";
                                 checked <=> root.settings-provider-folders;
+                                toggled => {
+                                    root.save-settings();
+                                }
                             }
 
                             SettingToggle {
                                 label: "Calculator";
                                 description: "Local math results";
                                 checked <=> root.settings-provider-calculator;
+                                toggled => {
+                                    root.save-settings();
+                                }
                             }
                         }
 
@@ -757,6 +840,9 @@ export component AppWindow inherits Window {
                                 label: "Learning";
                                 description: "Local result ranking";
                                 checked <=> root.settings-ranking-learn-from-usage;
+                                toggled => {
+                                    root.save-settings();
+                                }
                             }
 
                             Rectangle {
@@ -830,6 +916,24 @@ export component AppWindow inherits Window {
                                         font-size: 12px;
                                         single-line: true;
                                         vertical-alignment: center;
+
+                                        key-pressed(event) => {
+                                            if (event.text == Key.Return) {
+                                                root.save-settings();
+                                                accept
+                                            } else if (event.text == Key.Escape) {
+                                                root.settings-cancel-requested();
+                                                accept
+                                            } else {
+                                                reject
+                                            }
+                                        }
+
+                                        changed has-focus => {
+                                            if (!self.has-focus) {
+                                                root.save-settings();
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -838,6 +942,9 @@ export component AppWindow inherits Window {
                                 label: "Alt opener";
                                 description: "Ctrl+Enter folders";
                                 checked <=> root.settings-alternate-folder-opener-enabled;
+                                toggled => {
+                                    root.save-settings();
+                                }
                             }
                         }
 
@@ -921,82 +1028,10 @@ export component AppWindow inherits Window {
                         }
 
                         Rectangle {
-                            vertical-stretch: 1;
+                            height: 8px;
                             background: transparent;
                         }
-
-                        HorizontalLayout {
-                            height: 34px;
-                            spacing: 10px;
-
-                            Rectangle {
-                                horizontal-stretch: 1;
-                                background: transparent;
-                            }
-
-                            Rectangle {
-                                width: 82px;
-                                height: 32px;
-                                border-radius: 8px;
-                                background: cancel-touch.pressed ? #333333 : cancel-touch.has-hover ? #292929 : #202020;
-                                border-width: 1px;
-                                border-color: #3a3a3a;
-
-                                Text {
-                                    width: 100%;
-                                    height: 100%;
-                                    text: "Cancel";
-                                    color: #dddddd;
-                                    font-size: 12px;
-                                    font-weight: 700;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-
-                                cancel-touch := TouchArea {
-                                    mouse-cursor: pointer;
-                                    clicked => {
-                                        root.settings-cancel-requested();
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                width: 82px;
-                                height: 32px;
-                                border-radius: 8px;
-                                background: save-touch.pressed ? #f0f0f0 : save-touch.has-hover ? #e2e2e2 : #d6d6d6;
-                                border-width: 1px;
-                                border-color: #f4f4f4;
-
-                                Text {
-                                    width: 100%;
-                                    height: 100%;
-                                    text: "Save";
-                                    color: #181818;
-                                    font-size: 12px;
-                                    font-weight: 800;
-                                    horizontal-alignment: center;
-                                    vertical-alignment: center;
-                                }
-
-                                save-touch := TouchArea {
-                                    mouse-cursor: pointer;
-                                    clicked => {
-                                        root.settings-save-requested(
-                                            settings-sources-input.text,
-                                            settings-editor-input.text,
-                                            root.settings-provider-apps,
-                                            root.settings-provider-folders,
-                                            root.settings-provider-calculator,
-                                            root.settings-alternate-folder-opener-enabled,
-                                            root.settings-ranking-learn-from-usage,
-                                            settings-max-results-input.text
-                                        );
-                                    }
-                                }
-                            }
-                        }
+                    }
                     }
                     }
 
@@ -1009,12 +1044,10 @@ export component AppWindow inherits Window {
                         viewport-height: root.settings-open || root.result-count <= 0 ? 0px : root.result-count * root.result-row-stride - root.result-row-gap;
                         interactive: !root.settings-open;
 
-                        VerticalLayout {
+                        for item[i] in root.results: Rectangle {
+                            y: i * root.result-row-stride;
                             width: results-scroll.width;
-                            spacing: root.result-row-gap;
-
-                            for item[i] in root.results: Rectangle {
-                                height: root.result-row-height;
+                            height: root.result-row-height;
                                 border-radius: 12px;
                                 background: row-touch.pressed ? #3c3c3c : i == root.selected-index ? #343434 : row-touch.has-hover ? #2a2a2a : #222222;
                                 border-width: 1px;
@@ -1234,7 +1267,6 @@ export component AppWindow inherits Window {
                                     }
                                 }
                             }
-                        }
                     }
                 }
             }
