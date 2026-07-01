@@ -1,8 +1,12 @@
+mod activation;
 mod cli;
 mod ipc;
 mod opener_visual;
 mod result_items;
+mod runtime_state;
 mod settings;
+mod settings_callbacks;
+mod window_state;
 
 use std::{
     cell::{Cell, RefCell},
@@ -10,28 +14,30 @@ use std::{
     path::PathBuf,
     process::ExitCode,
     rc::Rc,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
     time::Instant,
 };
 
+use activation::register_activation_callback;
 use opener_visual::{app_icon_count, set_alternate_opener_visual, to_app_choice_items};
-use rayslash_core::{actions, apps, config, projects, ranking, search};
+use rayslash_core::{apps, config, projects};
 use result_items::{IconImageCache, to_result_items};
-use settings::{
-    first_existing_folder_source, parse_folder_sources_text, parse_max_results,
-    set_settings_properties,
+use runtime_state::{
+    load_runtime_ranking_state, profile_enabled, profile_stage, search_results,
+    selected_index_for_query,
 };
+use settings::set_settings_properties;
+use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
     ComponentHandle, VecModel,
     winit_030::{EventResult, WinitWindowAccessor, winit},
 };
+use window_state::{
+    handle_ipc_request, hide_launcher, should_start_resident_after_send_error, visible_flag,
+};
 
 slint::include_modules!();
 
-const DEFAULT_STATUS_TEXT: &str = "";
+pub(crate) const DEFAULT_STATUS_TEXT: &str = "";
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -121,7 +127,7 @@ fn run_gui(
     let ui = AppWindow::new()?;
     profile_stage(profile, "ui construct", stage_started);
 
-    let is_visible = Arc::new(AtomicBool::new(true));
+    let is_visible = visible_flag(true);
     let suppress_next_focus_hide = Rc::new(Cell::new(false));
 
     let stage_started = Instant::now();
@@ -325,464 +331,28 @@ fn run_gui(
         }
     });
 
-    ui.on_activate_selected_result({
-        let weak = ui.as_weak();
-        let current_results = current_results.clone();
-        let config_state = config_state.clone();
-        let ranking_state = ranking_state.clone();
-        let is_visible = is_visible.clone();
-        move |index, open_in_vscode| {
-            let result = usize::try_from(index)
-                .ok()
-                .and_then(|index| current_results.borrow().get(index).cloned());
+    register_activation_callback(
+        &ui,
+        current_results.clone(),
+        config_state.clone(),
+        ranking_state.clone(),
+        is_visible.clone(),
+    );
 
-            match result {
-                Some(result) => {
-                    if let Some(calculator_result) = result.calculator_result() {
-                        println!("calculator result: {}", calculator_result);
-
-                        match copy_to_clipboard(calculator_result) {
-                            Ok(()) => {
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(
-                                        format!("Copied result: {}", calculator_result).into(),
-                                    );
-                                    hide_launcher(&ui, is_visible.as_ref());
-                                }
-                            }
-                            Err(error) => {
-                                eprintln!("failed to copy calculator result: {error}");
-
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(
-                                        format!("Could not copy result: {}", calculator_result)
-                                            .into(),
-                                    );
-                                }
-                            }
-                        }
-                    } else if let Some(calculator_error) = result.calculator_error_message() {
-                        println!("calculator error: {}", calculator_error);
-
-                        if let Some(ui) = weak.upgrade() {
-                            ui.set_status_text(calculator_error.into());
-                        }
-                    } else if result.is_no_results() {
-                        println!("no results for query");
-
-                        if let Some(ui) = weak.upgrade() {
-                            hide_launcher(&ui, is_visible.as_ref());
-                        }
-                    } else if let Some(path) = result.project_path() {
-                        let display_path = search::display_path(path);
-
-                        if open_in_vscode
-                            && config_state
-                                .borrow()
-                                .actions
-                                .alternate_folder_opener_enabled
-                        {
-                            let editor_command = config_state
-                                .borrow()
-                                .actions
-                                .alternate_folder_opener_command
-                                .clone();
-                            match actions::open_project_in_editor(path, &editor_command) {
-                                Ok(_child) => {
-                                    println!(
-                                        "Opening project with {}: {}",
-                                        editor_command,
-                                        path.display()
-                                    );
-
-                                    if let Some(ui) = weak.upgrade() {
-                                        let query = ui.get_query_text();
-                                        record_learned_launch(
-                                            &config_state.borrow(),
-                                            &ranking_state,
-                                            &result,
-                                            query.as_str(),
-                                        );
-                                        ui.set_status_text(
-                                            format!(
-                                                "Opening {} with {}",
-                                                result.title, editor_command
-                                            )
-                                            .into(),
-                                        );
-                                        hide_launcher(&ui, is_visible.as_ref());
-                                    }
-                                }
-                                Err(error) => {
-                                    eprintln!(
-                                        "failed to open project with `{} {}`: {error}",
-                                        editor_command,
-                                        path.display()
-                                    );
-
-                                    if let Some(ui) = weak.upgrade() {
-                                        ui.set_status_text(
-                                            format!(
-                                                "Could not open {}. Is `{}` on PATH?",
-                                                display_path, editor_command
-                                            )
-                                            .into(),
-                                        );
-                                    }
-                                }
-                            }
-                        } else {
-                            match actions::open_project_folder(path) {
-                                Ok(_child) => {
-                                    println!("Opening project folder: {}", path.display());
-
-                                    if let Some(ui) = weak.upgrade() {
-                                        let query = ui.get_query_text();
-                                        record_learned_launch(
-                                            &config_state.borrow(),
-                                            &ranking_state,
-                                            &result,
-                                            query.as_str(),
-                                        );
-                                        ui.set_status_text(
-                                            format!("Opening folder {}", display_path).into(),
-                                        );
-                                        hide_launcher(&ui, is_visible.as_ref());
-                                    }
-                                }
-                                Err(error) => {
-                                    eprintln!(
-                                        "failed to open project folder with `xdg-open {}`: {error}",
-                                        path.display()
-                                    );
-
-                                    if let Some(ui) = weak.upgrade() {
-                                        ui.set_status_text(
-                                            format!(
-                                                "Could not open folder {}. Is `xdg-open` on PATH?",
-                                                display_path
-                                            )
-                                            .into(),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    } else if let Some(command) = result.app_command().cloned() {
-                        match actions::launch_app(&command) {
-                            Ok(_child) => {
-                                println!(
-                                    "Launching app {} with command: {}",
-                                    result.title,
-                                    command_display(&command)
-                                );
-
-                                if let Some(ui) = weak.upgrade() {
-                                    let query = ui.get_query_text();
-                                    record_learned_launch(
-                                        &config_state.borrow(),
-                                        &ranking_state,
-                                        &result,
-                                        query.as_str(),
-                                    );
-                                    ui.set_status_text(
-                                        format!("Launching {}", result.title).into(),
-                                    );
-                                    hide_launcher(&ui, is_visible.as_ref());
-                                }
-                            }
-                            Err(error) => {
-                                eprintln!(
-                                    "failed to launch app {} with command `{}`: {error}",
-                                    result.title,
-                                    command_display(&command)
-                                );
-
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(
-                                        format!(
-                                            "Could not launch {}. Is `{}` on PATH?",
-                                            result.title,
-                                            command.program.to_string_lossy()
-                                        )
-                                        .into(),
-                                    );
-                                }
-                            }
-                        }
-                    } else {
-                        println!("placeholder activation: {}", result.title);
-
-                        if let Some(ui) = weak.upgrade() {
-                            ui.set_status_text(format!("Preview only: {}", result.title).into());
-                        }
-                    }
-                }
-                None => {
-                    if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text("No result selected.".into());
-                    }
-                }
-            }
-        }
-    });
-
-    ui.on_settings_requested({
-        let weak = ui.as_weak();
-        let config_state = config_state.clone();
-        let projects = projects.clone();
-        let apps = apps.clone();
-        let ranking_state = ranking_state.clone();
-        let socket_path = socket_path.clone();
-        move || {
-            if let Some(ui) = weak.upgrade() {
-                if ui.get_settings_open() {
-                    ui.set_settings_open(false);
-                    ui.invoke_focus_search();
-                    return;
-                }
-
-                set_settings_properties(
-                    &ui,
-                    &config_state.borrow(),
-                    &socket_path,
-                    projects.borrow().len(),
-                    apps.len(),
-                    app_icon_count(&apps),
-                    ranking_state.borrow().entries.len(),
-                );
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
-                ui.set_settings_open(true);
-                ui.invoke_focus_settings();
-            }
-        }
-    });
-
-    ui.on_settings_cancel_requested({
-        let weak = ui.as_weak();
-        let config_state = config_state.clone();
-        let projects = projects.clone();
-        let apps = apps.clone();
-        let ranking_state = ranking_state.clone();
-        let socket_path = socket_path.clone();
-        move || {
-            if let Some(ui) = weak.upgrade() {
-                set_settings_properties(
-                    &ui,
-                    &config_state.borrow(),
-                    &socket_path,
-                    projects.borrow().len(),
-                    apps.len(),
-                    app_icon_count(&apps),
-                    ranking_state.borrow().entries.len(),
-                );
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
-                ui.set_settings_open(false);
-                ui.invoke_focus_search();
-            }
-        }
-    });
-
-    ui.on_settings_save_requested({
-        let weak = ui.as_weak();
-        let config_state = config_state.clone();
-        let ranking_state = ranking_state.clone();
-        let projects = projects.clone();
-        let apps = apps.clone();
-        let current_results = current_results.clone();
-        let results_model = results_model.clone();
-        let icon_cache = icon_cache.clone();
-        let socket_path = socket_path.clone();
-        move |folder_sources_text,
-              editor_command,
-              apps_enabled,
-              folders_enabled,
-              calculator_enabled,
-              alternate_folder_opener_enabled,
-              learn_from_usage,
-              max_results_text| {
-            let editor_command = editor_command.trim();
-            if alternate_folder_opener_enabled && editor_command.is_empty() {
-                if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text("Alternate folder opener cannot be empty.".into());
-                }
-                return;
-            }
-
-            let Some(max_results) = parse_max_results(max_results_text.as_str()) else {
-                if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text("Max results must be a positive number.".into());
-                }
-                return;
-            };
-
-            let config_to_save = config::Config {
-                folder_sources: parse_folder_sources_text(folder_sources_text.as_str()),
-                providers: config::ProviderConfig {
-                    apps: apps_enabled,
-                    folders: folders_enabled,
-                    calculator: calculator_enabled,
-                },
-                actions: config::ActionConfig {
-                    alternate_folder_opener_enabled,
-                    alternate_folder_opener_command: editor_command.to_owned(),
-                },
-                appearance: config::AppearanceConfig { max_results },
-                ranking: config::RankingConfig { learn_from_usage },
-            };
-
-            if let Err(error) = config::save_config(&config_to_save) {
-                eprintln!("{error}");
-                if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text(format!("Could not save settings: {error}").into());
-                }
-                return;
-            }
-
-            let runtime_config = config_to_save.normalized();
-            *config_state.borrow_mut() = runtime_config;
-            let updated_projects =
-                projects::scan_project_roots(&config_state.borrow().folder_sources);
-            *projects.borrow_mut() = updated_projects;
-
-            if let Some(ui) = weak.upgrade() {
-                let query = ui.get_query_text();
-                let results = search_results(
-                    &config_state.borrow(),
-                    &ranking_state.borrow(),
-                    &projects.borrow(),
-                    &apps,
-                    query.as_str(),
-                );
-                let count = results.len() as i32;
-
-                results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
-                *current_results.borrow_mut() = results;
-
-                ui.set_result_count(count);
-                ui.set_selected_index(selected_index_for_query(query.as_str(), count));
-                ui.set_alternate_folder_opener_enabled(
-                    config_state
-                        .borrow()
-                        .actions
-                        .alternate_folder_opener_enabled,
-                );
-                set_alternate_opener_visual(
-                    &ui,
-                    &config_state
-                        .borrow()
-                        .actions
-                        .alternate_folder_opener_command,
-                    &apps,
-                    &mut icon_cache.borrow_mut(),
-                );
-                set_settings_properties(
-                    &ui,
-                    &config_state.borrow(),
-                    &socket_path,
-                    projects.borrow().len(),
-                    apps.len(),
-                    app_icon_count(&apps),
-                    ranking_state.borrow().entries.len(),
-                );
-                ui.set_status_text("Settings saved.".into());
-                ui.invoke_reset_result_scroll();
-            }
-        }
-    });
-
-    ui.on_settings_choose_alternate_opener_requested({
-        let weak = ui.as_weak();
-        move |command| {
-            if let Some(ui) = weak.upgrade() {
-                ui.set_settings_alternate_folder_opener_command(command.clone());
-                ui.set_status_text(format!("Selected alternate opener: {command}").into());
-            }
-        }
-    });
-
-    ui.on_settings_browse_folder_requested({
-        let weak = ui.as_weak();
-        let suppress_next_focus_hide = suppress_next_focus_hide.clone();
-        move |current_sources| {
-            suppress_next_focus_hide.set(true);
-            let initial_dir = first_existing_folder_source(current_sources.as_str())
-                .or_else(dirs::home_dir)
-                .unwrap_or_else(|| PathBuf::from("/"));
-            let selected = rfd::FileDialog::new()
-                .set_title("Choose folder source")
-                .set_directory(initial_dir)
-                .pick_folder();
-
-            if let (Some(ui), Some(folder)) = (weak.upgrade(), selected) {
-                ui.set_settings_folder_sources(search::display_path(&folder).into());
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
-                ui.set_settings_open(true);
-                ui.invoke_settings_save_requested(
-                    ui.get_settings_folder_sources(),
-                    ui.get_settings_alternate_folder_opener_command(),
-                    ui.get_settings_provider_apps(),
-                    ui.get_settings_provider_folders(),
-                    ui.get_settings_provider_calculator(),
-                    ui.get_settings_alternate_folder_opener_enabled(),
-                    ui.get_settings_ranking_learn_from_usage(),
-                    ui.get_settings_max_results(),
-                );
-            }
-        }
-    });
-
-    ui.on_settings_clear_ranking_requested({
-        let weak = ui.as_weak();
-        let config_state = config_state.clone();
-        let ranking_state = ranking_state.clone();
-        let projects = projects.clone();
-        let apps = apps.clone();
-        let current_results = current_results.clone();
-        let results_model = results_model.clone();
-        let icon_cache = icon_cache.clone();
-        let socket_path = socket_path.clone();
-        move || {
-            if let Err(error) = ranking::clear_ranking_state() {
-                eprintln!("{error}");
-                if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text(format!("Could not clear ranking history: {error}").into());
-                }
-                return;
-            }
-
-            *ranking_state.borrow_mut() = ranking::RankingState::default();
-
-            if let Some(ui) = weak.upgrade() {
-                let query = ui.get_query_text();
-                let results = search_results(
-                    &config_state.borrow(),
-                    &ranking_state.borrow(),
-                    &projects.borrow(),
-                    &apps,
-                    query.as_str(),
-                );
-                let count = results.len() as i32;
-
-                results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
-                *current_results.borrow_mut() = results;
-
-                ui.set_result_count(count);
-                ui.set_selected_index(selected_index_for_query(query.as_str(), count));
-                set_settings_properties(
-                    &ui,
-                    &config_state.borrow(),
-                    &socket_path,
-                    projects.borrow().len(),
-                    apps.len(),
-                    app_icon_count(&apps),
-                    ranking_state.borrow().entries.len(),
-                );
-                ui.set_status_text("Ranking history cleared.".into());
-                ui.invoke_reset_result_scroll();
-            }
-        }
-    });
+    register_settings_callbacks(
+        &ui,
+        SettingsCallbackContext {
+            config_state: config_state.clone(),
+            ranking_state: ranking_state.clone(),
+            projects: projects.clone(),
+            apps: apps.clone(),
+            current_results: current_results.clone(),
+            results_model: results_model.clone(),
+            icon_cache: icon_cache.clone(),
+            socket_path: socket_path.clone(),
+            suppress_next_focus_hide: suppress_next_focus_hide.clone(),
+        },
+    );
 
     let weak = ui.as_weak();
     let ipc_visibility = is_visible.clone();
@@ -796,202 +366,4 @@ fn run_gui(
     });
 
     ui.run()
-}
-
-fn handle_ipc_request(ui: &AppWindow, is_visible: &AtomicBool, request: ipc::IpcRequest) {
-    match request {
-        ipc::IpcRequest::Show => show_launcher(ui, is_visible),
-        ipc::IpcRequest::Toggle if is_visible.load(Ordering::SeqCst) => {
-            hide_launcher(ui, is_visible);
-        }
-        ipc::IpcRequest::Toggle => show_launcher(ui, is_visible),
-    }
-}
-
-fn show_launcher(ui: &AppWindow, is_visible: &AtomicBool) {
-    ui.invoke_reset_requested();
-    ui.set_control_held(false);
-
-    match ui.show() {
-        Ok(()) => {
-            is_visible.store(true, Ordering::SeqCst);
-            ui.invoke_focus_search();
-        }
-        Err(error) => eprintln!("failed to show rayslash window: {error}"),
-    }
-}
-
-fn hide_launcher(ui: &AppWindow, is_visible: &AtomicBool) {
-    ui.set_control_held(false);
-
-    if let Err(error) = ui.hide() {
-        eprintln!("failed to hide rayslash window: {error}");
-    } else {
-        is_visible.store(false, Ordering::SeqCst);
-    }
-}
-
-fn should_start_resident_after_send_error(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::NotFound
-            | io::ErrorKind::ConnectionRefused
-            | io::ErrorKind::ConnectionReset
-            | io::ErrorKind::BrokenPipe
-    )
-}
-
-fn profile_enabled() -> bool {
-    env::var_os("RAYSLASH_PROFILE").is_some_and(|value| value != "0")
-}
-
-fn profile_stage(enabled: bool, label: &str, started: Instant) {
-    if enabled {
-        eprintln!("[rayslash profile] {label}: {:.2?}", started.elapsed());
-    }
-}
-
-fn load_runtime_ranking_state() -> ranking::RankingState {
-    match ranking::load_ranking_state() {
-        Ok(state) => state,
-        Err(error) => {
-            eprintln!("{error}; using empty ranking state");
-            ranking::RankingState::default()
-        }
-    }
-}
-
-fn search_results(
-    config: &config::Config,
-    ranking_state: &ranking::RankingState,
-    projects: &[projects::Project],
-    apps: &[apps::DesktopApp],
-    query: &str,
-) -> Vec<search::SearchResult> {
-    let ranking = config.ranking.learn_from_usage.then_some(ranking_state);
-    let mut results =
-        search::mixed_results_with_ranking(projects, apps, query, &config.providers, ranking);
-    results.truncate(config.appearance.max_results);
-    results
-}
-
-fn record_learned_launch(
-    config: &config::Config,
-    ranking_state: &Rc<RefCell<ranking::RankingState>>,
-    result: &search::SearchResult,
-    query: &str,
-) {
-    if !config.ranking.learn_from_usage {
-        return;
-    }
-
-    let Some(result_id) = result.learning_id() else {
-        return;
-    };
-
-    {
-        let mut state = ranking_state.borrow_mut();
-        state.record_launch(&result_id, query);
-    }
-
-    if let Err(error) = ranking::save_ranking_state(&ranking_state.borrow()) {
-        eprintln!("{error}");
-    }
-}
-
-fn command_display(command: &actions::CommandSpec) -> String {
-    std::iter::once(command.program.to_string_lossy().into_owned())
-        .chain(
-            command
-                .args
-                .iter()
-                .map(|arg| arg.to_string_lossy().into_owned()),
-        )
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn copy_to_clipboard(text: &str) -> Result<(), arboard::Error> {
-    let mut clipboard = arboard::Clipboard::new()?;
-    clipboard.set_text(text.to_owned())
-}
-
-fn selected_index_for_query(query: &str, result_count: i32) -> i32 {
-    if query.trim().is_empty() || result_count <= 0 {
-        -1
-    } else {
-        0
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn selected_index_requires_non_empty_query_with_results() {
-        assert_eq!(selected_index_for_query("", 3), -1);
-        assert_eq!(selected_index_for_query("   ", 3), -1);
-        assert_eq!(selected_index_for_query("code", 0), -1);
-        assert_eq!(selected_index_for_query("code", 3), 0);
-    }
-
-    #[test]
-    fn search_results_respect_configured_max_results() {
-        let config = config::Config {
-            folder_sources: Vec::new(),
-            providers: config::ProviderConfig::default(),
-            actions: config::ActionConfig::default(),
-            appearance: config::AppearanceConfig { max_results: 1 },
-            ranking: config::RankingConfig::default(),
-        };
-        let ranking_state = ranking::RankingState::default();
-        let projects = vec![
-            projects::Project {
-                name: "alpha".to_owned(),
-                path: PathBuf::from("/tmp/alpha"),
-            },
-            projects::Project {
-                name: "beta".to_owned(),
-                path: PathBuf::from("/tmp/beta"),
-            },
-        ];
-
-        let results = search_results(&config, &ranking_state, &projects, &[], "");
-
-        assert_eq!(results.len(), 1);
-    }
-
-    #[test]
-    fn search_results_ignore_ranking_when_learning_is_disabled() {
-        let config = config::Config {
-            folder_sources: Vec::new(),
-            providers: config::ProviderConfig::default(),
-            actions: config::ActionConfig::default(),
-            appearance: config::AppearanceConfig::default(),
-            ranking: config::RankingConfig {
-                learn_from_usage: false,
-            },
-        };
-        let mut ranking_state = ranking::RankingState::default();
-        ranking_state.record_launch_at(
-            "folder:/tmp/alpine",
-            "al",
-            std::time::UNIX_EPOCH + std::time::Duration::from_secs(1),
-        );
-        let projects = vec![
-            projects::Project {
-                name: "Alpha".to_owned(),
-                path: PathBuf::from("/tmp/alpha"),
-            },
-            projects::Project {
-                name: "Alpine".to_owned(),
-                path: PathBuf::from("/tmp/alpine"),
-            },
-        ];
-
-        let results = search_results(&config, &ranking_state, &projects, &[], "al");
-
-        assert_eq!(results[0].title, "Alpha");
-    }
 }
