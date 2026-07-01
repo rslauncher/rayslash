@@ -17,6 +17,7 @@ Comment=Browse the web
 Exec=example-browser --new-window %U
 Icon=example-browser
 MimeType=text/html;inode/directory;
+Categories=Network;WebBrowser;
 "#,
         "example.desktop".to_owned(),
         PathBuf::from("/tmp/example.desktop"),
@@ -29,6 +30,7 @@ MimeType=text/html;inode/directory;
     assert_eq!(app.icon.as_deref(), Some("example-browser"));
     assert!(app.supports_mime_type("text/html"));
     assert!(app.supports_directory_opening());
+    assert!(app.has_category("WebBrowser"));
     assert_eq!(
         app.command,
         CommandSpec {

@@ -15,9 +15,9 @@ pub(crate) fn to_app_choice_items(
     icon_cache: &mut IconImageCache,
 ) -> Vec<AppChoiceItem> {
     apps.iter()
-        .filter(|app| app.supports_directory_opening())
+        .filter(|app| app.is_folder_opener_candidate())
         .filter_map(|app| {
-            let command = app.command.program.to_string_lossy().trim().to_owned();
+            let command = picker_command_for_app(app);
             if command.is_empty() {
                 return None;
             }
@@ -35,6 +35,14 @@ pub(crate) fn to_app_choice_items(
             })
         })
         .collect()
+}
+
+fn picker_command_for_app(app: &apps::DesktopApp) -> String {
+    if app.is_terminal_emulator() {
+        return "xdg-terminal-exec".to_owned();
+    }
+
+    app.command.program.to_string_lossy().trim().to_owned()
 }
 
 pub(crate) fn set_alternate_opener_visual(
@@ -206,19 +214,49 @@ mod tests {
     #[test]
     fn app_choice_items_include_only_directory_openers() {
         let apps = vec![
-            app("Code", "code", vec!["inode/directory".to_owned()]),
-            app("Calculator", "gnome-calculator", Vec::new()),
+            app("Files", "nautilus", vec!["inode/directory"], Vec::new()),
+            app(
+                "Zed",
+                "zed",
+                Vec::new(),
+                vec!["Utility", "TextEditor", "Development", "IDE"],
+            ),
+            app(
+                "Terminal",
+                "ptyxis",
+                Vec::new(),
+                vec!["GNOME", "System", "TerminalEmulator"],
+            ),
+            app(
+                "Calculator",
+                "gnome-calculator",
+                Vec::new(),
+                vec!["Utility", "Calculator"],
+            ),
         ];
         let mut icon_cache = IconImageCache::default();
 
         let choices = to_app_choice_items(&apps, &mut icon_cache);
 
-        assert_eq!(choices.len(), 1);
-        assert_eq!(choices[0].name.as_str(), "Code");
-        assert_eq!(choices[0].command.as_str(), "code");
+        assert_eq!(
+            choices
+                .iter()
+                .map(|choice| (choice.name.to_string(), choice.command.to_string()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Files".to_owned(), "nautilus".to_owned()),
+                ("Zed".to_owned(), "zed".to_owned()),
+                ("Terminal".to_owned(), "xdg-terminal-exec".to_owned()),
+            ]
+        );
     }
 
-    fn app(name: &str, program: &str, mime_types: Vec<String>) -> apps::DesktopApp {
+    fn app(
+        name: &str,
+        program: &str,
+        mime_types: Vec<&str>,
+        categories: Vec<&str>,
+    ) -> apps::DesktopApp {
         apps::DesktopApp {
             id: format!("{}.desktop", name.to_ascii_lowercase()),
             name: name.to_owned(),
@@ -226,7 +264,8 @@ mod tests {
             comment: None,
             exec: program.to_owned(),
             icon: None,
-            mime_types,
+            mime_types: mime_types.into_iter().map(str::to_owned).collect(),
+            categories: categories.into_iter().map(str::to_owned).collect(),
             icon_path: None,
             command: CommandSpec {
                 program: OsString::from(program),

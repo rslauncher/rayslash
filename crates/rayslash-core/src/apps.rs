@@ -19,6 +19,7 @@ pub struct DesktopApp {
     pub exec: String,
     pub icon: Option<String>,
     pub mime_types: Vec<String>,
+    pub categories: Vec<String>,
     pub icon_path: Option<PathBuf>,
     pub command: CommandSpec,
     pub desktop_file: PathBuf,
@@ -33,5 +34,22 @@ impl DesktopApp {
 
     pub fn supports_directory_opening(&self) -> bool {
         self.supports_mime_type("inode/directory")
+    }
+
+    pub fn has_category(&self, category: &str) -> bool {
+        self.categories
+            .iter()
+            .any(|app_category| app_category == category)
+    }
+
+    pub fn is_folder_opener_candidate(&self) -> bool {
+        self.supports_directory_opening()
+            || self.has_category("FileManager")
+            || self.has_category("TerminalEmulator")
+            || self.has_category("IDE")
+    }
+
+    pub fn is_terminal_emulator(&self) -> bool {
+        self.has_category("TerminalEmulator")
     }
 }
