@@ -15,6 +15,7 @@ pub(crate) fn to_app_choice_items(
     icon_cache: &mut IconImageCache,
 ) -> Vec<AppChoiceItem> {
     apps.iter()
+        .filter(|app| app.supports_directory_opening())
         .filter_map(|app| {
             let command = app.command.program.to_string_lossy().trim().to_owned();
             if command.is_empty() {
@@ -192,11 +193,46 @@ fn fallback_accent_color(seed: &str) -> Color {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rayslash_core::actions::CommandSpec;
+    use std::ffi::OsString;
 
     #[test]
     fn opener_label_uses_terminal_and_command_fallbacks() {
         assert_eq!(opener_label("xdg-terminal-exec"), "TM");
         assert_eq!(opener_label("codium"), "CO");
         assert_eq!(opener_label("--"), "OP");
+    }
+
+    #[test]
+    fn app_choice_items_include_only_directory_openers() {
+        let apps = vec![
+            app("Code", "code", vec!["inode/directory".to_owned()]),
+            app("Calculator", "gnome-calculator", Vec::new()),
+        ];
+        let mut icon_cache = IconImageCache::default();
+
+        let choices = to_app_choice_items(&apps, &mut icon_cache);
+
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].name.as_str(), "Code");
+        assert_eq!(choices[0].command.as_str(), "code");
+    }
+
+    fn app(name: &str, program: &str, mime_types: Vec<String>) -> apps::DesktopApp {
+        apps::DesktopApp {
+            id: format!("{}.desktop", name.to_ascii_lowercase()),
+            name: name.to_owned(),
+            generic_name: None,
+            comment: None,
+            exec: program.to_owned(),
+            icon: None,
+            mime_types,
+            icon_path: None,
+            command: CommandSpec {
+                program: OsString::from(program),
+                args: Vec::new(),
+            },
+            desktop_file: PathBuf::from(format!("/tmp/{program}.desktop")),
+        }
     }
 }

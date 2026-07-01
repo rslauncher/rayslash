@@ -116,6 +116,7 @@ pub fn app(id: &str, name: &str) -> DesktopApp {
         comment: None,
         exec: name.to_ascii_lowercase(),
         icon: None,
+        mime_types: Vec::new(),
         icon_path: None,
         command: CommandSpec {
             program: name.to_ascii_lowercase().into(),

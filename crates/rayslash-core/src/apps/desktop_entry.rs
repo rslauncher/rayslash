@@ -15,9 +15,13 @@ struct DesktopEntry {
     comment: Option<String>,
     exec: Option<String>,
     icon: Option<String>,
+    mime_types: Vec<String>,
+    try_exec: Option<String>,
     no_display: bool,
     hidden: bool,
     entry_type: Option<String>,
+    only_show_in: Vec<String>,
+    not_show_in: Vec<String>,
 }
 
 pub(super) fn parse_desktop_file_with_id(
@@ -25,7 +29,11 @@ pub(super) fn parse_desktop_file_with_id(
     id: String,
 ) -> io::Result<Option<DesktopApp>> {
     let contents = fs::read_to_string(path)?;
-    Ok(parse_desktop_entry(&contents, id, path.to_path_buf()))
+    Ok(parse_available_desktop_entry(
+        &contents,
+        id,
+        path.to_path_buf(),
+    ))
 }
 
 pub fn parse_desktop_entry(
@@ -34,7 +42,29 @@ pub fn parse_desktop_entry(
     desktop_file: PathBuf,
 ) -> Option<DesktopApp> {
     let entry = parse_desktop_entry_fields(contents);
+    desktop_app_from_entry(entry, id, desktop_file)
+}
 
+fn parse_available_desktop_entry(
+    contents: &str,
+    id: String,
+    desktop_file: PathBuf,
+) -> Option<DesktopApp> {
+    let entry = parse_desktop_entry_fields(contents);
+    let app = desktop_app_from_entry(entry.clone(), id, desktop_file)?;
+
+    if !matches_current_desktop(&entry) || !desktop_entry_is_available(&entry, &app.command) {
+        return None;
+    }
+
+    Some(app)
+}
+
+fn desktop_app_from_entry(
+    entry: DesktopEntry,
+    id: String,
+    desktop_file: PathBuf,
+) -> Option<DesktopApp> {
     if entry.entry_type.as_deref() != Some("Application")
         || entry.no_display
         || entry.hidden
@@ -55,6 +85,7 @@ pub fn parse_desktop_entry(
         comment: entry.comment,
         exec,
         icon: entry.icon,
+        mime_types: entry.mime_types,
         icon_path: None,
         command,
         desktop_file,
@@ -81,9 +112,13 @@ fn parse_desktop_entry_fields(contents: &str) -> DesktopEntry {
         comment: None,
         exec: None,
         icon: None,
+        mime_types: Vec::new(),
+        try_exec: None,
         no_display: false,
         hidden: false,
         entry_type: None,
+        only_show_in: Vec::new(),
+        not_show_in: Vec::new(),
     };
     let mut in_desktop_entry = false;
 
@@ -115,9 +150,13 @@ fn parse_desktop_entry_fields(contents: &str) -> DesktopEntry {
             "Comment" => entry.comment = non_empty(unescape_desktop_value(value)),
             "Exec" => entry.exec = non_empty(value.to_owned()),
             "Icon" => entry.icon = non_empty(unescape_desktop_value(value)),
+            "MimeType" => entry.mime_types = parse_desktop_list(value),
+            "TryExec" => entry.try_exec = non_empty(unescape_desktop_value(value)),
             "NoDisplay" => entry.no_display = parse_desktop_bool(value),
             "Hidden" => entry.hidden = parse_desktop_bool(value),
             "Type" => entry.entry_type = non_empty(value.to_owned()),
+            "OnlyShowIn" => entry.only_show_in = parse_desktop_list(value),
+            "NotShowIn" => entry.not_show_in = parse_desktop_list(value),
             _ => {}
         }
     }
@@ -221,4 +260,93 @@ fn non_empty(value: String) -> Option<String> {
 
 fn parse_desktop_bool(value: &str) -> bool {
     value.eq_ignore_ascii_case("true")
+}
+
+fn parse_desktop_list(value: &str) -> Vec<String> {
+    value
+        .split(';')
+        .filter_map(|item| non_empty(unescape_desktop_value(item.trim())))
+        .collect()
+}
+
+fn desktop_entry_is_available(entry: &DesktopEntry, command: &CommandSpec) -> bool {
+    entry
+        .try_exec
+        .as_deref()
+        .map(command_is_available)
+        .unwrap_or_else(|| command_is_available(&command.program.to_string_lossy()))
+}
+
+fn command_is_available(command: &str) -> bool {
+    let command = command.trim();
+    if command.is_empty() {
+        return false;
+    }
+
+    let path = Path::new(command);
+    if path.is_absolute() || command.contains(std::path::MAIN_SEPARATOR) {
+        return is_executable_file(path);
+    }
+
+    std::env::var_os("PATH")
+        .map(|paths| std::env::split_paths(&paths).any(|dir| is_executable_file(&dir.join(path))))
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn is_executable_file(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+
+    path.metadata()
+        .map(|metadata| metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false)
+}
+
+#[cfg(not(unix))]
+fn is_executable_file(path: &Path) -> bool {
+    path.is_file()
+}
+
+fn matches_current_desktop(entry: &DesktopEntry) -> bool {
+    let current_desktops = current_desktops();
+
+    if !entry.only_show_in.is_empty()
+        && !contains_any_desktop(&entry.only_show_in, &current_desktops)
+    {
+        return false;
+    }
+
+    !contains_any_desktop(&entry.not_show_in, &current_desktops)
+}
+
+fn current_desktops() -> Vec<String> {
+    let mut desktops = Vec::new();
+
+    if let Some(value) = std::env::var_os("XDG_CURRENT_DESKTOP") {
+        desktops.extend(split_desktop_names(&value.to_string_lossy()));
+    }
+
+    if desktops.is_empty()
+        && let Some(value) = std::env::var_os("DESKTOP_SESSION")
+    {
+        desktops.extend(split_desktop_names(&value.to_string_lossy()));
+    }
+
+    desktops
+}
+
+fn split_desktop_names(value: &str) -> Vec<String> {
+    value
+        .split([':', ';'])
+        .filter_map(|desktop| non_empty(desktop.trim().to_ascii_lowercase()))
+        .collect()
+}
+
+fn contains_any_desktop(entry_desktops: &[String], current_desktops: &[String]) -> bool {
+    entry_desktops.iter().any(|entry_desktop| {
+        let entry_desktop = entry_desktop.to_ascii_lowercase();
+        current_desktops
+            .iter()
+            .any(|current_desktop| current_desktop == &entry_desktop)
+    })
 }

@@ -16,6 +16,7 @@ GenericName=Web Browser
 Comment=Browse the web
 Exec=example-browser --new-window %U
 Icon=example-browser
+MimeType=text/html;inode/directory;
 "#,
         "example.desktop".to_owned(),
         PathBuf::from("/tmp/example.desktop"),
@@ -26,6 +27,8 @@ Icon=example-browser
     assert_eq!(app.generic_name.as_deref(), Some("Web Browser"));
     assert_eq!(app.comment.as_deref(), Some("Browse the web"));
     assert_eq!(app.icon.as_deref(), Some("example-browser"));
+    assert!(app.supports_mime_type("text/html"));
+    assert!(app.supports_directory_opening());
     assert_eq!(
         app.command,
         CommandSpec {

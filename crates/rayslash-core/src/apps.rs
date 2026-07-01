@@ -18,7 +18,20 @@ pub struct DesktopApp {
     pub comment: Option<String>,
     pub exec: String,
     pub icon: Option<String>,
+    pub mime_types: Vec<String>,
     pub icon_path: Option<PathBuf>,
     pub command: CommandSpec,
     pub desktop_file: PathBuf,
+}
+
+impl DesktopApp {
+    pub fn supports_mime_type(&self, mime_type: &str) -> bool {
+        self.mime_types
+            .iter()
+            .any(|app_mime_type| app_mime_type == mime_type)
+    }
+
+    pub fn supports_directory_opening(&self) -> bool {
+        self.supports_mime_type("inode/directory")
+    }
 }
