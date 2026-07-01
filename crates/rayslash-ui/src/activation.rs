@@ -26,8 +26,6 @@ pub(crate) fn register_activation_callback(
             match result {
                 Some(result) => {
                     if let Some(calculator_result) = result.calculator_result() {
-                        println!("calculator result: {}", calculator_result);
-
                         match copy_to_clipboard(calculator_result) {
                             Ok(()) => {
                                 if let Some(ui) = weak.upgrade() {
@@ -49,14 +47,10 @@ pub(crate) fn register_activation_callback(
                             }
                         }
                     } else if let Some(calculator_error) = result.calculator_error_message() {
-                        println!("calculator error: {}", calculator_error);
-
                         if let Some(ui) = weak.upgrade() {
                             ui.set_status_text(calculator_error.into());
                         }
                     } else if result.is_no_results() {
-                        println!("no results for query");
-
                         if let Some(ui) = weak.upgrade() {
                             hide_launcher(&ui, is_visible.as_ref());
                         }
@@ -76,12 +70,6 @@ pub(crate) fn register_activation_callback(
                                 .clone();
                             match actions::open_project_in_editor(path, &editor_command) {
                                 Ok(_child) => {
-                                    println!(
-                                        "Opening project with {}: {}",
-                                        editor_command,
-                                        path.display()
-                                    );
-
                                     if let Some(ui) = weak.upgrade() {
                                         let query = ui.get_query_text();
                                         record_learned_launch(
@@ -121,8 +109,6 @@ pub(crate) fn register_activation_callback(
                         } else {
                             match actions::open_project_folder(path) {
                                 Ok(_child) => {
-                                    println!("Opening project folder: {}", path.display());
-
                                     if let Some(ui) = weak.upgrade() {
                                         let query = ui.get_query_text();
                                         record_learned_launch(
@@ -158,12 +144,6 @@ pub(crate) fn register_activation_callback(
                     } else if let Some(command) = result.app_command().cloned() {
                         match actions::launch_app(&command) {
                             Ok(_child) => {
-                                println!(
-                                    "Launching app {} with command: {}",
-                                    result.title,
-                                    command_display(&command)
-                                );
-
                                 if let Some(ui) = weak.upgrade() {
                                     let query = ui.get_query_text();
                                     record_learned_launch(
@@ -197,12 +177,8 @@ pub(crate) fn register_activation_callback(
                                 }
                             }
                         }
-                    } else {
-                        println!("placeholder activation: {}", result.title);
-
-                        if let Some(ui) = weak.upgrade() {
-                            ui.set_status_text(format!("Preview only: {}", result.title).into());
-                        }
+                    } else if let Some(ui) = weak.upgrade() {
+                        ui.set_status_text(format!("Preview only: {}", result.title).into());
                     }
                 }
                 None => {

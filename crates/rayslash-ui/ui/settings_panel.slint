@@ -1,0 +1,576 @@
+import { SettingToggle } from "./components.slint";
+import { AppChoiceItem } from "./models.slint";
+
+export component SettingsPanel inherits FocusScope {
+    in-out property <bool> open;
+    in property <[AppChoiceItem]> alternate-opener-choices;
+    in-out property <string> folder-sources;
+    in-out property <string> alternate-folder-opener-command;
+    in-out property <bool> provider-apps;
+    in-out property <bool> provider-folders;
+    in-out property <bool> provider-calculator;
+    in-out property <bool> alternate-folder-opener-enabled;
+    in-out property <bool> ranking-learn-from-usage;
+    in-out property <string> max-results;
+    in property <string> config-path;
+    in property <string> state-path;
+    in property <string> socket-path;
+    in property <string> project-count;
+    in property <string> app-count;
+    in property <string> icon-count;
+    in property <string> ranking-entry-count;
+    in-out property <bool> alternate-picker-open;
+
+    callback cancel-requested();
+    callback browse-folder-requested(string);
+    callback choose-alternate-opener-requested(string);
+    callback clear-ranking-requested();
+    callback save-requested(string, string, bool, bool, bool, bool, bool, string);
+
+    public function focus-settings() {
+        root.focus();
+    }
+
+    function save-settings() {
+        root.save-requested(
+            settings-sources-input.text,
+            settings-editor-input.text,
+            root.provider-apps,
+            root.provider-folders,
+            root.provider-calculator,
+            root.alternate-folder-opener-enabled,
+            root.ranking-learn-from-usage,
+            settings-max-results-input.text
+        );
+    }
+
+    min-height: 0px;
+    preferred-height: root.open ? 320px : 0px;
+    visible: root.open;
+    vertical-stretch: root.open ? 1 : 0;
+    forward-focus: settings-sources-input;
+
+    key-pressed(event) => {
+        if (event.text == Key.Escape) {
+            root.cancel-requested();
+            accept
+        } else {
+            reject
+        }
+    }
+
+    settings-scroll := Flickable {
+        width: 100%;
+        height: 100%;
+        viewport-width: self.width;
+        viewport-height: root.open ? 540px : 0px;
+        interactive: root.open;
+
+        VerticalLayout {
+            width: settings-scroll.width;
+            spacing: 9px;
+
+            Text {
+                text: "Settings";
+                color: #f2f2f2;
+                font-size: 18px;
+                font-weight: 700;
+            }
+
+            Text {
+                text: "Folder source";
+                color: #d8d8d8;
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            HorizontalLayout {
+                height: 42px;
+                spacing: 8px;
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: 8px;
+                    background: #202020;
+                    border-width: 1px;
+                    border-color: settings-sources-input.has-focus ? #777777 : #363636;
+
+                    settings-sources-input := TextInput {
+                        x: 12px;
+                        y: 0px;
+                        width: parent.width - 24px;
+                        height: parent.height;
+                        text: root.folder-sources;
+                        color: #eeeeee;
+                        font-size: 13px;
+                        single-line: true;
+                        vertical-alignment: center;
+
+                        key-pressed(event) => {
+                            if (event.text == Key.Return) {
+                                root.save-settings();
+                                accept
+                            } else if (event.text == Key.Escape) {
+                                root.cancel-requested();
+                                accept
+                            } else {
+                                reject
+                            }
+                        }
+
+                        changed has-focus => {
+                            if (!self.has-focus) {
+                                root.save-settings();
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 42px;
+                    border-radius: 8px;
+                    background: browse-touch.pressed ? #333333 : browse-touch.has-hover ? #292929 : #202020;
+                    border-width: 1px;
+                    border-color: #3a3a3a;
+
+                    Rectangle {
+                        x: 9px;
+                        y: 18px;
+                        width: 24px;
+                        height: 14px;
+                        border-radius: 3px;
+                        background: #d0d0d0;
+                    }
+
+                    Rectangle {
+                        x: 10px;
+                        y: 13px;
+                        width: 12px;
+                        height: 7px;
+                        border-radius: 2px;
+                        background: #d0d0d0;
+                    }
+
+                    browse-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.browse-folder-requested(settings-sources-input.text);
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: "Immediate child folders become folder results; separate multiple sources with semicolons";
+                color: #9a9a9a;
+                font-size: 11px;
+            }
+
+            Text {
+                text: "Alternate folder opener";
+                color: #d8d8d8;
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            HorizontalLayout {
+                height: 42px;
+                spacing: 8px;
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: 8px;
+                    background: #202020;
+                    border-width: 1px;
+                    border-color: settings-editor-input.has-focus ? #777777 : #363636;
+
+                    settings-editor-input := TextInput {
+                        x: 12px;
+                        y: 0px;
+                        width: parent.width - 24px;
+                        height: parent.height;
+                        text: root.alternate-folder-opener-command;
+                        color: #eeeeee;
+                        font-size: 13px;
+                        single-line: true;
+                        vertical-alignment: center;
+
+                        key-pressed(event) => {
+                            if (event.text == Key.Return) {
+                                root.save-settings();
+                                accept
+                            } else if (event.text == Key.Escape) {
+                                root.cancel-requested();
+                                accept
+                            } else {
+                                reject
+                            }
+                        }
+
+                        changed has-focus => {
+                            if (!self.has-focus) {
+                                root.save-settings();
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 82px;
+                    height: 42px;
+                    border-radius: 8px;
+                    background: picker-touch.pressed ? #333333 : picker-touch.has-hover || root.alternate-picker-open ? #292929 : #202020;
+                    border-width: 1px;
+                    border-color: #3a3a3a;
+
+                    Text {
+                        width: 100%;
+                        height: 100%;
+                        text: "Pick";
+                        color: #dddddd;
+                        font-size: 12px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    picker-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.alternate-picker-open = !root.alternate-picker-open;
+                        }
+                    }
+                }
+            }
+
+            if root.alternate-picker-open: Flickable {
+                height: 154px;
+                viewport-width: self.width;
+                viewport-height: root.alternate-opener-choices.length * 38px;
+                interactive: true;
+
+                VerticalLayout {
+                    width: parent.width;
+                    spacing: 4px;
+
+                    for choice in root.alternate-opener-choices: Rectangle {
+                        height: 34px;
+                        border-radius: 8px;
+                        background: choice-touch.pressed ? #333333 : choice-touch.has-hover ? #292929 : #202020;
+                        border-width: 1px;
+                        border-color: #353535;
+
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 10px;
+                            padding-top: 5px;
+                            padding-bottom: 5px;
+                            spacing: 8px;
+
+                            Image {
+                                width: 22px;
+                                height: 22px;
+                                source: choice.icon;
+                                image-fit: contain;
+                                visible: choice.has_icon;
+                            }
+
+                            Rectangle {
+                                width: 22px;
+                                height: 22px;
+                                border-radius: 5px;
+                                background: #3a3a3a;
+                                visible: !choice.has_icon;
+
+                                Text {
+                                    width: 100%;
+                                    height: 100%;
+                                    text: "AP";
+                                    color: #d0d0d0;
+                                    font-size: 9px;
+                                    font-weight: 800;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Text {
+                                text: choice.name;
+                                color: #eeeeee;
+                                font-size: 12px;
+                                font-weight: 700;
+                                horizontal-stretch: 1;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+
+                            Text {
+                                text: choice.command;
+                                color: #9a9a9a;
+                                font-size: 10px;
+                                horizontal-stretch: 0;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        choice-touch := TouchArea {
+                            mouse-cursor: pointer;
+                            clicked => {
+                                root.alternate-folder-opener-command = choice.command;
+                                root.alternate-picker-open = false;
+                                root.choose-alternate-opener-requested(choice.command);
+                                root.save-settings();
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: "Used with Ctrl+Enter or Ctrl+click instead of the system file manager";
+                color: #9a9a9a;
+                font-size: 11px;
+            }
+
+            Text {
+                text: "Search features";
+                color: #d8d8d8;
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            HorizontalLayout {
+                height: 52px;
+                spacing: 8px;
+
+                SettingToggle {
+                    label: "Apps";
+                    description: "Desktop applications";
+                    checked <=> root.provider-apps;
+                    toggled => {
+                        root.save-settings();
+                    }
+                }
+
+                SettingToggle {
+                    label: "Folders";
+                    description: "Folder source results";
+                    checked <=> root.provider-folders;
+                    toggled => {
+                        root.save-settings();
+                    }
+                }
+
+                SettingToggle {
+                    label: "Calculator";
+                    description: "Local math results";
+                    checked <=> root.provider-calculator;
+                    toggled => {
+                        root.save-settings();
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                height: 52px;
+                spacing: 8px;
+
+                SettingToggle {
+                    label: "Learning";
+                    description: "Local result ranking";
+                    checked <=> root.ranking-learn-from-usage;
+                    toggled => {
+                        root.save-settings();
+                    }
+                }
+
+                Rectangle {
+                    width: 118px;
+                    height: 52px;
+                    border-radius: 8px;
+                    background: clear-ranking-touch.pressed ? #333333 : clear-ranking-touch.has-hover ? #292929 : #202020;
+                    border-width: 1px;
+                    border-color: #3a3a3a;
+
+                    VerticalLayout {
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        padding-top: 8px;
+                        padding-bottom: 8px;
+                        spacing: 2px;
+
+                        Text {
+                            text: "Clear history";
+                            color: #dddddd;
+                            font-size: 12px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                        }
+
+                        Text {
+                            text: root.ranking-entry-count + " entries";
+                            color: #9a9a9a;
+                            font-size: 10px;
+                            horizontal-alignment: center;
+                        }
+                    }
+
+                    clear-ranking-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.clear-ranking-requested();
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                height: 42px;
+                spacing: 8px;
+
+                VerticalLayout {
+                    spacing: 4px;
+
+                    Text {
+                        text: "Max results";
+                        color: #d8d8d8;
+                        font-size: 12px;
+                        font-weight: 700;
+                    }
+
+                    Rectangle {
+                        height: 26px;
+                        border-radius: 7px;
+                        background: #202020;
+                        border-width: 1px;
+                        border-color: settings-max-results-input.has-focus ? #777777 : #363636;
+
+                        settings-max-results-input := TextInput {
+                            x: 10px;
+                            y: 0px;
+                            width: parent.width - 20px;
+                            height: parent.height;
+                            text: root.max-results;
+                            color: #eeeeee;
+                            font-size: 12px;
+                            single-line: true;
+                            vertical-alignment: center;
+
+                            key-pressed(event) => {
+                                if (event.text == Key.Return) {
+                                    root.save-settings();
+                                    accept
+                                } else if (event.text == Key.Escape) {
+                                    root.cancel-requested();
+                                    accept
+                                } else {
+                                    reject
+                                }
+                            }
+
+                            changed has-focus => {
+                                if (!self.has-focus) {
+                                    root.save-settings();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SettingToggle {
+                    label: "Alt opener";
+                    description: "Ctrl+Enter folders";
+                    checked <=> root.alternate-folder-opener-enabled;
+                    toggled => {
+                        root.save-settings();
+                    }
+                }
+            }
+
+            Rectangle {
+                height: 8px;
+                background: transparent;
+            }
+
+            HorizontalLayout {
+                height: 54px;
+                spacing: 12px;
+
+                VerticalLayout {
+                    spacing: 2px;
+
+                    Text {
+                        text: "Config location";
+                        color: #d8d8d8;
+                        font-size: 11px;
+                        font-weight: 700;
+                    }
+
+                    Text {
+                        text: root.config-path;
+                        color: #9a9a9a;
+                        font-size: 10px;
+                        overflow: elide;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 2px;
+
+                    Text {
+                        text: "State location";
+                        color: #d8d8d8;
+                        font-size: 11px;
+                        font-weight: 700;
+                    }
+
+                    Text {
+                        text: root.state-path;
+                        color: #9a9a9a;
+                        font-size: 10px;
+                        overflow: elide;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                height: 18px;
+                spacing: 14px;
+
+                Text {
+                    text: "Folders: " + root.project-count;
+                    color: #b8b8b8;
+                    font-size: 11px;
+                    horizontal-stretch: 0;
+                }
+
+                Text {
+                    text: "Apps: " + root.app-count;
+                    color: #b8b8b8;
+                    font-size: 11px;
+                    horizontal-stretch: 0;
+                }
+
+                Text {
+                    text: "Icons: " + root.icon-count;
+                    color: #b8b8b8;
+                    font-size: 11px;
+                    horizontal-stretch: 0;
+                }
+
+                Text {
+                    text: "Socket: " + root.socket-path;
+                    color: #8f8f8f;
+                    font-size: 10px;
+                    overflow: elide;
+                }
+            }
+
+            Rectangle {
+                height: 8px;
+                background: transparent;
+            }
+        }
+    }
+}

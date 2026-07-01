@@ -1,19 +1,115 @@
-import { SearchBox, SettingToggle, SettingsGearIcon } from "./components.slint";
+import { SearchBox, SettingsGearIcon } from "./components.slint";
+import { AppChoiceItem, ResultItem } from "./models.slint";
+import { ResultList } from "./result_list.slint";
+import { SettingsPanel } from "./settings_panel.slint";
 
-export struct ResultItem {
-    title: string,
-    subtitle: string,
-    icon: image,
-    has_icon: bool,
-    icon_kind: string,
-    icon_text: string,
+export { AppChoiceItem, ResultItem } from "./models.slint";
+
+component HeaderBar inherits HorizontalLayout {
+    in property <bool> settings-open;
+    callback settings-requested();
+
+    height: 36px;
+    alignment: space-between;
+
+    HorizontalLayout {
+        spacing: 8px;
+
+        Rectangle {
+            width: 32px;
+            height: 100%;
+            background: transparent;
+
+            Image {
+                x: 0px;
+                y: (parent.height - self.height) / 2 + 2px;
+                width: 28px;
+                height: 28px;
+                source: @image-url("../../../icons/rayslash-icon.svg");
+                image-fit: contain;
+            }
+        }
+
+        Text {
+            text: "rayslash";
+            color: #f5f5f5;
+            font-size: 22px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+    }
+
+    Rectangle {
+        width: 34px;
+        height: 34px;
+        background: transparent;
+        opacity: settings-button-touch.pressed ? 1 : settings-button-touch.has-hover || root.settings-open ? 1 : 0.72;
+
+        animate opacity { duration: 90ms; }
+
+        SettingsGearIcon {
+            width: 34px;
+            height: 34px;
+        }
+
+        settings-button-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                root.settings-requested();
+            }
+        }
+    }
 }
 
-export struct AppChoiceItem {
-    name: string,
-    command: string,
-    icon: image,
-    has_icon: bool,
+component HintKey inherits Text {
+    color: #dedede;
+    font-size: 11px;
+    font-weight: 700;
+    horizontal-stretch: 0;
+    vertical-alignment: center;
+}
+
+component HintText inherits Text {
+    color: #9a9a9a;
+    font-size: 11px;
+    horizontal-stretch: 0;
+    vertical-alignment: center;
+}
+
+component LauncherHint inherits Rectangle {
+    in property <string> status-text;
+    in property <bool> alternate-folder-opener-enabled;
+
+    height: 16px;
+    background: transparent;
+
+    if root.status-text != "": Text {
+        height: 16px;
+        text: root.status-text;
+        color: #b8b8b8;
+        font-size: 11px;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+
+    if root.status-text == "": HorizontalLayout {
+        height: 16px;
+        spacing: 4px;
+
+        HintKey { text: "Enter"; }
+        HintText { text: ": launch/open/show result"; }
+
+        if root.alternate-folder-opener-enabled: HintKey { text: "  Ctrl+Enter"; }
+        if root.alternate-folder-opener-enabled: HintText { text: ": alt-open folders"; }
+
+        HintKey { text: "  Esc"; }
+        HintText { text: ": hide"; }
+
+        Rectangle {
+            horizontal-stretch: 1;
+            background: transparent;
+        }
+    }
 }
 
 export component AppWindow inherits Window {
@@ -44,12 +140,9 @@ export component AppWindow inherits Window {
     in property <bool> alternate-folder-opener-has-icon: false;
     in property <color> alternate-folder-opener-background: #3a3a3a;
     in property <string> alternate-folder-opener-label: "TM";
-    private property <length> result-row-height: 64px;
-    private property <length> result-row-gap: 8px;
-    private property <length> result-row-stride: root.result-row-height + root.result-row-gap;
-    private property <bool> click-open-in-vscode: false;
     in-out property <bool> control-held: false;
     in-out property <bool> settings-alternate-picker-open: false;
+
     callback close-requested();
     callback query-changed(string);
     callback activate-selected-result(int, bool);
@@ -66,29 +159,15 @@ export component AppWindow inherits Window {
     }
 
     public function focus-settings() {
-        settings-focus.focus();
+        settings-panel.focus-settings();
     }
 
     public function reset-result-scroll() {
-        results-scroll.viewport-y = 0px;
+        results-list.reset-scroll();
     }
 
     function keep-selection-visible() {
-        if (root.result-count <= 0 || root.selected-index < 0) {
-            root.reset-result-scroll();
-            return;
-        }
-
-        let selected-top = root.selected-index * root.result-row-stride;
-        let selected-bottom = selected-top + root.result-row-height;
-        let visible-top = -results-scroll.viewport-y;
-        let visible-bottom = visible-top + results-scroll.height;
-
-        if (selected-top < visible-top) {
-            results-scroll.viewport-y = -selected-top;
-        } else if (selected-bottom > visible-bottom) {
-            results-scroll.viewport-y = -(selected-bottom - results-scroll.height);
-        }
+        results-list.keep-selection-visible();
     }
 
     function select-previous() {
@@ -105,23 +184,10 @@ export component AppWindow inherits Window {
         }
     }
 
-    function activate-selected(open-in-vscode: bool) {
+    function activate-selected(use-alternate-opener: bool) {
         if (root.result-count > 0 && root.selected-index >= 0) {
-            root.activate-selected-result(root.selected-index, open-in-vscode);
+            root.activate-selected-result(root.selected-index, use-alternate-opener);
         }
-    }
-
-    function save-settings() {
-        root.settings-save-requested(
-            settings-sources-input.text,
-            settings-editor-input.text,
-            root.settings-provider-apps,
-            root.settings-provider-folders,
-            root.settings-provider-calculator,
-            root.settings-alternate-folder-opener-enabled,
-            root.settings-ranking-learn-from-usage,
-            settings-max-results-input.text
-        );
     }
 
     title: "rayslash";
@@ -199,56 +265,10 @@ export component AppWindow inherits Window {
                     padding-bottom: 8px;
                     spacing: 12px;
 
-                    HorizontalLayout {
-                        height: 36px;
-                        alignment: space-between;
-
-                        HorizontalLayout {
-                            spacing: 8px;
-
-                            Rectangle {
-                                width: 32px;
-                                height: 100%;
-                                background: transparent;
-
-                                Image {
-                                    x: 0px;
-                                    y: (parent.height - self.height) / 2 + 2px;
-                                    width: 28px;
-                                    height: 28px;
-                                    source: @image-url("../../../icons/rayslash-icon.svg");
-                                    image-fit: contain;
-                                }
-                            }
-
-                            Text {
-                                text: "rayslash";
-                                color: #f5f5f5;
-                                font-size: 22px;
-                                font-weight: 700;
-                                vertical-alignment: center;
-                            }
-                        }
-
-                        Rectangle {
-                            width: 34px;
-                            height: 34px;
-                            background: transparent;
-                            opacity: settings-button-touch.pressed ? 1 : settings-button-touch.has-hover || root.settings-open ? 1 : 0.72;
-
-                            animate opacity { duration: 90ms; }
-
-                            SettingsGearIcon {
-                                width: 34px;
-                                height: 34px;
-                            }
-
-                            settings-button-touch := TouchArea {
-                                mouse-cursor: pointer;
-                                clicked => {
-                                    root.settings-requested();
-                                }
-                            }
+                    HeaderBar {
+                        settings-open: root.settings-open;
+                        settings-requested => {
+                            root.settings-requested();
                         }
                     }
 
@@ -266,8 +286,8 @@ export component AppWindow inherits Window {
                         select-next => {
                             root.select-next();
                         }
-                        activate-selected(open-in-vscode) => {
-                            root.activate-selected(open-in-vscode);
+                        activate-selected(use-alternate-opener) => {
+                            root.activate-selected(use-alternate-opener);
                         }
                         query-changed(query) => {
                             root.query-changed(query);
@@ -277,839 +297,85 @@ export component AppWindow inherits Window {
                         }
                     }
 
-                    if !root.settings-open && root.status-text != "": Text {
-                        height: 16px;
-                        text: root.status-text;
-                        color: #b8b8b8;
-                        font-size: 11px;
-                        overflow: elide;
-                        vertical-alignment: center;
+                    LauncherHint {
+                        visible: !root.settings-open;
+                        status-text: root.status-text;
+                        alternate-folder-opener-enabled: root.alternate-folder-opener-enabled;
                     }
 
-                    if !root.settings-open && root.status-text == "": HorizontalLayout {
-                        height: 16px;
-                        spacing: 4px;
+                    settings-panel := SettingsPanel {
+                        open <=> root.settings-open;
+                        alternate-opener-choices: root.alternate-opener-choices;
+                        folder-sources <=> root.settings-folder-sources;
+                        alternate-folder-opener-command <=> root.settings-alternate-folder-opener-command;
+                        provider-apps <=> root.settings-provider-apps;
+                        provider-folders <=> root.settings-provider-folders;
+                        provider-calculator <=> root.settings-provider-calculator;
+                        alternate-folder-opener-enabled <=> root.settings-alternate-folder-opener-enabled;
+                        ranking-learn-from-usage <=> root.settings-ranking-learn-from-usage;
+                        max-results <=> root.settings-max-results;
+                        config-path: root.settings-config-path;
+                        state-path: root.settings-state-path;
+                        socket-path: root.settings-socket-path;
+                        project-count: root.settings-project-count;
+                        app-count: root.settings-app-count;
+                        icon-count: root.settings-icon-count;
+                        ranking-entry-count: root.settings-ranking-entry-count;
+                        alternate-picker-open <=> root.settings-alternate-picker-open;
 
-                        Text {
-                            text: "Enter";
-                            color: #dedede;
-                            font-size: 11px;
-                            font-weight: 700;
-                            horizontal-stretch: 0;
-                            vertical-alignment: center;
+                        cancel-requested => {
+                            root.settings-cancel-requested();
                         }
-
-                        Text {
-                            text: ": launch/open/show result";
-                            color: #9a9a9a;
-                            font-size: 11px;
-                            horizontal-stretch: 0;
-                            vertical-alignment: center;
+                        browse-folder-requested(path) => {
+                            root.settings-browse-folder-requested(path);
                         }
-
-                        if root.alternate-folder-opener-enabled: Text {
-                            text: "  Ctrl+Enter";
-                            color: #dedede;
-                            font-size: 11px;
-                            font-weight: 700;
-                            horizontal-stretch: 0;
-                            vertical-alignment: center;
+                        choose-alternate-opener-requested(command) => {
+                            root.settings-choose-alternate-opener-requested(command);
                         }
-
-                        if root.alternate-folder-opener-enabled: Text {
-                            text: ": alt-open folders";
-                            color: #9a9a9a;
-                            font-size: 11px;
-                            horizontal-stretch: 0;
-                            vertical-alignment: center;
+                        clear-ranking-requested => {
+                            root.settings-clear-ranking-requested();
                         }
-
-                        Text {
-                            text: "  Esc";
-                            color: #dedede;
-                            font-size: 11px;
-                            font-weight: 700;
-                            horizontal-stretch: 0;
-                            vertical-alignment: center;
-                        }
-
-                        Text {
-                            text: ": hide";
-                            color: #9a9a9a;
-                            font-size: 11px;
-                            horizontal-stretch: 0;
-                            vertical-alignment: center;
-                        }
-
-                        Rectangle {
-                            horizontal-stretch: 1;
-                            background: transparent;
+                        save-requested(
+                            folder-sources,
+                            alternate-opener-command,
+                            provider-apps,
+                            provider-folders,
+                            provider-calculator,
+                            alternate-opener-enabled,
+                            ranking-learn-from-usage,
+                            max-results,
+                        ) => {
+                            root.settings-save-requested(
+                                folder-sources,
+                                alternate-opener-command,
+                                provider-apps,
+                                provider-folders,
+                                provider-calculator,
+                                alternate-opener-enabled,
+                                ranking-learn-from-usage,
+                                max-results
+                            );
                         }
                     }
 
-                    settings-focus := FocusScope {
-                        min-height: 0px;
-                        preferred-height: root.settings-open ? 320px : 0px;
-                        visible: root.settings-open;
-                        vertical-stretch: root.settings-open ? 1 : 0;
-
-                        key-pressed(event) => {
-                            if (event.text == Key.Escape) {
-                                root.settings-cancel-requested();
-                                accept
-                            } else {
-                                reject
-                            }
-                        }
-
-                        settings-scroll := Flickable {
-                            width: 100%;
-                            height: 100%;
-                            viewport-width: self.width;
-                            viewport-height: root.settings-open ? 540px : 0px;
-                            interactive: root.settings-open;
-
-                        VerticalLayout {
-                            width: settings-scroll.width;
-                            spacing: 9px;
-
-                            Text {
-                                text: "Settings";
-                                color: #f2f2f2;
-                                font-size: 18px;
-                                font-weight: 700;
-                            }
-
-                            Text {
-                                text: "Folder source";
-                                color: #d8d8d8;
-                                font-size: 12px;
-                                font-weight: 700;
-                            }
-
-                            HorizontalLayout {
-                                height: 42px;
-                                spacing: 8px;
-
-                                Rectangle {
-                                    horizontal-stretch: 1;
-                                    border-radius: 8px;
-                                    background: #202020;
-                                    border-width: 1px;
-                                    border-color: settings-sources-input.has-focus ? #777777 : #363636;
-
-                                    settings-sources-input := TextInput {
-                                        x: 12px;
-                                        y: 0px;
-                                        width: parent.width - 24px;
-                                        height: parent.height;
-                                        text: root.settings-folder-sources;
-                                        color: #eeeeee;
-                                        font-size: 13px;
-                                        single-line: true;
-                                        vertical-alignment: center;
-
-                                        key-pressed(event) => {
-                                            if (event.text == Key.Return) {
-                                                root.save-settings();
-                                                accept
-                                            } else if (event.text == Key.Escape) {
-                                                root.settings-cancel-requested();
-                                                accept
-                                            } else {
-                                                reject
-                                            }
-                                        }
-
-                                        changed has-focus => {
-                                            if (!self.has-focus) {
-                                                root.save-settings();
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    width: 42px;
-                                    border-radius: 8px;
-                                    background: browse-touch.pressed ? #333333 : browse-touch.has-hover ? #292929 : #202020;
-                                    border-width: 1px;
-                                    border-color: #3a3a3a;
-
-                                    Rectangle {
-                                        x: 9px;
-                                        y: 18px;
-                                        width: 24px;
-                                        height: 14px;
-                                        border-radius: 3px;
-                                        background: #d0d0d0;
-                                    }
-
-                                    Rectangle {
-                                        x: 10px;
-                                        y: 13px;
-                                        width: 12px;
-                                        height: 7px;
-                                        border-radius: 2px;
-                                        background: #d0d0d0;
-                                    }
-
-                                    browse-touch := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.settings-browse-folder-requested(settings-sources-input.text);
-                                        }
-                                    }
-                                }
-                            }
-
-                            Text {
-                                text: "Immediate child folders become folder results; separate multiple sources with semicolons";
-                                color: #9a9a9a;
-                                font-size: 11px;
-                            }
-
-                            Text {
-                                text: "Alternate folder opener";
-                                color: #d8d8d8;
-                                font-size: 12px;
-                                font-weight: 700;
-                            }
-
-                            HorizontalLayout {
-                                height: 42px;
-                                spacing: 8px;
-
-                                Rectangle {
-                                    horizontal-stretch: 1;
-                                    border-radius: 8px;
-                                    background: #202020;
-                                    border-width: 1px;
-                                    border-color: settings-editor-input.has-focus ? #777777 : #363636;
-
-                                    settings-editor-input := TextInput {
-                                        x: 12px;
-                                        y: 0px;
-                                        width: parent.width - 24px;
-                                        height: parent.height;
-                                        text: root.settings-alternate-folder-opener-command;
-                                        color: #eeeeee;
-                                        font-size: 13px;
-                                        single-line: true;
-                                        vertical-alignment: center;
-
-                                        key-pressed(event) => {
-                                            if (event.text == Key.Return) {
-                                                root.save-settings();
-                                                accept
-                                            } else if (event.text == Key.Escape) {
-                                                root.settings-cancel-requested();
-                                                accept
-                                            } else {
-                                                reject
-                                            }
-                                        }
-
-                                        changed has-focus => {
-                                            if (!self.has-focus) {
-                                                root.save-settings();
-                                            }
-                                        }
-                                    }
-                                }
-
-                                Rectangle {
-                                    width: 82px;
-                                    height: 42px;
-                                    border-radius: 8px;
-                                    background: picker-touch.pressed ? #333333 : picker-touch.has-hover || root.settings-alternate-picker-open ? #292929 : #202020;
-                                    border-width: 1px;
-                                    border-color: #3a3a3a;
-
-                                    Text {
-                                        width: 100%;
-                                        height: 100%;
-                                        text: "Pick";
-                                        color: #dddddd;
-                                        font-size: 12px;
-                                        font-weight: 700;
-                                        horizontal-alignment: center;
-                                        vertical-alignment: center;
-                                    }
-
-                                    picker-touch := TouchArea {
-                                        mouse-cursor: pointer;
-                                        clicked => {
-                                            root.settings-alternate-picker-open = !root.settings-alternate-picker-open;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if root.settings-alternate-picker-open: Flickable {
-                                height: 154px;
-                                viewport-width: self.width;
-                                viewport-height: root.alternate-opener-choices.length * 38px;
-                                interactive: true;
-
-                                VerticalLayout {
-                                    width: parent.width;
-                                    spacing: 4px;
-
-                                    for choice in root.alternate-opener-choices: Rectangle {
-                                        height: 34px;
-                                        border-radius: 8px;
-                                        background: choice-touch.pressed ? #333333 : choice-touch.has-hover ? #292929 : #202020;
-                                        border-width: 1px;
-                                        border-color: #353535;
-
-                                        HorizontalLayout {
-                                            padding-left: 10px;
-                                            padding-right: 10px;
-                                            padding-top: 5px;
-                                            padding-bottom: 5px;
-                                            spacing: 8px;
-
-                                            Image {
-                                                width: 22px;
-                                                height: 22px;
-                                                source: choice.icon;
-                                                image-fit: contain;
-                                                visible: choice.has_icon;
-                                            }
-
-                                            Rectangle {
-                                                width: 22px;
-                                                height: 22px;
-                                                border-radius: 5px;
-                                                background: #3a3a3a;
-                                                visible: !choice.has_icon;
-
-                                                Text {
-                                                    width: 100%;
-                                                    height: 100%;
-                                                    text: "AP";
-                                                    color: #d0d0d0;
-                                                    font-size: 9px;
-                                                    font-weight: 800;
-                                                    horizontal-alignment: center;
-                                                    vertical-alignment: center;
-                                                }
-                                            }
-
-                                            Text {
-                                                text: choice.name;
-                                                color: #eeeeee;
-                                                font-size: 12px;
-                                                font-weight: 700;
-                                                horizontal-stretch: 1;
-                                                overflow: elide;
-                                                vertical-alignment: center;
-                                            }
-
-                                            Text {
-                                                text: choice.command;
-                                                color: #9a9a9a;
-                                                font-size: 10px;
-                                                horizontal-stretch: 0;
-                                                overflow: elide;
-                                                vertical-alignment: center;
-                                            }
-                                        }
-
-                                        choice-touch := TouchArea {
-                                            mouse-cursor: pointer;
-                                            clicked => {
-                                                root.settings-alternate-folder-opener-command = choice.command;
-                                                root.settings-alternate-picker-open = false;
-                                                root.settings-choose-alternate-opener-requested(choice.command);
-                                                root.save-settings();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            Text {
-                                text: "Used with Ctrl+Enter or Ctrl+click instead of the system file manager";
-                                color: #9a9a9a;
-                                font-size: 11px;
-                            }
-
-                        Text {
-                            text: "Search features";
-                            color: #d8d8d8;
-                            font-size: 12px;
-                            font-weight: 700;
-                        }
-
-                        HorizontalLayout {
-                            height: 52px;
-                            spacing: 8px;
-
-                            SettingToggle {
-                                label: "Apps";
-                                description: "Desktop applications";
-                                checked <=> root.settings-provider-apps;
-                                toggled => {
-                                    root.save-settings();
-                                }
-                            }
-
-                            SettingToggle {
-                                label: "Folders";
-                                description: "Folder source results";
-                                checked <=> root.settings-provider-folders;
-                                toggled => {
-                                    root.save-settings();
-                                }
-                            }
-
-                            SettingToggle {
-                                label: "Calculator";
-                                description: "Local math results";
-                                checked <=> root.settings-provider-calculator;
-                                toggled => {
-                                    root.save-settings();
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            height: 52px;
-                            spacing: 8px;
-
-                            SettingToggle {
-                                label: "Learning";
-                                description: "Local result ranking";
-                                checked <=> root.settings-ranking-learn-from-usage;
-                                toggled => {
-                                    root.save-settings();
-                                }
-                            }
-
-                            Rectangle {
-                                width: 118px;
-                                height: 52px;
-                                border-radius: 8px;
-                                background: clear-ranking-touch.pressed ? #333333 : clear-ranking-touch.has-hover ? #292929 : #202020;
-                                border-width: 1px;
-                                border-color: #3a3a3a;
-
-                                VerticalLayout {
-                                    padding-left: 10px;
-                                    padding-right: 10px;
-                                    padding-top: 8px;
-                                    padding-bottom: 8px;
-                                    spacing: 2px;
-
-                                    Text {
-                                        text: "Clear history";
-                                        color: #dddddd;
-                                        font-size: 12px;
-                                        font-weight: 700;
-                                        horizontal-alignment: center;
-                                    }
-
-                                    Text {
-                                        text: root.settings-ranking-entry-count + " entries";
-                                        color: #9a9a9a;
-                                        font-size: 10px;
-                                        horizontal-alignment: center;
-                                    }
-                                }
-
-                                clear-ranking-touch := TouchArea {
-                                    mouse-cursor: pointer;
-                                    clicked => {
-                                        root.settings-clear-ranking-requested();
-                                    }
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            height: 42px;
-                            spacing: 8px;
-
-                            VerticalLayout {
-                                spacing: 4px;
-
-                                Text {
-                                    text: "Max results";
-                                    color: #d8d8d8;
-                                    font-size: 12px;
-                                    font-weight: 700;
-                                }
-
-                                Rectangle {
-                                    height: 26px;
-                                    border-radius: 7px;
-                                    background: #202020;
-                                    border-width: 1px;
-                                    border-color: settings-max-results-input.has-focus ? #777777 : #363636;
-
-                                    settings-max-results-input := TextInput {
-                                        x: 10px;
-                                        y: 0px;
-                                        width: parent.width - 20px;
-                                        height: parent.height;
-                                        text: root.settings-max-results;
-                                        color: #eeeeee;
-                                        font-size: 12px;
-                                        single-line: true;
-                                        vertical-alignment: center;
-
-                                        key-pressed(event) => {
-                                            if (event.text == Key.Return) {
-                                                root.save-settings();
-                                                accept
-                                            } else if (event.text == Key.Escape) {
-                                                root.settings-cancel-requested();
-                                                accept
-                                            } else {
-                                                reject
-                                            }
-                                        }
-
-                                        changed has-focus => {
-                                            if (!self.has-focus) {
-                                                root.save-settings();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            SettingToggle {
-                                label: "Alt opener";
-                                description: "Ctrl+Enter folders";
-                                checked <=> root.settings-alternate-folder-opener-enabled;
-                                toggled => {
-                                    root.save-settings();
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            height: 8px;
-                            background: transparent;
-                        }
-
-                        HorizontalLayout {
-                            height: 54px;
-                            spacing: 12px;
-
-                            VerticalLayout {
-                                spacing: 2px;
-
-                                Text {
-                                    text: "Config location";
-                                    color: #d8d8d8;
-                                    font-size: 11px;
-                                    font-weight: 700;
-                                }
-
-                                Text {
-                                    text: root.settings-config-path;
-                                    color: #9a9a9a;
-                                    font-size: 10px;
-                                    overflow: elide;
-                                }
-                            }
-
-                            VerticalLayout {
-                                spacing: 2px;
-
-                                Text {
-                                    text: "State location";
-                                    color: #d8d8d8;
-                                    font-size: 11px;
-                                    font-weight: 700;
-                                }
-
-                                Text {
-                                    text: root.settings-state-path;
-                                    color: #9a9a9a;
-                                    font-size: 10px;
-                                    overflow: elide;
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            height: 18px;
-                            spacing: 14px;
-
-                            Text {
-                                text: "Folders: " + root.settings-project-count;
-                                color: #b8b8b8;
-                                font-size: 11px;
-                                horizontal-stretch: 0;
-                            }
-
-                            Text {
-                                text: "Apps: " + root.settings-app-count;
-                                color: #b8b8b8;
-                                font-size: 11px;
-                                horizontal-stretch: 0;
-                            }
-
-                            Text {
-                                text: "Icons: " + root.settings-icon-count;
-                                color: #b8b8b8;
-                                font-size: 11px;
-                                horizontal-stretch: 0;
-                            }
-
-                            Text {
-                                text: "Socket: " + root.settings-socket-path;
-                                color: #8f8f8f;
-                                font-size: 10px;
-                                overflow: elide;
-                            }
-                        }
-
-                        Rectangle {
-                            height: 8px;
-                            background: transparent;
-                        }
-                    }
-                    }
-                    }
-
-                    results-scroll := Flickable {
+                    results-list := ResultList {
                         min-height: 0px;
                         preferred-height: root.settings-open ? 0px : 240px;
                         visible: !root.settings-open;
                         vertical-stretch: root.settings-open ? 0 : 1;
-                        viewport-width: self.width;
-                        viewport-height: root.settings-open || root.result-count <= 0 ? 0px : root.result-count * root.result-row-stride - root.result-row-gap;
                         interactive: !root.settings-open;
+                        results: root.results;
+                        result-count: root.result-count;
+                        selected-index <=> root.selected-index;
+                        control-held: root.control-held;
+                        alternate-folder-opener-icon: root.alternate-folder-opener-icon;
+                        alternate-folder-opener-has-icon: root.alternate-folder-opener-has-icon;
+                        alternate-folder-opener-background: root.alternate-folder-opener-background;
+                        alternate-folder-opener-label: root.alternate-folder-opener-label;
 
-                        for item[i] in root.results: Rectangle {
-                            y: i * root.result-row-stride;
-                            width: results-scroll.width;
-                            height: root.result-row-height;
-                                border-radius: 12px;
-                                background: row-touch.pressed ? #3c3c3c : i == root.selected-index ? #343434 : row-touch.has-hover ? #2a2a2a : #222222;
-                                border-width: 1px;
-                                border-color: i == root.selected-index ? #6a6a6a : row-touch.has-hover ? #474747 : #303030;
-
-                                animate background { duration: 90ms; }
-                                animate border-color { duration: 90ms; }
-
-                                HorizontalLayout {
-                                    padding-left: 14px;
-                                    padding-right: 14px;
-                                    padding-top: 8px;
-                                    padding-bottom: 8px;
-                                    spacing: 12px;
-
-                                    Rectangle {
-                                        width: 50px;
-                                        height: 100%;
-                                        background: #00000000;
-
-                                        Image {
-                                            x: 4px;
-                                            y: (parent.height - self.height) / 2;
-                                            width: 42px;
-                                            height: 42px;
-                                            source: item.icon;
-                                            image-fit: contain;
-                                            visible: item.has_icon;
-                                        }
-
-                                        Rectangle {
-                                            x: 4px;
-                                            y: (parent.height - self.height) / 2;
-                                            width: 42px;
-                                            height: 42px;
-                                            border-radius: 10px;
-                                            property <bool> alternate-icon: root.control-held && item.icon_kind == "folder";
-                                            background: self.alternate-icon ? root.alternate-folder-opener-background : i == root.selected-index ? #d6d6d6 : #3a3a3a;
-                                            visible: !item.has_icon;
-
-                                            animate background { duration: 120ms; easing: ease; }
-
-                                            Text {
-                                                x: 0px;
-                                                y: 0px;
-                                                width: 100%;
-                                                height: 100%;
-                                                text: item.icon_text;
-                                                color: i == root.selected-index ? #242424 : #d0d0d0;
-                                                font-size: 19px;
-                                                font-weight: 800;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
-                                                visible: !parent.alternate-icon && !item.has_icon && item.icon_text != "";
-                                            }
-
-                                            Image {
-                                                x: 7px;
-                                                y: 7px;
-                                                width: 28px;
-                                                height: 28px;
-                                                source: root.alternate-folder-opener-icon;
-                                                image-fit: contain;
-                                                visible: parent.alternate-icon && root.alternate-folder-opener-has-icon;
-                                            }
-
-                                            Text {
-                                                x: 0px;
-                                                y: 0px;
-                                                width: 100%;
-                                                height: 100%;
-                                                text: root.alternate-folder-opener-label;
-                                                color: #ffffff;
-                                                font-size: 13px;
-                                                font-weight: 800;
-                                                horizontal-alignment: center;
-                                                vertical-alignment: center;
-                                                visible: parent.alternate-icon && !root.alternate-folder-opener-has-icon;
-                                            }
-
-                                            Rectangle {
-                                                x: 7px;
-                                                y: 14px;
-                                                width: 28px;
-                                                height: 19px;
-                                                border-radius: 3px;
-                                                background: i == root.selected-index ? #303030 : #d0d0d0;
-                                                visible: !item.has_icon && item.icon_kind == "folder";
-                                                opacity: parent.alternate-icon ? 0 : 1;
-                                                animate opacity { duration: 120ms; easing: ease; }
-                                            }
-
-                                            Rectangle {
-                                                x: 8px;
-                                                y: 10px;
-                                                width: 14px;
-                                                height: 8px;
-                                                border-radius: 2px;
-                                                background: i == root.selected-index ? #303030 : #d0d0d0;
-                                                visible: !item.has_icon && item.icon_kind == "folder";
-                                                opacity: parent.alternate-icon ? 0 : 1;
-                                                animate opacity { duration: 120ms; easing: ease; }
-                                            }
-
-                                            Rectangle {
-                                                x: 11px;
-                                                y: 8px;
-                                                width: 20px;
-                                                height: 26px;
-                                                border-radius: 3px;
-                                                background: transparent;
-                                                border-width: 2px;
-                                                border-color: i == root.selected-index ? #303030 : #d0d0d0;
-                                                visible: !item.has_icon && item.icon_kind == "calculator";
-                                            }
-
-                                            Rectangle {
-                                                x: 16px;
-                                                y: 14px;
-                                                width: 10px;
-                                                height: 2px;
-                                                background: i == root.selected-index ? #303030 : #d0d0d0;
-                                                visible: !item.has_icon && item.icon_kind == "calculator";
-                                            }
-
-                                            Rectangle {
-                                                x: 11px;
-                                                y: 11px;
-                                                width: 8px;
-                                                height: 8px;
-                                                border-radius: 2px;
-                                                background: i == root.selected-index ? #303030 : #d0d0d0;
-                                                visible: !item.has_icon && item.icon_kind == "app";
-                                            }
-
-                                            Rectangle {
-                                                x: 23px;
-                                                y: 11px;
-                                                width: 8px;
-                                                height: 8px;
-                                                border-radius: 2px;
-                                                background: i == root.selected-index ? #303030 : #d0d0d0;
-                                                visible: !item.has_icon && item.icon_kind == "app";
-                                            }
-
-                                            Rectangle {
-                                                x: 11px;
-                                                y: 23px;
-                                                width: 8px;
-                                                height: 8px;
-                                                border-radius: 2px;
-                                                background: i == root.selected-index ? #303030 : #d0d0d0;
-                                                visible: !item.has_icon && item.icon_kind == "app";
-                                            }
-
-                                            Rectangle {
-                                                x: 23px;
-                                                y: 23px;
-                                                width: 8px;
-                                                height: 8px;
-                                                border-radius: 2px;
-                                                background: i == root.selected-index ? #303030 : #d0d0d0;
-                                                visible: !item.has_icon && item.icon_kind == "app";
-                                            }
-
-                                            Rectangle {
-                                                x: 16px;
-                                                y: 16px;
-                                                width: 10px;
-                                                height: 10px;
-                                                border-radius: 5px;
-                                                background: i == root.selected-index ? #303030 : #d0d0d0;
-                                                visible: !item.has_icon && item.icon_kind == "placeholder";
-                                            }
-                                        }
-                                    }
-
-                                    VerticalLayout {
-                                        spacing: 2px;
-
-                                        Text {
-                                            text: item.title;
-                                            color: #f4f4f4;
-                                            font-size: 16px;
-                                            font-weight: 700;
-                                        }
-
-                                        Text {
-                                            text: item.subtitle;
-                                            color: i == root.selected-index ? #d0d0d0 : #a0a0a0;
-                                            font-size: 13px;
-                                        }
-                                    }
-                                }
-
-                                row-touch := TouchArea {
-                                    mouse-cursor: pointer;
-
-                                    clicked => {
-                                        root.selected-index = i;
-                                        root.activate-selected-result(i, root.click-open-in-vscode);
-                                    }
-
-                                    pointer-event(event) => {
-                                        if (event.kind == PointerEventKind.down || event.kind == PointerEventKind.up) {
-                                            root.click-open-in-vscode = event.modifiers.control;
-                                            root.selected-index = i;
-                                        } else if (event.kind == PointerEventKind.move) {
-                                            root.selected-index = i;
-                                        }
-                                    }
-
-                                    changed has-hover => {
-                                        if (self.has-hover) {
-                                            root.selected-index = i;
-                                        }
-                                    }
-                                }
-                            }
+                        activate-result(index, use-alternate-opener) => {
+                            root.activate-selected-result(index, use-alternate-opener);
+                        }
                     }
                 }
             }

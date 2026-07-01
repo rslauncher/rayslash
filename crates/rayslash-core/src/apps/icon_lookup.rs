@@ -6,20 +6,20 @@ use std::{collections::HashMap, path::PathBuf};
 pub use paths::resolve_desktop_icon_in_dirs;
 
 #[derive(Debug)]
-pub(super) struct DesktopIconResolver {
+pub(in crate::apps) struct DesktopIconResolver {
     dirs: Vec<PathBuf>,
     cache: HashMap<String, Option<PathBuf>>,
 }
 
 impl DesktopIconResolver {
-    pub(super) fn new(dirs: Vec<PathBuf>) -> Self {
+    pub(in crate::apps) fn new(dirs: Vec<PathBuf>) -> Self {
         Self {
             dirs,
             cache: HashMap::new(),
         }
     }
 
-    pub(super) fn resolve(&mut self, icon: &str) -> Option<PathBuf> {
+    pub(in crate::apps) fn resolve(&mut self, icon: &str) -> Option<PathBuf> {
         if let Some(cached) = self.cache.get(icon) {
             return cached.clone();
         }
@@ -30,4 +30,4 @@ impl DesktopIconResolver {
     }
 }
 
-pub(super) use themes::desktop_icon_dirs;
+pub(in crate::apps) use themes::desktop_icon_dirs;
