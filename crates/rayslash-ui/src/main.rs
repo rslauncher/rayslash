@@ -1,11 +1,13 @@
 mod cli;
 mod ipc;
+mod opener_visual;
+mod result_items;
+mod settings;
 
 use std::{
     cell::{Cell, RefCell},
-    collections::HashMap,
     env, io,
-    path::{Path, PathBuf},
+    path::PathBuf,
     process::ExitCode,
     rc::Rc,
     sync::{
@@ -15,9 +17,15 @@ use std::{
     time::Instant,
 };
 
+use opener_visual::{app_icon_count, set_alternate_opener_visual, to_app_choice_items};
 use rayslash_core::{actions, apps, config, projects, ranking, search};
+use result_items::{IconImageCache, to_result_items};
+use settings::{
+    first_existing_folder_source, parse_folder_sources_text, parse_max_results,
+    set_settings_properties,
+};
 use slint::{
-    Color, ComponentHandle, Image, VecModel,
+    ComponentHandle, VecModel,
     winit_030::{EventResult, WinitWindowAccessor, winit},
 };
 
@@ -170,7 +178,7 @@ fn run_gui(
         stage_started,
     );
 
-    let icon_cache = Rc::new(RefCell::new(HashMap::new()));
+    let icon_cache = Rc::new(RefCell::new(IconImageCache::new()));
     let stage_started = Instant::now();
     let results_model = Rc::new(VecModel::from(to_result_items(
         &current_results.borrow(),
@@ -867,221 +875,6 @@ fn search_results(
     results
 }
 
-fn set_settings_properties(
-    ui: &AppWindow,
-    config: &config::Config,
-    socket_path: &std::path::Path,
-    project_count: usize,
-    app_count: usize,
-    icon_count: usize,
-    ranking_entry_count: usize,
-) {
-    ui.set_settings_folder_sources(folder_sources_text(&config.folder_sources).into());
-    ui.set_settings_alternate_folder_opener_command(
-        config
-            .actions
-            .alternate_folder_opener_command
-            .clone()
-            .into(),
-    );
-    ui.set_settings_provider_apps(config.providers.apps);
-    ui.set_settings_provider_folders(config.providers.folders);
-    ui.set_settings_provider_calculator(config.providers.calculator);
-    ui.set_settings_alternate_folder_opener_enabled(config.actions.alternate_folder_opener_enabled);
-    ui.set_settings_ranking_learn_from_usage(config.ranking.learn_from_usage);
-    ui.set_settings_max_results(config.appearance.max_results.to_string().into());
-    ui.set_settings_config_path(path_option_label(config::config_file()).into());
-    ui.set_settings_state_path(path_option_label(config::state_dir()).into());
-    ui.set_settings_socket_path(socket_path.display().to_string().into());
-    ui.set_settings_project_count(project_count.to_string().into());
-    ui.set_settings_app_count(app_count.to_string().into());
-    ui.set_settings_icon_count(format!("{icon_count}/{app_count}").into());
-    ui.set_settings_ranking_entry_count(ranking_entry_count.to_string().into());
-}
-
-fn app_icon_count(apps: &[apps::DesktopApp]) -> usize {
-    apps.iter().filter(|app| app.icon_path.is_some()).count()
-}
-
-fn to_app_choice_items(
-    apps: &[apps::DesktopApp],
-    icon_cache: &mut IconImageCache,
-) -> Vec<AppChoiceItem> {
-    apps.iter()
-        .filter_map(|app| {
-            let command = app.command.program.to_string_lossy().trim().to_owned();
-            if command.is_empty() {
-                return None;
-            }
-
-            let icon = app
-                .icon_path
-                .as_ref()
-                .and_then(|path| load_icon_image(path, icon_cache));
-
-            Some(AppChoiceItem {
-                name: app.name.clone().into(),
-                command: command.into(),
-                icon: icon.clone().unwrap_or_default(),
-                has_icon: icon.is_some(),
-            })
-        })
-        .collect()
-}
-
-fn set_alternate_opener_visual(
-    ui: &AppWindow,
-    command: &str,
-    apps: &[apps::DesktopApp],
-    icon_cache: &mut IconImageCache,
-) {
-    let app = alternate_opener_app(command, apps);
-    let icon_path = app.and_then(|app| app.icon_path.as_ref());
-    let icon = icon_path.and_then(|path| load_icon_image(path, icon_cache));
-
-    ui.set_alternate_folder_opener_icon(icon.clone().unwrap_or_default());
-    ui.set_alternate_folder_opener_has_icon(icon.is_some());
-    ui.set_alternate_folder_opener_label(opener_label(command).into());
-    ui.set_alternate_folder_opener_background(accent_color_for_opener(command, icon_path));
-}
-
-fn alternate_opener_app<'a>(
-    command: &str,
-    apps: &'a [apps::DesktopApp],
-) -> Option<&'a apps::DesktopApp> {
-    let command_name = command_basename(command);
-    if command_name.is_empty() {
-        return None;
-    }
-
-    apps.iter()
-        .find(|app| command_basename(&app.command.program.to_string_lossy()) == command_name)
-        .or_else(|| {
-            (command_name == "xdg-terminal-exec")
-                .then(|| terminal_like_app(apps))
-                .flatten()
-        })
-}
-
-fn terminal_like_app(apps: &[apps::DesktopApp]) -> Option<&apps::DesktopApp> {
-    apps.iter().find(|app| {
-        let text = format!(
-            "{} {} {}",
-            app.name,
-            app.generic_name.as_deref().unwrap_or_default(),
-            app.comment.as_deref().unwrap_or_default()
-        )
-        .to_ascii_lowercase();
-        text.contains("terminal")
-    })
-}
-
-fn command_basename(command: &str) -> String {
-    Path::new(command.trim())
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(command.trim())
-        .to_ascii_lowercase()
-}
-
-fn opener_label(command: &str) -> String {
-    let command_name = command_basename(command);
-    if command_name == "xdg-terminal-exec" || command_name.contains("terminal") {
-        return "TM".to_owned();
-    }
-
-    let mut label = command_name
-        .chars()
-        .filter(|character| character.is_ascii_alphanumeric())
-        .take(2)
-        .collect::<String>()
-        .to_uppercase();
-
-    if label.is_empty() {
-        label = "OP".to_owned();
-    }
-
-    label
-}
-
-fn accent_color_for_opener(command: &str, icon_path: Option<&PathBuf>) -> Color {
-    icon_path
-        .and_then(|path| svg_accent_color(path))
-        .unwrap_or_else(|| fallback_accent_color(command))
-}
-
-fn svg_accent_color(path: &Path) -> Option<Color> {
-    if !path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("svg"))
-    {
-        return None;
-    }
-
-    let contents = std::fs::read_to_string(path).ok()?;
-    let mut best = None;
-    let mut best_score = 0u16;
-    let bytes = contents.as_bytes();
-
-    for index in 0..bytes.len().saturating_sub(6) {
-        if bytes[index] != b'#' {
-            continue;
-        }
-
-        let hex = &contents[index + 1..index + 7];
-        if !hex.chars().all(|character| character.is_ascii_hexdigit()) {
-            continue;
-        }
-
-        let red = u8::from_str_radix(&hex[0..2], 16).ok()?;
-        let green = u8::from_str_radix(&hex[2..4], 16).ok()?;
-        let blue = u8::from_str_radix(&hex[4..6], 16).ok()?;
-        let score = color_score(red, green, blue);
-
-        if score > best_score {
-            best_score = score;
-            best = Some((red, green, blue));
-        }
-    }
-
-    best.map(|(red, green, blue)| muted_background_color(red, green, blue))
-}
-
-fn color_score(red: u8, green: u8, blue: u8) -> u16 {
-    let max = red.max(green).max(blue) as u16;
-    let min = red.min(green).min(blue) as u16;
-    let saturation = max.saturating_sub(min);
-    let brightness = (red as u16 + green as u16 + blue as u16) / 3;
-
-    if !(48..=220).contains(&brightness) || saturation < 24 {
-        return 0;
-    }
-
-    saturation + brightness / 4
-}
-
-fn muted_background_color(red: u8, green: u8, blue: u8) -> Color {
-    Color::from_rgb_u8(
-        ((red as u16 * 3) / 5).max(24) as u8,
-        ((green as u16 * 3) / 5).max(24) as u8,
-        ((blue as u16 * 3) / 5).max(24) as u8,
-    )
-}
-
-fn fallback_accent_color(seed: &str) -> Color {
-    let mut hash = 0u32;
-    for byte in seed.bytes() {
-        hash = hash.wrapping_mul(16777619) ^ u32::from(byte);
-    }
-
-    let red = 64 + (hash & 0x3f) as u8;
-    let green = 64 + ((hash >> 8) & 0x3f) as u8;
-    let blue = 64 + ((hash >> 16) & 0x3f) as u8;
-
-    Color::from_rgb_u8(red, green, blue)
-}
-
 fn record_learned_launch(
     config: &config::Config,
     ranking_state: &Rc<RefCell<ranking::RankingState>>,
@@ -1104,57 +897,6 @@ fn record_learned_launch(
     if let Err(error) = ranking::save_ranking_state(&ranking_state.borrow()) {
         eprintln!("{error}");
     }
-}
-
-fn folder_sources_text(sources: &[PathBuf]) -> String {
-    sources
-        .iter()
-        .map(|path| search::display_path(path))
-        .collect::<Vec<_>>()
-        .join("; ")
-}
-
-fn parse_folder_sources_text(text: &str) -> Vec<PathBuf> {
-    text.split([';', '\n'])
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .collect()
-}
-
-fn first_existing_folder_source(text: &str) -> Option<PathBuf> {
-    parse_folder_sources_text(text)
-        .into_iter()
-        .map(expand_home_for_ui)
-        .find(|path| path.is_dir())
-}
-
-fn expand_home_for_ui(path: PathBuf) -> PathBuf {
-    let Some(path_str) = path.to_str() else {
-        return path;
-    };
-
-    if path_str == "~" {
-        return dirs::home_dir().unwrap_or(path);
-    }
-
-    if let Some(rest) = path_str.strip_prefix("~/")
-        && let Some(home) = dirs::home_dir()
-    {
-        return home.join(rest);
-    }
-
-    path
-}
-
-fn parse_max_results(text: &str) -> Option<usize> {
-    let max_results = text.trim().parse().ok()?;
-    (max_results > 0).then_some(max_results)
-}
-
-fn path_option_label(path: Option<PathBuf>) -> String {
-    path.map(|path| path.display().to_string())
-        .unwrap_or_else(|| "Unavailable".to_owned())
 }
 
 fn command_display(command: &actions::CommandSpec) -> String {
@@ -1182,76 +924,6 @@ fn selected_index_for_query(query: &str, result_count: i32) -> i32 {
     }
 }
 
-type IconImageCache = HashMap<PathBuf, Option<Image>>;
-
-fn to_result_items(
-    results: &[search::SearchResult],
-    icon_cache: &mut IconImageCache,
-) -> Vec<ResultItem> {
-    results
-        .iter()
-        .map(|result| {
-            let icon = result_icon(&result.icon, icon_cache);
-
-            ResultItem {
-                title: result.title.clone().into(),
-                subtitle: result.subtitle.clone().into(),
-                icon: icon.image,
-                has_icon: icon.has_image,
-                icon_kind: icon.kind.into(),
-                icon_text: icon.text.into(),
-            }
-        })
-        .collect()
-}
-
-struct RowIcon {
-    image: Image,
-    has_image: bool,
-    kind: &'static str,
-    text: &'static str,
-}
-
-fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache) -> RowIcon {
-    match icon {
-        search::SearchResultIcon::App { path: Some(path) } => {
-            if let Some(image) = load_icon_image(path, icon_cache) {
-                RowIcon {
-                    image,
-                    has_image: true,
-                    kind: "app",
-                    text: "",
-                }
-            } else {
-                fallback_icon("app", "")
-            }
-        }
-        search::SearchResultIcon::App { path: None } => fallback_icon("app", ""),
-        search::SearchResultIcon::Calculator => fallback_icon("calculator", ""),
-        search::SearchResultIcon::ProjectFolder => fallback_icon("folder", ""),
-        search::SearchResultIcon::Placeholder => fallback_icon("placeholder", ""),
-    }
-}
-
-fn fallback_icon(kind: &'static str, text: &'static str) -> RowIcon {
-    RowIcon {
-        image: Image::default(),
-        has_image: false,
-        kind,
-        text,
-    }
-}
-
-fn load_icon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -> Option<Image> {
-    if let Some(cached) = icon_cache.get(path) {
-        return cached.clone();
-    }
-
-    let image = Image::load_from_path(path).ok();
-    icon_cache.insert(path.clone(), image.clone());
-    image
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1262,34 +934,6 @@ mod tests {
         assert_eq!(selected_index_for_query("   ", 3), -1);
         assert_eq!(selected_index_for_query("code", 0), -1);
         assert_eq!(selected_index_for_query("code", 3), 0);
-    }
-
-    #[test]
-    fn folder_sources_text_uses_semicolon_separated_paths() {
-        let sources = vec![PathBuf::from("/tmp/alpha"), PathBuf::from("/tmp/beta")];
-
-        assert_eq!(folder_sources_text(&sources), "/tmp/alpha; /tmp/beta");
-    }
-
-    #[test]
-    fn parse_folder_sources_text_accepts_semicolons_and_newlines() {
-        let roots = parse_folder_sources_text(" ~/Documents ; /tmp/rayslash\n/tmp/other ");
-
-        assert_eq!(
-            roots,
-            vec![
-                PathBuf::from("~/Documents"),
-                PathBuf::from("/tmp/rayslash"),
-                PathBuf::from("/tmp/other")
-            ]
-        );
-    }
-
-    #[test]
-    fn parse_max_results_requires_positive_number() {
-        assert_eq!(parse_max_results("25"), Some(25));
-        assert_eq!(parse_max_results("0"), None);
-        assert_eq!(parse_max_results("abc"), None);
     }
 
     #[test]
@@ -1349,12 +993,5 @@ mod tests {
         let results = search_results(&config, &ranking_state, &projects, &[], "al");
 
         assert_eq!(results[0].title, "Alpha");
-    }
-
-    #[test]
-    fn opener_label_uses_terminal_and_command_fallbacks() {
-        assert_eq!(opener_label("xdg-terminal-exec"), "TM");
-        assert_eq!(opener_label("codium"), "CO");
-        assert_eq!(opener_label("--"), "OP");
     }
 }
