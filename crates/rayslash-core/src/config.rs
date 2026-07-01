@@ -17,6 +17,8 @@ pub struct Config {
     pub actions: ActionConfig,
     #[serde(default)]
     pub appearance: AppearanceConfig,
+    #[serde(default)]
+    pub ranking: RankingConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,6 +46,12 @@ pub struct ActionConfig {
 pub struct AppearanceConfig {
     #[serde(default = "default_max_results")]
     pub max_results: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RankingConfig {
+    #[serde(default = "default_true")]
+    pub learn_from_usage: bool,
 }
 
 #[derive(Debug)]
@@ -122,6 +130,7 @@ impl Default for Config {
             providers: ProviderConfig::default(),
             actions: ActionConfig::default(),
             appearance: AppearanceConfig::default(),
+            ranking: RankingConfig::default(),
         }
     }
 }
@@ -149,6 +158,14 @@ impl Default for AppearanceConfig {
     fn default() -> Self {
         Self {
             max_results: default_max_results(),
+        }
+    }
+}
+
+impl Default for RankingConfig {
+    fn default() -> Self {
+        Self {
+            learn_from_usage: true,
         }
     }
 }
@@ -381,6 +398,9 @@ alternate_folder_opener_command = "codium"
 
 [appearance]
 max_results = 20
+
+[ranking]
+learn_from_usage = false
 "#,
         )
         .expect("write config");
@@ -399,6 +419,12 @@ max_results = 20
         assert!(!config.actions.alternate_folder_opener_enabled);
         assert_eq!(config.actions.alternate_folder_opener_command, "codium");
         assert_eq!(config.appearance, AppearanceConfig { max_results: 20 });
+        assert_eq!(
+            config.ranking,
+            RankingConfig {
+                learn_from_usage: false,
+            }
+        );
 
         fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
@@ -459,6 +485,7 @@ max_results = 0
         assert_eq!(config.actions.alternate_folder_opener_command, "code");
         assert!(config.actions.alternate_folder_opener_enabled);
         assert_eq!(config.appearance.max_results, 50);
+        assert!(config.ranking.learn_from_usage);
 
         fs::remove_dir_all(dir).expect("cleanup temp dir");
     }
@@ -511,6 +538,9 @@ folder_sources = ["~/Documents"]
                 alternate_folder_opener_command: "codium".to_owned(),
             },
             appearance: AppearanceConfig { max_results: 25 },
+            ranking: RankingConfig {
+                learn_from_usage: false,
+            },
         };
 
         save_config_to_path(&path, &config).expect("save config");
@@ -522,10 +552,12 @@ folder_sources = ["~/Documents"]
         assert!(saved.contains("folders = false"));
         assert!(saved.contains("alternate_folder_opener_enabled = false"));
         assert!(saved.contains("alternate_folder_opener_command = \"codium\""));
+        assert!(saved.contains("learn_from_usage = false"));
         assert_eq!(loaded.folder_sources, vec![home.join("Documents")]);
         assert_eq!(loaded.providers, config.providers);
         assert_eq!(loaded.actions, config.actions);
         assert_eq!(loaded.appearance, config.appearance);
+        assert_eq!(loaded.ranking, config.ranking);
 
         fs::remove_dir_all(dir).expect("cleanup temp dir");
     }

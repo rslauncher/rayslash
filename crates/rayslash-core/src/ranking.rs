@@ -1,0 +1,441 @@
+use std::{
+    collections::BTreeMap,
+    fmt, fs, io,
+    path::{Path, PathBuf},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+use serde::{Deserialize, Serialize};
+
+use crate::config;
+
+pub const RANKING_STATE_VERSION: u32 = 1;
+pub const RANKING_STATE_FILE_NAME: &str = "ranking.toml";
+const MAX_QUERY_PREFIX_LEN: usize = 32;
+const MAX_TOTAL_BOOST: u32 = 20;
+const MAX_COUNT_BOOST: u32 = 8;
+const MAX_PREFIX_BOOST: u32 = 16;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RankingState {
+    #[serde(default = "default_version")]
+    pub version: u32,
+    #[serde(default)]
+    pub entries: BTreeMap<String, RankingEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RankingEntry {
+    #[serde(default)]
+    pub launch_count: u32,
+    #[serde(default)]
+    pub last_launched_unix: u64,
+    #[serde(default)]
+    pub query_prefixes: BTreeMap<String, u32>,
+}
+
+#[derive(Debug)]
+pub enum LoadRankingStateError {
+    Read {
+        path: PathBuf,
+        source: io::Error,
+    },
+    Parse {
+        path: PathBuf,
+        source: toml::de::Error,
+    },
+}
+
+#[derive(Debug)]
+pub enum SaveRankingStateError {
+    CreateDir { path: PathBuf, source: io::Error },
+    Serialize { source: toml::ser::Error },
+    Write { path: PathBuf, source: io::Error },
+}
+
+#[derive(Debug)]
+pub enum ClearRankingStateError {
+    Unavailable,
+    Remove { path: PathBuf, source: io::Error },
+}
+
+impl Default for RankingState {
+    fn default() -> Self {
+        Self {
+            version: RANKING_STATE_VERSION,
+            entries: BTreeMap::new(),
+        }
+    }
+}
+
+impl Default for RankingEntry {
+    fn default() -> Self {
+        Self {
+            launch_count: 0,
+            last_launched_unix: 0,
+            query_prefixes: BTreeMap::new(),
+        }
+    }
+}
+
+impl fmt::Display for LoadRankingStateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Read { path, source } => {
+                write!(
+                    f,
+                    "failed to read ranking state {}: {source}",
+                    path.display()
+                )
+            }
+            Self::Parse { path, source } => {
+                write!(
+                    f,
+                    "failed to parse ranking state {}: {source}",
+                    path.display()
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for LoadRankingStateError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Read { source, .. } => Some(source),
+            Self::Parse { source, .. } => Some(source),
+        }
+    }
+}
+
+impl fmt::Display for SaveRankingStateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CreateDir { path, source } => {
+                write!(
+                    f,
+                    "failed to create ranking state directory {}: {source}",
+                    path.display()
+                )
+            }
+            Self::Serialize { source } => write!(f, "failed to serialize ranking state: {source}"),
+            Self::Write { path, source } => {
+                write!(
+                    f,
+                    "failed to write ranking state {}: {source}",
+                    path.display()
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for SaveRankingStateError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::CreateDir { source, .. } => Some(source),
+            Self::Serialize { source } => Some(source),
+            Self::Write { source, .. } => Some(source),
+        }
+    }
+}
+
+impl fmt::Display for ClearRankingStateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unavailable => write!(f, "system state directory is unavailable"),
+            Self::Remove { path, source } => {
+                write!(
+                    f,
+                    "failed to remove ranking state {}: {source}",
+                    path.display()
+                )
+            }
+        }
+    }
+}
+
+impl std::error::Error for ClearRankingStateError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Unavailable => None,
+            Self::Remove { source, .. } => Some(source),
+        }
+    }
+}
+
+impl RankingState {
+    pub fn boost_for(&self, result_id: &str, query: &str) -> u32 {
+        let Some(entry) = self.entries.get(result_id) else {
+            return 0;
+        };
+
+        entry.boost_for(query)
+    }
+
+    pub fn record_launch_at(&mut self, result_id: &str, query: &str, launched_at: SystemTime) {
+        let launched_at = unix_seconds(launched_at);
+        let entry = self.entries.entry(result_id.to_owned()).or_default();
+        entry.launch_count = entry.launch_count.saturating_add(1);
+        entry.last_launched_unix = launched_at;
+
+        for prefix in query_prefixes(query) {
+            let count = entry.query_prefixes.entry(prefix).or_default();
+            *count = count.saturating_add(1);
+        }
+    }
+
+    pub fn record_launch(&mut self, result_id: &str, query: &str) {
+        self.record_launch_at(result_id, query, SystemTime::now());
+    }
+}
+
+impl RankingEntry {
+    fn boost_for(&self, query: &str) -> u32 {
+        let query = normalize_query(query);
+        if query.is_empty() {
+            return 0;
+        }
+
+        let count_boost = self.launch_count.saturating_mul(2).min(MAX_COUNT_BOOST);
+        let prefix_boost = self
+            .query_prefixes
+            .get(&query)
+            .copied()
+            .unwrap_or_default()
+            .saturating_mul(6)
+            .min(MAX_PREFIX_BOOST);
+
+        count_boost
+            .saturating_add(prefix_boost)
+            .min(MAX_TOTAL_BOOST)
+    }
+}
+
+pub fn ranking_state_file() -> Option<PathBuf> {
+    config::state_dir().map(|path| path.join(RANKING_STATE_FILE_NAME))
+}
+
+pub fn load_ranking_state() -> Result<RankingState, LoadRankingStateError> {
+    let Some(path) = ranking_state_file() else {
+        return Ok(RankingState::default());
+    };
+
+    load_ranking_state_from_path(&path)
+}
+
+pub fn load_ranking_state_from_path(path: &Path) -> Result<RankingState, LoadRankingStateError> {
+    match fs::read_to_string(path) {
+        Ok(contents) => {
+            let state: RankingState =
+                toml::from_str(&contents).map_err(|source| LoadRankingStateError::Parse {
+                    path: path.to_path_buf(),
+                    source,
+                })?;
+
+            if state.version == RANKING_STATE_VERSION {
+                Ok(state)
+            } else {
+                Ok(RankingState::default())
+            }
+        }
+        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(RankingState::default()),
+        Err(source) => Err(LoadRankingStateError::Read {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+pub fn load_ranking_state_from_path_or_default(path: &Path) -> RankingState {
+    load_ranking_state_from_path(path).unwrap_or_default()
+}
+
+pub fn save_ranking_state(state: &RankingState) -> Result<(), SaveRankingStateError> {
+    let Some(path) = ranking_state_file() else {
+        return Ok(());
+    };
+
+    save_ranking_state_to_path(&path, state)
+}
+
+pub fn save_ranking_state_to_path(
+    path: &Path,
+    state: &RankingState,
+) -> Result<(), SaveRankingStateError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|source| SaveRankingStateError::CreateDir {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+
+    let contents = toml::to_string_pretty(state)
+        .map_err(|source| SaveRankingStateError::Serialize { source })?;
+
+    fs::write(path, contents).map_err(|source| SaveRankingStateError::Write {
+        path: path.to_path_buf(),
+        source,
+    })
+}
+
+pub fn clear_ranking_state() -> Result<(), ClearRankingStateError> {
+    let Some(path) = ranking_state_file() else {
+        return Err(ClearRankingStateError::Unavailable);
+    };
+
+    clear_ranking_state_at_path(&path)
+}
+
+pub fn clear_ranking_state_at_path(path: &Path) -> Result<(), ClearRankingStateError> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(ClearRankingStateError::Remove {
+            path: path.to_path_buf(),
+            source,
+        }),
+    }
+}
+
+fn default_version() -> u32 {
+    RANKING_STATE_VERSION
+}
+
+fn query_prefixes(query: &str) -> Vec<String> {
+    let query = normalize_query(query);
+    if query.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut prefixes = Vec::new();
+    for len in 2..=query.len().min(MAX_QUERY_PREFIX_LEN) {
+        if query.is_char_boundary(len) {
+            prefixes.push(query[..len].to_owned());
+        }
+    }
+
+    prefixes
+}
+
+fn normalize_query(query: &str) -> String {
+    query
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+fn unix_seconds(time: SystemTime) -> u64 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_ranking_state_loads_default() {
+        let path = unique_temp_dir("rayslash-ranking-missing").join("ranking.toml");
+
+        let state = load_ranking_state_from_path(&path).expect("missing state should load");
+
+        assert_eq!(state, RankingState::default());
+    }
+
+    #[test]
+    fn ranking_state_can_be_saved_and_loaded() {
+        let dir = unique_temp_dir("rayslash-ranking-save");
+        let path = dir.join("ranking.toml");
+        let mut state = RankingState::default();
+        state.record_launch_at("app:org.example.Editor.desktop", "ed", unix_time(100));
+        state.record_launch_at("app:org.example.Editor.desktop", "edi", unix_time(200));
+
+        save_ranking_state_to_path(&path, &state).expect("save ranking state");
+        let saved = fs::read_to_string(&path).expect("read saved ranking state");
+        let loaded = load_ranking_state_from_path(&path).expect("load saved ranking state");
+
+        assert!(saved.contains("version = 1"));
+        assert!(saved.contains("launch_count = 2"));
+        assert_eq!(loaded, state);
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn corrupted_ranking_state_falls_back_to_default() {
+        let dir = unique_temp_dir("rayslash-ranking-corrupt");
+        let path = dir.join("ranking.toml");
+        fs::write(&path, "this is not valid toml =").expect("write corrupted state");
+
+        let state = load_ranking_state_from_path_or_default(&path);
+
+        assert_eq!(state, RankingState::default());
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn record_launch_tracks_count_time_and_query_prefixes() {
+        let mut state = RankingState::default();
+
+        state.record_launch_at("folder:/tmp/rayslash", "Ray", unix_time(123));
+
+        let entry = state
+            .entries
+            .get("folder:/tmp/rayslash")
+            .expect("entry should be recorded");
+        assert_eq!(entry.launch_count, 1);
+        assert_eq!(entry.last_launched_unix, 123);
+        assert_eq!(entry.query_prefixes.get("ra"), Some(&1));
+        assert_eq!(entry.query_prefixes.get("ray"), Some(&1));
+        assert_eq!(entry.query_prefixes.get("r"), None);
+    }
+
+    #[test]
+    fn ranking_boost_is_bounded_and_query_sensitive() {
+        let mut state = RankingState::default();
+        for second in 1..=10 {
+            state.record_launch_at("app:editor.desktop", "edi", unix_time(second));
+        }
+
+        assert_eq!(state.boost_for("app:editor.desktop", ""), 0);
+        assert!(state.boost_for("app:editor.desktop", "ed") > 0);
+        assert_eq!(state.boost_for("app:editor.desktop", "ed"), MAX_TOTAL_BOOST);
+        assert!(state.boost_for("app:editor.desktop", "other") <= MAX_COUNT_BOOST);
+        assert_eq!(state.boost_for("missing", "ed"), 0);
+    }
+
+    #[test]
+    fn clear_ranking_state_removes_existing_file_and_accepts_missing_file() {
+        let dir = unique_temp_dir("rayslash-ranking-clear");
+        let path = dir.join("ranking.toml");
+        fs::write(&path, "version = 1").expect("write ranking state");
+
+        clear_ranking_state_at_path(&path).expect("clear existing state");
+        assert!(!path.exists());
+        clear_ranking_state_at_path(&path).expect("clear missing state");
+
+        fs::remove_dir_all(dir).expect("cleanup temp dir");
+    }
+
+    fn unix_time(seconds: u64) -> SystemTime {
+        UNIX_EPOCH + std::time::Duration::from_secs(seconds)
+    }
+
+    fn unique_temp_dir(prefix: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "{prefix}-{}-{:?}-{}",
+            std::process::id(),
+            std::thread::current().id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock before unix epoch")
+                .as_nanos()
+        ));
+        fs::create_dir(&path).expect("create temp dir");
+        path
+    }
+}

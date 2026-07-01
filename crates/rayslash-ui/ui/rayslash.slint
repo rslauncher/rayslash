@@ -173,12 +173,14 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-provider-folders: true;
     in-out property <bool> settings-provider-calculator: true;
     in-out property <bool> settings-alternate-folder-opener-enabled: true;
+    in-out property <bool> settings-ranking-learn-from-usage: true;
     in-out property <string> settings-max-results: "50";
     in-out property <string> settings-config-path: "";
     in-out property <string> settings-state-path: "";
     in-out property <string> settings-socket-path: "";
     in-out property <string> settings-project-count: "0";
     in-out property <string> settings-app-count: "0";
+    in-out property <string> settings-ranking-entry-count: "0";
     in-out property <bool> alternate-folder-opener-enabled: true;
     in property <string> project-editor-label: "VS";
     private property <length> result-row-height: 64px;
@@ -193,7 +195,8 @@ export component AppWindow inherits Window {
     callback settings-requested();
     callback settings-cancel-requested();
     callback settings-browse-folder-requested(string);
-    callback settings-save-requested(string, string, bool, bool, bool, bool, string);
+    callback settings-clear-ranking-requested();
+    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, string);
 
     public function focus-search() {
         search.focus();
@@ -348,64 +351,16 @@ export component AppWindow inherits Window {
                             height: 34px;
                             background: transparent;
                             opacity: settings-button-touch.pressed ? 1 : settings-button-touch.has-hover || root.settings-open ? 1 : 0.72;
-                            property <brush> gear-color: settings-button-touch.pressed ? #ffffff : settings-button-touch.has-hover || root.settings-open ? #f2f2f2 : #b8b8b8;
 
                             animate opacity { duration: 90ms; }
 
-                            Rectangle {
-                                x: 15px;
-                                y: 5px;
-                                width: 4px;
-                                height: 24px;
-                                border-radius: 2px;
-                                background: parent.gear-color;
-                            }
-
-                            Rectangle {
+                            Image {
                                 x: 5px;
-                                y: 15px;
+                                y: 5px;
                                 width: 24px;
-                                height: 4px;
-                                border-radius: 2px;
-                                background: parent.gear-color;
-                            }
-
-                            Rectangle {
-                                x: 11px;
-                                y: 7px;
-                                width: 12px;
-                                height: 4px;
-                                border-radius: 2px;
-                                background: parent.gear-color;
-                            }
-
-                            Rectangle {
-                                x: 11px;
-                                y: 23px;
-                                width: 12px;
-                                height: 4px;
-                                border-radius: 2px;
-                                background: parent.gear-color;
-                            }
-
-                            Rectangle {
-                                x: 9px;
-                                y: 9px;
-                                width: 16px;
-                                height: 16px;
-                                border-radius: 8px;
-                                background: #181818;
-                                border-width: 3px;
-                                border-color: parent.gear-color;
-                            }
-
-                            Rectangle {
-                                x: 14px;
-                                y: 14px;
-                                width: 6px;
-                                height: 6px;
-                                border-radius: 3px;
-                                background: parent.gear-color;
+                                height: 24px;
+                                source: @image-url("../../../icons/settings-gear.svg");
+                                image-fit: contain;
                             }
 
                             settings-button-touch := TouchArea {
@@ -664,6 +619,56 @@ export component AppWindow inherits Window {
                         }
 
                         HorizontalLayout {
+                            height: 52px;
+                            spacing: 8px;
+
+                            SettingToggle {
+                                label: "Learning";
+                                description: "Local result ranking";
+                                checked <=> root.settings-ranking-learn-from-usage;
+                            }
+
+                            Rectangle {
+                                width: 118px;
+                                height: 52px;
+                                border-radius: 8px;
+                                background: clear-ranking-touch.pressed ? #333333 : clear-ranking-touch.has-hover ? #292929 : #202020;
+                                border-width: 1px;
+                                border-color: #3a3a3a;
+
+                                VerticalLayout {
+                                    padding-left: 10px;
+                                    padding-right: 10px;
+                                    padding-top: 8px;
+                                    padding-bottom: 8px;
+                                    spacing: 2px;
+
+                                    Text {
+                                        text: "Clear history";
+                                        color: #dddddd;
+                                        font-size: 12px;
+                                        font-weight: 700;
+                                        horizontal-alignment: center;
+                                    }
+
+                                    Text {
+                                        text: root.settings-ranking-entry-count + " entries";
+                                        color: #9a9a9a;
+                                        font-size: 10px;
+                                        horizontal-alignment: center;
+                                    }
+                                }
+
+                                clear-ranking-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.settings-clear-ranking-requested();
+                                    }
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
                             height: 42px;
                             spacing: 8px;
 
@@ -847,6 +852,7 @@ export component AppWindow inherits Window {
                                             root.settings-provider-folders,
                                             root.settings-provider-calculator,
                                             root.settings-alternate-folder-opener-enabled,
+                                            root.settings-ranking-learn-from-usage,
                                             settings-max-results-input.text
                                         );
                                     }
@@ -857,7 +863,7 @@ export component AppWindow inherits Window {
                     }
 
                     results-scroll := Flickable {
-                        height: root.settings-open ? 0px : self.preferred-height;
+                        visible: !root.settings-open;
                         vertical-stretch: root.settings-open ? 0 : 1;
                         viewport-width: self.width;
                         viewport-height: root.settings-open || root.result-count <= 0 ? 0px : root.result-count * root.result-row-stride - root.result-row-gap;

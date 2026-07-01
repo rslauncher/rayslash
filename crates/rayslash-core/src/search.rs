@@ -5,6 +5,7 @@ use crate::apps::DesktopApp;
 use crate::calc;
 use crate::config::ProviderConfig;
 use crate::projects::Project;
+use crate::ranking::RankingState;
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
@@ -83,6 +84,29 @@ impl SearchResult {
 
     pub fn is_no_results(&self) -> bool {
         matches!(self.kind, SearchResultKind::NoResults { .. })
+    }
+
+    pub fn stable_id(&self) -> Option<String> {
+        match &self.kind {
+            SearchResultKind::App { id, .. } => Some(format!("app:{id}")),
+            SearchResultKind::Project { path } => Some(format!("folder:{}", path.display())),
+            SearchResultKind::Calculator { expression, .. }
+            | SearchResultKind::CalculatorError { expression, .. } => {
+                Some(format!("calculator:{}", expression.trim()))
+            }
+            SearchResultKind::NoResults { query } => Some(format!("no-results:{}", query.trim())),
+            SearchResultKind::Placeholder => None,
+        }
+    }
+
+    pub fn learning_id(&self) -> Option<String> {
+        match &self.kind {
+            SearchResultKind::App { .. } | SearchResultKind::Project { .. } => self.stable_id(),
+            SearchResultKind::Placeholder
+            | SearchResultKind::NoResults { .. }
+            | SearchResultKind::Calculator { .. }
+            | SearchResultKind::CalculatorError { .. } => None,
+        }
     }
 }
 
@@ -163,6 +187,16 @@ pub fn mixed_results_with_providers(
     query: &str,
     providers: &ProviderConfig,
 ) -> Vec<SearchResult> {
+    mixed_results_with_ranking(projects, apps, query, providers, None)
+}
+
+pub fn mixed_results_with_ranking(
+    projects: &[Project],
+    apps: &[DesktopApp],
+    query: &str,
+    providers: &ProviderConfig,
+    ranking: Option<&RankingState>,
+) -> Vec<SearchResult> {
     let query = query.trim();
     let calculation = providers
         .calculator
@@ -201,24 +235,33 @@ pub fn mixed_results_with_providers(
     for project in enabled_projects {
         let haystack = Utf32Str::new(&project.name, &mut char_buf);
         if let Some(score) = pattern.score(haystack, &mut matcher) {
-            matches.push((project_result(project), score));
+            let result = project_result(project);
+            let boosted_score = boosted_score(&result, score, query, ranking);
+            matches.push((result, score, boosted_score));
         }
     }
 
     for app in enabled_apps {
         let haystack = Utf32Str::new(&app.name, &mut char_buf);
         if let Some(score) = pattern.score(haystack, &mut matcher) {
-            matches.push((app_result(app), score));
+            let result = app_result(app);
+            let boosted_score = boosted_score(&result, score, query, ranking);
+            matches.push((result, score, boosted_score));
         }
     }
 
-    matches.sort_by(|(a, a_score), (b, b_score)| {
-        b_score.cmp(a_score).then_with(|| search_result_order(a, b))
-    });
+    matches.sort_by(
+        |(a, a_score, a_boosted_score), (b, b_score, b_boosted_score)| {
+            b_boosted_score
+                .cmp(a_boosted_score)
+                .then_with(|| b_score.cmp(a_score))
+                .then_with(|| search_result_order(a, b))
+        },
+    );
 
     let mut results = matches
         .into_iter()
-        .map(|(result, _score)| result)
+        .map(|(result, _score, _boosted_score)| result)
         .collect::<Vec<_>>();
 
     if let Some(calculation) = calculation {
@@ -230,6 +273,39 @@ pub fn mixed_results_with_providers(
     }
 
     results
+}
+
+fn boosted_score(
+    result: &SearchResult,
+    score: u32,
+    query: &str,
+    ranking: Option<&RankingState>,
+) -> u32 {
+    let Some(ranking) = ranking else {
+        return score;
+    };
+
+    result
+        .learning_id()
+        .map(|id| {
+            let boost = if title_starts_with_query(&result.title, query) {
+                ranking.boost_for(&id, query)
+            } else {
+                0
+            };
+            score.saturating_add(boost)
+        })
+        .unwrap_or(score)
+}
+
+fn title_starts_with_query(title: &str, query: &str) -> bool {
+    let query = query
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+
+    !query.is_empty() && title.to_lowercase().starts_with(&query)
 }
 
 fn project_result(project: &Project) -> SearchResult {
@@ -780,5 +856,188 @@ mod tests {
             }
         );
         assert!(results[0].is_no_results());
+    }
+
+    #[test]
+    fn current_result_types_have_stable_ids() {
+        let app = DesktopApp {
+            id: "editor.desktop".to_owned(),
+            name: "Editor".to_owned(),
+            generic_name: None,
+            comment: None,
+            exec: "editor".to_owned(),
+            icon: None,
+            icon_path: None,
+            command: CommandSpec {
+                program: "editor".into(),
+                args: Vec::new(),
+            },
+            desktop_file: PathBuf::from("/tmp/editor.desktop"),
+        };
+        let project = Project {
+            name: "rayslash".to_owned(),
+            path: PathBuf::from("/tmp/rayslash"),
+        };
+
+        let app_result = app_result(&app);
+        let project_result = project_result_with_subtitle(&project, "/tmp/rayslash".to_owned());
+        let calculator_result = mixed_results(&[], &[], "2 + 2")
+            .into_iter()
+            .next()
+            .expect("calculator result");
+        let no_results = no_results("zzz");
+
+        assert_eq!(
+            app_result.stable_id(),
+            Some("app:editor.desktop".to_owned())
+        );
+        assert_eq!(
+            app_result.learning_id(),
+            Some("app:editor.desktop".to_owned())
+        );
+        assert_eq!(
+            project_result.stable_id(),
+            Some("folder:/tmp/rayslash".to_owned())
+        );
+        assert_eq!(
+            project_result.learning_id(),
+            Some("folder:/tmp/rayslash".to_owned())
+        );
+        assert_eq!(
+            calculator_result.stable_id(),
+            Some("calculator:2 + 2".to_owned())
+        );
+        assert_eq!(calculator_result.learning_id(), None);
+        assert_eq!(no_results.stable_id(), Some("no-results:zzz".to_owned()));
+        assert_eq!(no_results.learning_id(), None);
+    }
+
+    #[test]
+    fn learned_ranking_boosts_previous_launches_for_matching_prefixes() {
+        let apps = vec![
+            test_app("alpha.desktop", "Alpha"),
+            test_app("alpine.desktop", "Alpine"),
+        ];
+        let mut ranking = RankingState::default();
+        for second in 1..=3 {
+            ranking.record_launch_at(
+                "app:alpine.desktop",
+                "al",
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(second),
+            );
+        }
+
+        let base = mixed_results_with_providers(&[], &apps, "al", &ProviderConfig::default());
+        let learned = mixed_results_with_ranking(
+            &[],
+            &apps,
+            "al",
+            &ProviderConfig::default(),
+            Some(&ranking),
+        );
+
+        assert_eq!(base[0].title, "Alpha");
+        assert_eq!(learned[0].title, "Alpine");
+    }
+
+    #[test]
+    fn learned_ranking_does_not_hide_strong_textual_matches() {
+        let projects = vec![Project {
+            name: "x-ray-sidecar".to_owned(),
+            path: PathBuf::from("/tmp/x-ray-sidecar"),
+        }];
+        let apps = vec![test_app("rayslash.desktop", "Rayslash")];
+        let mut ranking = RankingState::default();
+        for second in 1..=10 {
+            ranking.record_launch_at(
+                "folder:/tmp/x-ray-sidecar",
+                "ray",
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(second),
+            );
+        }
+
+        let results = mixed_results_with_ranking(
+            &projects,
+            &apps,
+            "ray",
+            &ProviderConfig::default(),
+            Some(&ranking),
+        );
+
+        assert_eq!(
+            results
+                .iter()
+                .map(|result| result.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Rayslash", "x-ray-sidecar"]
+        );
+    }
+
+    #[test]
+    fn learned_ranking_respects_disabled_providers() {
+        let apps = vec![test_app("alpine.desktop", "Alpine")];
+        let projects = vec![Project {
+            name: "Alpha Project".to_owned(),
+            path: PathBuf::from("/tmp/alpha-project"),
+        }];
+        let providers = ProviderConfig {
+            apps: false,
+            folders: true,
+            calculator: true,
+        };
+        let mut ranking = RankingState::default();
+        ranking.record_launch_at(
+            "app:alpine.desktop",
+            "al",
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(1),
+        );
+
+        let results =
+            mixed_results_with_ranking(&projects, &apps, "al", &providers, Some(&ranking));
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].title, "Alpha Project");
+        assert!(results[0].project_path().is_some());
+    }
+
+    #[test]
+    fn learned_ranking_keeps_calculator_precedence_for_valid_expressions() {
+        let apps = vec![test_app("two-plus-two.desktop", "2 Plus 2 Notes")];
+        let mut ranking = RankingState::default();
+        for second in 1..=10 {
+            ranking.record_launch_at(
+                "app:two-plus-two.desktop",
+                "2 + 2",
+                std::time::UNIX_EPOCH + std::time::Duration::from_secs(second),
+            );
+        }
+
+        let results = mixed_results_with_ranking(
+            &[],
+            &apps,
+            "2 + 2",
+            &ProviderConfig::default(),
+            Some(&ranking),
+        );
+
+        assert_eq!(results[0].title, "4");
+        assert_eq!(results[0].calculator_result(), Some("4"));
+    }
+
+    fn test_app(id: &str, name: &str) -> DesktopApp {
+        DesktopApp {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            generic_name: None,
+            comment: None,
+            exec: name.to_lowercase(),
+            icon: None,
+            icon_path: None,
+            command: CommandSpec {
+                program: name.to_lowercase().into(),
+                args: Vec::new(),
+            },
+            desktop_file: PathBuf::from(format!("/tmp/{id}")),
+        }
     }
 }

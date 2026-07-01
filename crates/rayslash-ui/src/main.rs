@@ -15,7 +15,7 @@ use std::{
     time::Instant,
 };
 
-use rayslash_core::{actions, apps, config, projects, search};
+use rayslash_core::{actions, apps, config, projects, ranking, search};
 use slint::{
     ComponentHandle, Image, VecModel,
     winit_030::{EventResult, WinitWindowAccessor, winit},
@@ -125,6 +125,17 @@ fn run_gui(
     profile_stage(profile, "config load", stage_started);
 
     let stage_started = Instant::now();
+    let ranking_state = Rc::new(RefCell::new(load_runtime_ranking_state()));
+    profile_stage(
+        profile,
+        &format!(
+            "ranking state load ({} entries)",
+            ranking_state.borrow().entries.len()
+        ),
+        stage_started,
+    );
+
+    let stage_started = Instant::now();
     let projects = Rc::new(RefCell::new(projects::scan_project_roots(
         &config_state.borrow().folder_sources,
     )));
@@ -145,6 +156,7 @@ fn run_gui(
     let stage_started = Instant::now();
     let current_results = Rc::new(RefCell::new(search_results(
         &config_state.borrow(),
+        &ranking_state.borrow(),
         &projects.borrow(),
         &apps,
         "",
@@ -191,6 +203,7 @@ fn run_gui(
         &socket_path,
         projects.borrow().len(),
         apps.len(),
+        ranking_state.borrow().entries.len(),
     );
     ui.invoke_focus_search();
 
@@ -219,11 +232,18 @@ fn run_gui(
         let projects = projects.clone();
         let apps = apps.clone();
         let config_state = config_state.clone();
+        let ranking_state = ranking_state.clone();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
         move || {
-            let results = search_results(&config_state.borrow(), &projects.borrow(), &apps, "");
+            let results = search_results(
+                &config_state.borrow(),
+                &ranking_state.borrow(),
+                &projects.borrow(),
+                &apps,
+                "",
+            );
             let count = results.len() as i32;
 
             results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
@@ -255,6 +275,7 @@ fn run_gui(
         let projects = projects.clone();
         let apps = apps.clone();
         let config_state = config_state.clone();
+        let ranking_state = ranking_state.clone();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
@@ -262,6 +283,7 @@ fn run_gui(
             let stage_started = Instant::now();
             let results = search_results(
                 &config_state.borrow(),
+                &ranking_state.borrow(),
                 &projects.borrow(),
                 &apps,
                 query.as_str(),
@@ -289,6 +311,7 @@ fn run_gui(
         let weak = ui.as_weak();
         let current_results = current_results.clone();
         let config_state = config_state.clone();
+        let ranking_state = ranking_state.clone();
         let is_visible = is_visible.clone();
         move |index, open_in_vscode| {
             let result = usize::try_from(index)
@@ -355,6 +378,13 @@ fn run_gui(
                                     );
 
                                     if let Some(ui) = weak.upgrade() {
+                                        let query = ui.get_query_text();
+                                        record_learned_launch(
+                                            &config_state.borrow(),
+                                            &ranking_state,
+                                            &result,
+                                            query.as_str(),
+                                        );
                                         ui.set_status_text(
                                             format!(
                                                 "Opening {} with {}",
@@ -389,6 +419,13 @@ fn run_gui(
                                     println!("Opening project folder: {}", path.display());
 
                                     if let Some(ui) = weak.upgrade() {
+                                        let query = ui.get_query_text();
+                                        record_learned_launch(
+                                            &config_state.borrow(),
+                                            &ranking_state,
+                                            &result,
+                                            query.as_str(),
+                                        );
                                         ui.set_status_text(
                                             format!("Opening folder {}", display_path).into(),
                                         );
@@ -423,6 +460,13 @@ fn run_gui(
                                 );
 
                                 if let Some(ui) = weak.upgrade() {
+                                    let query = ui.get_query_text();
+                                    record_learned_launch(
+                                        &config_state.borrow(),
+                                        &ranking_state,
+                                        &result,
+                                        query.as_str(),
+                                    );
                                     ui.set_status_text(
                                         format!("Launching {}", result.title).into(),
                                     );
@@ -470,6 +514,7 @@ fn run_gui(
         let config_state = config_state.clone();
         let projects = projects.clone();
         let apps = apps.clone();
+        let ranking_state = ranking_state.clone();
         let socket_path = socket_path.clone();
         move || {
             if let Some(ui) = weak.upgrade() {
@@ -485,6 +530,7 @@ fn run_gui(
                     &socket_path,
                     projects.borrow().len(),
                     apps.len(),
+                    ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
@@ -497,6 +543,7 @@ fn run_gui(
         let config_state = config_state.clone();
         let projects = projects.clone();
         let apps = apps.clone();
+        let ranking_state = ranking_state.clone();
         let socket_path = socket_path.clone();
         move || {
             if let Some(ui) = weak.upgrade() {
@@ -506,6 +553,7 @@ fn run_gui(
                     &socket_path,
                     projects.borrow().len(),
                     apps.len(),
+                    ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(false);
@@ -517,6 +565,7 @@ fn run_gui(
     ui.on_settings_save_requested({
         let weak = ui.as_weak();
         let config_state = config_state.clone();
+        let ranking_state = ranking_state.clone();
         let projects = projects.clone();
         let apps = apps.clone();
         let current_results = current_results.clone();
@@ -529,6 +578,7 @@ fn run_gui(
               folders_enabled,
               calculator_enabled,
               alternate_folder_opener_enabled,
+              learn_from_usage,
               max_results_text| {
             let editor_command = editor_command.trim();
             if alternate_folder_opener_enabled && editor_command.is_empty() {
@@ -557,6 +607,7 @@ fn run_gui(
                     alternate_folder_opener_command: editor_command.to_owned(),
                 },
                 appearance: config::AppearanceConfig { max_results },
+                ranking: config::RankingConfig { learn_from_usage },
             };
 
             if let Err(error) = config::save_config(&config_to_save) {
@@ -577,6 +628,7 @@ fn run_gui(
                 let query = ui.get_query_text();
                 let results = search_results(
                     &config_state.borrow(),
+                    &ranking_state.borrow(),
                     &projects.borrow(),
                     &apps,
                     query.as_str(),
@@ -609,6 +661,7 @@ fn run_gui(
                     &socket_path,
                     projects.borrow().len(),
                     apps.len(),
+                    ranking_state.borrow().entries.len(),
                 );
                 ui.set_settings_open(false);
                 ui.set_status_text("Settings saved.".into());
@@ -635,6 +688,57 @@ fn run_gui(
                 ui.set_settings_folder_sources(search::display_path(&folder).into());
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
+            }
+        }
+    });
+
+    ui.on_settings_clear_ranking_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let ranking_state = ranking_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let current_results = current_results.clone();
+        let results_model = results_model.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
+        move || {
+            if let Err(error) = ranking::clear_ranking_state() {
+                eprintln!("{error}");
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_status_text(format!("Could not clear ranking history: {error}").into());
+                }
+                return;
+            }
+
+            *ranking_state.borrow_mut() = ranking::RankingState::default();
+
+            if let Some(ui) = weak.upgrade() {
+                let query = ui.get_query_text();
+                let results = search_results(
+                    &config_state.borrow(),
+                    &ranking_state.borrow(),
+                    &projects.borrow(),
+                    &apps,
+                    query.as_str(),
+                );
+                let count = results.len() as i32;
+
+                results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
+                *current_results.borrow_mut() = results;
+
+                ui.set_result_count(count);
+                ui.set_selected_index(selected_index_for_query(query.as_str(), count));
+                set_settings_properties(
+                    &ui,
+                    &config_state.borrow(),
+                    &socket_path,
+                    projects.borrow().len(),
+                    apps.len(),
+                    ranking_state.borrow().entries.len(),
+                );
+                ui.set_status_text("Ranking history cleared.".into());
+                ui.invoke_reset_result_scroll();
             }
         }
     });
@@ -706,14 +810,26 @@ fn profile_stage(enabled: bool, label: &str, started: Instant) {
     }
 }
 
+fn load_runtime_ranking_state() -> ranking::RankingState {
+    match ranking::load_ranking_state() {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("{error}; using empty ranking state");
+            ranking::RankingState::default()
+        }
+    }
+}
+
 fn search_results(
     config: &config::Config,
+    ranking_state: &ranking::RankingState,
     projects: &[projects::Project],
     apps: &[apps::DesktopApp],
     query: &str,
 ) -> Vec<search::SearchResult> {
+    let ranking = config.ranking.learn_from_usage.then_some(ranking_state);
     let mut results =
-        search::mixed_results_with_providers(projects, apps, query, &config.providers);
+        search::mixed_results_with_ranking(projects, apps, query, &config.providers, ranking);
     results.truncate(config.appearance.max_results);
     results
 }
@@ -724,6 +840,7 @@ fn set_settings_properties(
     socket_path: &std::path::Path,
     project_count: usize,
     app_count: usize,
+    ranking_entry_count: usize,
 ) {
     ui.set_settings_folder_sources(folder_sources_text(&config.folder_sources).into());
     ui.set_settings_alternate_folder_opener_command(
@@ -737,12 +854,38 @@ fn set_settings_properties(
     ui.set_settings_provider_folders(config.providers.folders);
     ui.set_settings_provider_calculator(config.providers.calculator);
     ui.set_settings_alternate_folder_opener_enabled(config.actions.alternate_folder_opener_enabled);
+    ui.set_settings_ranking_learn_from_usage(config.ranking.learn_from_usage);
     ui.set_settings_max_results(config.appearance.max_results.to_string().into());
     ui.set_settings_config_path(path_option_label(config::config_file()).into());
     ui.set_settings_state_path(path_option_label(config::state_dir()).into());
     ui.set_settings_socket_path(socket_path.display().to_string().into());
     ui.set_settings_project_count(project_count.to_string().into());
     ui.set_settings_app_count(app_count.to_string().into());
+    ui.set_settings_ranking_entry_count(ranking_entry_count.to_string().into());
+}
+
+fn record_learned_launch(
+    config: &config::Config,
+    ranking_state: &Rc<RefCell<ranking::RankingState>>,
+    result: &search::SearchResult,
+    query: &str,
+) {
+    if !config.ranking.learn_from_usage {
+        return;
+    }
+
+    let Some(result_id) = result.learning_id() else {
+        return;
+    };
+
+    {
+        let mut state = ranking_state.borrow_mut();
+        state.record_launch(&result_id, query);
+    }
+
+    if let Err(error) = ranking::save_ranking_state(&ranking_state.borrow()) {
+        eprintln!("{error}");
+    }
 }
 
 fn folder_sources_text(sources: &[PathBuf]) -> String {
@@ -957,7 +1100,9 @@ mod tests {
             providers: config::ProviderConfig::default(),
             actions: config::ActionConfig::default(),
             appearance: config::AppearanceConfig { max_results: 1 },
+            ranking: config::RankingConfig::default(),
         };
+        let ranking_state = ranking::RankingState::default();
         let projects = vec![
             projects::Project {
                 name: "alpha".to_owned(),
@@ -969,9 +1114,42 @@ mod tests {
             },
         ];
 
-        let results = search_results(&config, &projects, &[], "");
+        let results = search_results(&config, &ranking_state, &projects, &[], "");
 
         assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn search_results_ignore_ranking_when_learning_is_disabled() {
+        let config = config::Config {
+            folder_sources: Vec::new(),
+            providers: config::ProviderConfig::default(),
+            actions: config::ActionConfig::default(),
+            appearance: config::AppearanceConfig::default(),
+            ranking: config::RankingConfig {
+                learn_from_usage: false,
+            },
+        };
+        let mut ranking_state = ranking::RankingState::default();
+        ranking_state.record_launch_at(
+            "folder:/tmp/alpine",
+            "al",
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(1),
+        );
+        let projects = vec![
+            projects::Project {
+                name: "Alpha".to_owned(),
+                path: PathBuf::from("/tmp/alpha"),
+            },
+            projects::Project {
+                name: "Alpine".to_owned(),
+                path: PathBuf::from("/tmp/alpine"),
+            },
+        ];
+
+        let results = search_results(&config, &ranking_state, &projects, &[], "al");
+
+        assert_eq!(results[0].title, "Alpha");
     }
 
     #[test]
