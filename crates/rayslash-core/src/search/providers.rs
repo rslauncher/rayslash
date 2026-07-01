@@ -12,13 +12,13 @@ pub fn placeholder_results() -> Vec<SearchResult> {
     vec![
         SearchResult {
             title: "Open applications".to_owned(),
-            subtitle: "Desktop app search will land in Phase 3".to_owned(),
+            subtitle: "Desktop app search is available when applications are discovered".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
         },
         SearchResult {
             title: "Find projects".to_owned(),
-            subtitle: "Project folder search will land in Phase 2".to_owned(),
+            subtitle: "Folder search is available when folder sources contain projects".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
         },

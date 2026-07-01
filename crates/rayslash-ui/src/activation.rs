@@ -18,7 +18,7 @@ pub(crate) fn register_activation_callback(
 ) {
     ui.on_activate_selected_result({
         let weak = ui.as_weak();
-        move |index, open_in_vscode| {
+        move |index, use_alternate_opener| {
             let result = usize::try_from(index)
                 .ok()
                 .and_then(|index| current_results.borrow().get(index).cloned());
@@ -63,7 +63,7 @@ pub(crate) fn register_activation_callback(
                     } else if let Some(path) = result.project_path() {
                         let display_path = search::display_path(path);
 
-                        if open_in_vscode
+                        if use_alternate_opener
                             && config_state
                                 .borrow()
                                 .actions

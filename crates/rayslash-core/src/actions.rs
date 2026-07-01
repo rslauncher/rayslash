@@ -6,11 +6,6 @@ use std::{
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Action {
-    OpenPlaceholder,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
     pub program: OsString,
     pub args: Vec<OsString>,
