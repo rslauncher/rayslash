@@ -5,13 +5,12 @@ use slint::{ComponentHandle, Timer, VecModel};
 
 use crate::{
     AppChoiceItem, AppWindow, DEFAULT_STATUS_TEXT, ResultItem,
-    opener_visual::{app_icon_count, set_alternate_opener_visual},
-    result_items::{IconImageCache, to_result_items},
-    runtime_state::{refresh_desktop_apps, search_results, selected_index_for_query},
-    settings::{
-        first_existing_folder_source, parse_folder_sources_text, parse_max_results,
-        set_settings_properties,
+    result_items::IconImageCache,
+    runtime_state::{
+        ResultRefreshContext, ResultSelection, refresh_desktop_apps, refresh_result_view,
+        refresh_settings_dependent_ui,
     },
+    settings::{SettingsConfigError, config_from_settings_fields, first_existing_folder_source},
 };
 
 pub(crate) struct SettingsCallbackContext {
@@ -69,23 +68,14 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     profile,
                     "settings-open",
                 );
-                set_alternate_opener_visual(
-                    &ui,
-                    &config_state
-                        .borrow()
-                        .actions
-                        .alternate_folder_opener_command,
-                    &apps.borrow(),
-                    &mut icon_cache.borrow_mut(),
-                );
-                set_settings_properties(
+                refresh_settings_dependent_ui(
                     &ui,
                     &config_state.borrow(),
+                    &projects.borrow(),
+                    &apps.borrow(),
+                    &ranking_state.borrow(),
+                    &icon_cache,
                     &socket_path,
-                    projects.borrow().len(),
-                    apps.borrow().len(),
-                    app_icon_count(&apps.borrow()),
-                    ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
@@ -100,17 +90,18 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let projects = projects.clone();
         let apps = apps.clone();
         let ranking_state = ranking_state.clone();
+        let icon_cache = icon_cache.clone();
         let socket_path = socket_path.clone();
         move || {
             if let Some(ui) = weak.upgrade() {
-                set_settings_properties(
+                refresh_settings_dependent_ui(
                     &ui,
                     &config_state.borrow(),
+                    &projects.borrow(),
+                    &apps.borrow(),
+                    &ranking_state.borrow(),
+                    &icon_cache,
                     &socket_path,
-                    projects.borrow().len(),
-                    apps.borrow().len(),
-                    app_icon_count(&apps.borrow()),
-                    ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(false);
@@ -146,34 +137,29 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 return;
             }
 
-            let editor_command = editor_command.trim();
-            if alternate_folder_opener_enabled && editor_command.is_empty() {
-                if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text("Alternate folder opener cannot be empty.".into());
+            let config_to_save = match config_from_settings_fields(
+                folder_sources_text.as_str(),
+                editor_command.as_str(),
+                apps_enabled,
+                folders_enabled,
+                calculator_enabled,
+                alternate_folder_opener_enabled,
+                learn_from_usage,
+                max_results_text.as_str(),
+            ) {
+                Ok(config) => config,
+                Err(SettingsConfigError::EmptyAlternateFolderOpener) => {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_status_text("Alternate folder opener cannot be empty.".into());
+                    }
+                    return;
                 }
-                return;
-            }
-
-            let Some(max_results) = parse_max_results(max_results_text.as_str()) else {
-                if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text("Max results must be a positive number.".into());
+                Err(SettingsConfigError::InvalidMaxResults) => {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_status_text("Max results must be a positive number.".into());
+                    }
+                    return;
                 }
-                return;
-            };
-
-            let config_to_save = config::Config {
-                folder_sources: parse_folder_sources_text(folder_sources_text.as_str()),
-                providers: config::ProviderConfig {
-                    apps: apps_enabled,
-                    folders: folders_enabled,
-                    calculator: calculator_enabled,
-                },
-                actions: config::ActionConfig {
-                    alternate_folder_opener_enabled,
-                    alternate_folder_opener_command: editor_command.to_owned(),
-                },
-                appearance: config::AppearanceConfig { max_results },
-                ranking: config::RankingConfig { learn_from_usage },
             };
 
             if let Err(error) = config::save_config_with_backup(&config_to_save) {
@@ -192,46 +178,30 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
 
             if let Some(ui) = weak.upgrade() {
                 let query = ui.get_query_text();
-                let results = search_results(
+                refresh_result_view(
+                    &ui,
+                    ResultRefreshContext {
+                        config: &config_state.borrow(),
+                        ranking_state: &ranking_state.borrow(),
+                        projects: &projects.borrow(),
+                        apps: &apps.borrow(),
+                        current_results: &current_results,
+                        results_model: &results_model,
+                        icon_cache: &icon_cache,
+                    },
+                    query.as_str(),
+                    ResultSelection::QueryDefault,
+                );
+                refresh_settings_dependent_ui(
+                    &ui,
                     &config_state.borrow(),
-                    &ranking_state.borrow(),
                     &projects.borrow(),
                     &apps.borrow(),
-                    query.as_str(),
-                );
-                let count = results.len() as i32;
-
-                results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
-                *current_results.borrow_mut() = results;
-
-                ui.set_result_count(count);
-                ui.set_selected_index(selected_index_for_query(query.as_str(), count));
-                ui.set_alternate_folder_opener_enabled(
-                    config_state
-                        .borrow()
-                        .actions
-                        .alternate_folder_opener_enabled,
-                );
-                set_alternate_opener_visual(
-                    &ui,
-                    &config_state
-                        .borrow()
-                        .actions
-                        .alternate_folder_opener_command,
-                    &apps.borrow(),
-                    &mut icon_cache.borrow_mut(),
-                );
-                set_settings_properties(
-                    &ui,
-                    &config_state.borrow(),
+                    &ranking_state.borrow(),
+                    &icon_cache,
                     &socket_path,
-                    projects.borrow().len(),
-                    apps.borrow().len(),
-                    app_icon_count(&apps.borrow()),
-                    ranking_state.borrow().entries.len(),
                 );
                 set_ephemeral_status(&ui, "Settings saved.");
-                ui.invoke_reset_result_scroll();
             }
         }
     });
@@ -298,31 +268,30 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
 
             if let Some(ui) = weak.upgrade() {
                 let query = ui.get_query_text();
-                let results = search_results(
-                    &config_state.borrow(),
-                    &ranking_state.borrow(),
-                    &projects.borrow(),
-                    &apps.borrow(),
+                refresh_result_view(
+                    &ui,
+                    ResultRefreshContext {
+                        config: &config_state.borrow(),
+                        ranking_state: &ranking_state.borrow(),
+                        projects: &projects.borrow(),
+                        apps: &apps.borrow(),
+                        current_results: &current_results,
+                        results_model: &results_model,
+                        icon_cache: &icon_cache,
+                    },
                     query.as_str(),
+                    ResultSelection::QueryDefault,
                 );
-                let count = results.len() as i32;
-
-                results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
-                *current_results.borrow_mut() = results;
-
-                ui.set_result_count(count);
-                ui.set_selected_index(selected_index_for_query(query.as_str(), count));
-                set_settings_properties(
+                refresh_settings_dependent_ui(
                     &ui,
                     &config_state.borrow(),
+                    &projects.borrow(),
+                    &apps.borrow(),
+                    &ranking_state.borrow(),
+                    &icon_cache,
                     &socket_path,
-                    projects.borrow().len(),
-                    apps.borrow().len(),
-                    app_icon_count(&apps.borrow()),
-                    ranking_state.borrow().entries.len(),
                 );
                 ui.set_status_text("Ranking history cleared.".into());
-                ui.invoke_reset_result_scroll();
             }
         }
     });

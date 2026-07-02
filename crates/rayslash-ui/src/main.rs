@@ -18,14 +18,14 @@ use std::{
 };
 
 use activation::register_activation_callback;
-use opener_visual::{app_icon_count, set_alternate_opener_visual, to_app_choice_items};
+use opener_visual::to_app_choice_items;
 use rayslash_core::{apps, config, projects};
 use result_items::{IconImageCache, to_result_items};
 use runtime_state::{
-    load_runtime_ranking_state, profile_enabled, profile_stage, refresh_desktop_apps,
-    search_results, selected_index_for_query,
+    ResultRefreshContext, ResultSelection, load_runtime_ranking_state, profile_enabled,
+    profile_stage, refresh_desktop_apps, refresh_result_view, refresh_settings_dependent_ui,
+    search_results,
 };
-use settings::set_settings_properties;
 use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
     ComponentHandle, VecModel,
@@ -199,35 +199,20 @@ fn run_gui(
     ui.set_result_count(current_results.borrow().len() as i32);
     ui.set_results(results_model.clone().into());
     ui.set_selected_index(-1);
-    ui.set_alternate_folder_opener_enabled(
-        config_state
-            .borrow()
-            .actions
-            .alternate_folder_opener_enabled,
-    );
-    set_settings_properties(
-        &ui,
-        &config_state.borrow(),
-        &socket_path,
-        projects.borrow().len(),
-        apps.borrow().len(),
-        app_icon_count(&apps.borrow()),
-        ranking_state.borrow().entries.len(),
-    );
 
     let alternate_opener_choices = Rc::new(VecModel::from(to_app_choice_items(
         &apps.borrow(),
         &mut icon_cache.borrow_mut(),
     )));
     ui.set_alternate_opener_choices(alternate_opener_choices.clone().into());
-    set_alternate_opener_visual(
+    refresh_settings_dependent_ui(
         &ui,
-        &config_state
-            .borrow()
-            .actions
-            .alternate_folder_opener_command,
+        &config_state.borrow(),
+        &projects.borrow(),
         &apps.borrow(),
-        &mut icon_cache.borrow_mut(),
+        &ranking_state.borrow(),
+        &icon_cache,
+        &socket_path,
     );
     ui.invoke_focus_search();
 
@@ -273,49 +258,34 @@ fn run_gui(
                 profile,
                 "show/reset",
             );
-            let results = search_results(
-                &config_state.borrow(),
-                &ranking_state.borrow(),
-                &projects.borrow(),
-                &apps.borrow(),
-                "",
-            );
-            let count = results.len() as i32;
-
-            results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
-            *current_results.borrow_mut() = results;
 
             if let Some(ui) = weak.upgrade() {
                 ui.set_query_text("".into());
-                ui.set_result_count(count);
-                ui.set_selected_index(-1);
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(false);
-                ui.set_alternate_folder_opener_enabled(
-                    config_state
-                        .borrow()
-                        .actions
-                        .alternate_folder_opener_enabled,
-                );
-                set_alternate_opener_visual(
+                refresh_result_view(
                     &ui,
-                    &config_state
-                        .borrow()
-                        .actions
-                        .alternate_folder_opener_command,
-                    &apps.borrow(),
-                    &mut icon_cache.borrow_mut(),
+                    ResultRefreshContext {
+                        config: &config_state.borrow(),
+                        ranking_state: &ranking_state.borrow(),
+                        projects: &projects.borrow(),
+                        apps: &apps.borrow(),
+                        current_results: &current_results,
+                        results_model: &results_model,
+                        icon_cache: &icon_cache,
+                    },
+                    "",
+                    ResultSelection::Exact(-1),
                 );
-                set_settings_properties(
+                refresh_settings_dependent_ui(
                     &ui,
                     &config_state.borrow(),
+                    &projects.borrow(),
+                    &apps.borrow(),
+                    &ranking_state.borrow(),
+                    &icon_cache,
                     &socket_path,
-                    projects.borrow().len(),
-                    apps.borrow().len(),
-                    app_icon_count(&apps.borrow()),
-                    ranking_state.borrow().entries.len(),
                 );
-                ui.invoke_reset_result_scroll();
             }
         }
     });
@@ -341,28 +311,28 @@ fn run_gui(
         let icon_cache = icon_cache.clone();
         move |query| {
             let stage_started = Instant::now();
-            let results = search_results(
-                &config_state.borrow(),
-                &ranking_state.borrow(),
-                &projects.borrow(),
-                &apps.borrow(),
-                query.as_str(),
-            );
-            let count = results.len() as i32;
-
-            results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
-            *current_results.borrow_mut() = results;
-            profile_stage(
-                profile,
-                &format!("query {:?} ({} results)", query.as_str(), count),
-                stage_started,
-            );
 
             if let Some(ui) = weak.upgrade() {
-                ui.set_result_count(count);
-                ui.set_selected_index(selected_index_for_query(query.as_str(), count));
+                let count = refresh_result_view(
+                    &ui,
+                    ResultRefreshContext {
+                        config: &config_state.borrow(),
+                        ranking_state: &ranking_state.borrow(),
+                        projects: &projects.borrow(),
+                        apps: &apps.borrow(),
+                        current_results: &current_results,
+                        results_model: &results_model,
+                        icon_cache: &icon_cache,
+                    },
+                    query.as_str(),
+                    ResultSelection::QueryDefault,
+                );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
-                ui.invoke_reset_result_scroll();
+                profile_stage(
+                    profile,
+                    &format!("query {:?} ({} results)", query.as_str(), count),
+                    stage_started,
+                );
             }
         }
     });

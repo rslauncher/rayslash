@@ -1,12 +1,13 @@
-use std::{cell::RefCell, rc::Rc, time::Instant};
+use std::{cell::RefCell, path::Path, rc::Rc, time::Instant};
 
 use rayslash_core::{apps, config, projects, ranking, search};
 use slint::VecModel;
 
 use crate::{
-    AppChoiceItem,
-    opener_visual::{app_icon_count, to_app_choice_items},
-    result_items::IconImageCache,
+    AppChoiceItem, AppWindow, ResultItem,
+    opener_visual::{app_icon_count, set_alternate_opener_visual, to_app_choice_items},
+    result_items::{IconImageCache, to_result_items},
+    settings::set_settings_properties,
 };
 
 pub(crate) fn profile_enabled() -> bool {
@@ -66,6 +67,79 @@ pub(crate) fn refresh_desktop_apps(
         profile,
         &format!("{label} app refresh ({app_count} apps, {icon_count} icons)"),
         stage_started,
+    );
+}
+
+pub(crate) struct ResultRefreshContext<'a> {
+    pub config: &'a config::Config,
+    pub ranking_state: &'a ranking::RankingState,
+    pub projects: &'a [projects::Project],
+    pub apps: &'a [apps::DesktopApp],
+    pub current_results: &'a Rc<RefCell<Vec<search::SearchResult>>>,
+    pub results_model: &'a Rc<VecModel<ResultItem>>,
+    pub icon_cache: &'a Rc<RefCell<IconImageCache>>,
+}
+
+pub(crate) enum ResultSelection {
+    Exact(i32),
+    QueryDefault,
+}
+
+pub(crate) fn refresh_result_view(
+    ui: &AppWindow,
+    context: ResultRefreshContext<'_>,
+    query: &str,
+    selection: ResultSelection,
+) -> usize {
+    let results = search_results(
+        context.config,
+        context.ranking_state,
+        context.projects,
+        context.apps,
+        query,
+    );
+    let count = results.len();
+
+    context.results_model.set_vec(to_result_items(
+        &results,
+        &mut context.icon_cache.borrow_mut(),
+    ));
+    *context.current_results.borrow_mut() = results;
+
+    ui.set_result_count(count as i32);
+    ui.set_selected_index(match selection {
+        ResultSelection::Exact(index) => index,
+        ResultSelection::QueryDefault => selected_index_for_query(query, count as i32),
+    });
+    ui.invoke_reset_result_scroll();
+
+    count
+}
+
+pub(crate) fn refresh_settings_dependent_ui(
+    ui: &AppWindow,
+    config: &config::Config,
+    projects: &[projects::Project],
+    apps: &[apps::DesktopApp],
+    ranking_state: &ranking::RankingState,
+    icon_cache: &Rc<RefCell<IconImageCache>>,
+    socket_path: &Path,
+) {
+    ui.set_alternate_folder_opener_enabled(config.actions.alternate_folder_opener_enabled);
+    set_alternate_opener_visual(
+        ui,
+        &config.actions.alternate_folder_opener_command,
+        apps,
+        &mut icon_cache.borrow_mut(),
+    );
+    set_settings_properties(
+        ui,
+        config,
+        socket_path,
+        projects.len(),
+        apps.len(),
+        app_icon_count(apps),
+        ranking_state.entries.len(),
     );
 }
 

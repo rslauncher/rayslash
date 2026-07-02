@@ -4,6 +4,12 @@ use rayslash_core::{config, search};
 
 use crate::AppWindow;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SettingsConfigError {
+    EmptyAlternateFolderOpener,
+    InvalidMaxResults,
+}
+
 pub(crate) fn set_settings_properties(
     ui: &AppWindow,
     config: &config::Config,
@@ -34,6 +40,41 @@ pub(crate) fn set_settings_properties(
     ui.set_settings_app_count(app_count.to_string().into());
     ui.set_settings_icon_count(format!("{icon_count}/{app_count}").into());
     ui.set_settings_ranking_entry_count(ranking_entry_count.to_string().into());
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn config_from_settings_fields(
+    folder_sources_text: &str,
+    alternate_folder_opener_command: &str,
+    apps_enabled: bool,
+    folders_enabled: bool,
+    calculator_enabled: bool,
+    alternate_folder_opener_enabled: bool,
+    learn_from_usage: bool,
+    max_results_text: &str,
+) -> Result<config::Config, SettingsConfigError> {
+    let alternate_folder_opener_command = alternate_folder_opener_command.trim();
+    if alternate_folder_opener_enabled && alternate_folder_opener_command.is_empty() {
+        return Err(SettingsConfigError::EmptyAlternateFolderOpener);
+    }
+
+    let max_results =
+        parse_max_results(max_results_text).ok_or(SettingsConfigError::InvalidMaxResults)?;
+
+    Ok(config::Config {
+        folder_sources: parse_folder_sources_text(folder_sources_text),
+        providers: config::ProviderConfig {
+            apps: apps_enabled,
+            folders: folders_enabled,
+            calculator: calculator_enabled,
+        },
+        actions: config::ActionConfig {
+            alternate_folder_opener_enabled,
+            alternate_folder_opener_command: alternate_folder_opener_command.to_owned(),
+        },
+        appearance: config::AppearanceConfig { max_results },
+        ranking: config::RankingConfig { learn_from_usage },
+    })
 }
 
 pub(crate) fn parse_folder_sources_text(text: &str) -> Vec<PathBuf> {
@@ -117,5 +158,47 @@ mod tests {
         assert_eq!(parse_max_results("25"), Some(25));
         assert_eq!(parse_max_results("0"), None);
         assert_eq!(parse_max_results("abc"), None);
+    }
+
+    #[test]
+    fn config_from_settings_fields_builds_config() {
+        let config = config_from_settings_fields(
+            "~/Documents; /tmp/rayslash",
+            " code --reuse-window ",
+            true,
+            false,
+            true,
+            true,
+            false,
+            "25",
+        )
+        .expect("settings config");
+
+        assert_eq!(
+            config.folder_sources,
+            vec![PathBuf::from("~/Documents"), PathBuf::from("/tmp/rayslash")]
+        );
+        assert!(config.providers.apps);
+        assert!(!config.providers.folders);
+        assert!(config.providers.calculator);
+        assert!(config.actions.alternate_folder_opener_enabled);
+        assert_eq!(
+            config.actions.alternate_folder_opener_command,
+            "code --reuse-window"
+        );
+        assert!(!config.ranking.learn_from_usage);
+        assert_eq!(config.appearance.max_results, 25);
+    }
+
+    #[test]
+    fn config_from_settings_fields_validates_user_editable_fields() {
+        assert_eq!(
+            config_from_settings_fields("", " ", true, true, true, true, true, "50"),
+            Err(SettingsConfigError::EmptyAlternateFolderOpener)
+        );
+        assert_eq!(
+            config_from_settings_fields("", "code", true, true, true, true, true, "0"),
+            Err(SettingsConfigError::InvalidMaxResults)
+        );
     }
 }
