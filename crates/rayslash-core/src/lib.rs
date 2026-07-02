@@ -1,6 +1,7 @@
 mod atomic_write;
 
 pub mod actions;
+pub mod aliases;
 pub mod apps;
 pub mod calc;
 pub mod config;

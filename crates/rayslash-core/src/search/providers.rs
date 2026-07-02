@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::apps::DesktopApp;
 use crate::calc;
-use crate::config::ProviderConfig;
+use crate::config::{AliasConfig, ProviderConfig};
 use crate::projects::Project;
 use nucleo_matcher::Utf32Str;
 
@@ -38,6 +38,15 @@ pub(super) fn placeholder_results_for_providers(providers: &ProviderConfig) -> V
         results.push(SearchResult {
             title: "Calculate".to_owned(),
             subtitle: "Type an expression such as 2 + 2".to_owned(),
+            icon: SearchResultIcon::Placeholder,
+            kind: SearchResultKind::Placeholder,
+        });
+    }
+
+    if providers.aliases {
+        results.push(SearchResult {
+            title: "Use aliases".to_owned(),
+            subtitle: "Add quick links in config.toml with [[aliases]]".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
         });
@@ -120,6 +129,17 @@ pub(super) fn app_result(app: &DesktopApp) -> SearchResult {
     }
 }
 
+pub(super) fn alias_result(alias: &AliasConfig) -> SearchResult {
+    SearchResult {
+        title: alias.name.clone(),
+        subtitle: crate::aliases::alias_subtitle(alias),
+        icon: SearchResultIcon::Placeholder,
+        kind: SearchResultKind::Alias {
+            alias: alias.clone(),
+        },
+    }
+}
+
 pub(super) fn calculator_result(calculation: calc::Calculation) -> SearchResult {
     match calculation {
         calc::Calculation::Value { expression, result } => SearchResult {
@@ -166,12 +186,16 @@ fn provider_match_phrase(providers: &ProviderConfig) -> String {
     if providers.calculator {
         labels.push("calculations");
     }
+    if providers.aliases {
+        labels.push("aliases");
+    }
 
     match labels.as_slice() {
         [] => "enabled providers".to_owned(),
         [only] => (*only).to_owned(),
         [first, second] => format!("{first} or {second}"),
         [first, second, third] => format!("{first}, {second}, or {third}"),
+        [first, second, third, fourth] => format!("{first}, {second}, {third}, or {fourth}"),
         _ => labels.join(", "),
     }
 }
@@ -179,7 +203,7 @@ fn provider_match_phrase(providers: &ProviderConfig) -> String {
 pub(super) fn disabled_providers_result() -> SearchResult {
     SearchResult {
         title: "No providers enabled".to_owned(),
-        subtitle: "Enable Apps, Folders, or Calculator in Settings".to_owned(),
+        subtitle: "Enable Apps, Folders, Calculator, or Aliases in Settings".to_owned(),
         icon: SearchResultIcon::Placeholder,
         kind: SearchResultKind::Placeholder,
     }

@@ -139,8 +139,11 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-provider-apps: true;
     in-out property <bool> settings-provider-folders: true;
     in-out property <bool> settings-provider-calculator: true;
+    in-out property <bool> settings-provider-aliases: true;
     in-out property <bool> settings-alternate-folder-opener-enabled: true;
     in-out property <bool> settings-ranking-learn-from-usage: true;
+    in-out property <string> settings-theme: "dark";
+    in-out property <string> settings-density: "comfortable";
     in-out property <string> settings-max-results: "50";
     in-out property <string> settings-config-path: "";
     in-out property <string> settings-state-path: "";
@@ -166,7 +169,7 @@ export component AppWindow inherits Window {
     callback settings-browse-folder-requested(string);
     callback settings-choose-alternate-opener-requested(string);
     callback settings-clear-ranking-requested();
-    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, string);
+    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, string, string, string);
 
     public function focus-search() {
         search.focus();
@@ -267,7 +270,7 @@ export component AppWindow inherits Window {
                 width: 100%;
                 height: 100%;
                 border-radius: 14px;
-                background: #181818;
+                background: root.settings-theme == "dim" ? #202020 : #181818;
                 border-width: 1px;
                 border-color: #343434;
                 clip: true;
@@ -341,8 +344,11 @@ export component AppWindow inherits Window {
                         provider-apps <=> root.settings-provider-apps;
                         provider-folders <=> root.settings-provider-folders;
                         provider-calculator <=> root.settings-provider-calculator;
+                        provider-aliases <=> root.settings-provider-aliases;
                         alternate-folder-opener-enabled <=> root.settings-alternate-folder-opener-enabled;
                         ranking-learn-from-usage <=> root.settings-ranking-learn-from-usage;
+                        theme <=> root.settings-theme;
+                        density <=> root.settings-density;
                         max-results <=> root.settings-max-results;
                         config-path: root.settings-config-path;
                         state-path: root.settings-state-path;
@@ -365,15 +371,18 @@ export component AppWindow inherits Window {
                         clear-ranking-requested => {
                             root.settings-clear-ranking-requested();
                         }
-                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, alternate-opener-enabled, ranking-learn-from-usage, max-results, ) => {
+                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results) => {
                             root.settings-save-requested(
                                 folder-sources,
                                 alternate-opener-command,
                                 provider-apps,
                                 provider-folders,
                                 provider-calculator,
+                                provider-aliases,
                                 alternate-opener-enabled,
                                 ranking-learn-from-usage,
+                                theme,
+                                density,
                                 max-results);
                         }
                     }
@@ -392,6 +401,7 @@ export component AppWindow inherits Window {
                         alternate-folder-opener-has-icon: root.alternate-folder-opener-has-icon;
                         alternate-folder-opener-background: root.alternate-folder-opener-background;
                         alternate-folder-opener-label: root.alternate-folder-opener-label;
+                        density: root.settings-density;
 
                         activate-result(index, use-alternate-opener) => {
                             root.activate-selected-result(index, use-alternate-opener);

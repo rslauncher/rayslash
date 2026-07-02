@@ -125,8 +125,11 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
               apps_enabled,
               folders_enabled,
               calculator_enabled,
+              aliases_enabled,
               alternate_folder_opener_enabled,
               learn_from_usage,
+              theme,
+              density,
               max_results_text| {
             if settings_save_blocked {
                 if let Some(ui) = weak.upgrade() {
@@ -143,9 +146,13 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 apps_enabled,
                 folders_enabled,
                 calculator_enabled,
+                aliases_enabled,
                 alternate_folder_opener_enabled,
                 learn_from_usage,
+                theme.as_str(),
+                density.as_str(),
                 max_results_text.as_str(),
+                config_state.borrow().aliases.clone(),
             ) {
                 Ok(config) => config,
                 Err(SettingsConfigError::EmptyAlternateFolderOpener) => {
@@ -157,6 +164,18 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 Err(SettingsConfigError::InvalidMaxResults) => {
                     if let Some(ui) = weak.upgrade() {
                         ui.set_status_text("Max results must be a positive number.".into());
+                    }
+                    return;
+                }
+                Err(SettingsConfigError::InvalidTheme) => {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_status_text("Theme must be dark or dim.".into());
+                    }
+                    return;
+                }
+                Err(SettingsConfigError::InvalidDensity) => {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_status_text("Density must be comfortable or compact.".into());
                     }
                     return;
                 }
@@ -238,8 +257,11 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     ui.get_settings_provider_apps(),
                     ui.get_settings_provider_folders(),
                     ui.get_settings_provider_calculator(),
+                    ui.get_settings_provider_aliases(),
                     ui.get_settings_alternate_folder_opener_enabled(),
                     ui.get_settings_ranking_learn_from_usage(),
+                    ui.get_settings_theme(),
+                    ui.get_settings_density(),
                     ui.get_settings_max_results(),
                 );
             }

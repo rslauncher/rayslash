@@ -15,6 +15,8 @@ pub struct Config {
     #[serde(default, alias = "project_roots")]
     pub folder_sources: Vec<PathBuf>,
     #[serde(default)]
+    pub aliases: Vec<AliasConfig>,
+    #[serde(default)]
     pub providers: ProviderConfig,
     #[serde(default)]
     pub actions: ActionConfig,
@@ -32,6 +34,26 @@ pub struct ProviderConfig {
     pub folders: bool,
     #[serde(default = "default_true")]
     pub calculator: bool,
+    #[serde(default = "default_true")]
+    pub aliases: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AliasConfig {
+    pub name: String,
+    pub query: String,
+    pub target: String,
+    #[serde(default)]
+    pub kind: Option<AliasKind>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AliasKind {
+    Url,
+    File,
+    Folder,
+    Command,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -47,8 +69,28 @@ pub struct ActionConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppearanceConfig {
+    #[serde(default)]
+    pub theme: AppearanceTheme,
+    #[serde(default)]
+    pub density: AppearanceDensity,
     #[serde(default = "default_max_results")]
     pub max_results: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AppearanceTheme {
+    #[default]
+    Dark,
+    Dim,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AppearanceDensity {
+    Compact,
+    #[default]
+    Comfortable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +177,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             folder_sources: default_folder_sources(),
+            aliases: Vec::new(),
             providers: ProviderConfig::default(),
             actions: ActionConfig::default(),
             appearance: AppearanceConfig::default(),
@@ -149,6 +192,7 @@ impl Default for ProviderConfig {
             apps: true,
             folders: true,
             calculator: true,
+            aliases: true,
         }
     }
 }
@@ -165,6 +209,8 @@ impl Default for ActionConfig {
 impl Default for AppearanceConfig {
     fn default() -> Self {
         Self {
+            theme: AppearanceTheme::default(),
+            density: AppearanceDensity::default(),
             max_results: default_max_results(),
         }
     }
@@ -181,6 +227,7 @@ impl Default for RankingConfig {
 impl Config {
     pub fn normalized(mut self) -> Self {
         self.folder_sources = normalize_folder_sources(self.folder_sources);
+        self.aliases = crate::aliases::normalize_aliases(self.aliases);
         self.actions.alternate_folder_opener_command =
             normalize_command(self.actions.alternate_folder_opener_command);
         if self.appearance.max_results == 0 {

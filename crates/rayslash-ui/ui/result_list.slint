@@ -9,10 +9,11 @@ export component ResultList inherits Flickable {
     in property <bool> alternate-folder-opener-has-icon;
     in property <color> alternate-folder-opener-background;
     in property <string> alternate-folder-opener-label;
+    in property <string> density: "comfortable";
     callback activate-result(int, bool);
 
-    private property <length> row-height: 64px;
-    private property <length> row-gap: 8px;
+    private property <length> row-height: root.density == "compact" ? 54px : 64px;
+    private property <length> row-gap: root.density == "compact" ? 6px : 8px;
     private property <length> row-stride: root.row-height + root.row-gap;
     private property <bool> click-open-in-alternate-opener: false;
 

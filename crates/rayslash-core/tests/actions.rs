@@ -1,6 +1,9 @@
 use std::{ffi::OsString, path::PathBuf};
 
-use rayslash_core::actions::{self, CommandSpec};
+use rayslash_core::{
+    actions::{self, CommandSpec},
+    config::{AliasConfig, AliasKind},
+};
 
 #[test]
 fn open_project_folder_command_uses_xdg_open_with_project_path_argument() {
@@ -10,6 +13,35 @@ fn open_project_folder_command_uses_xdg_open_with_project_path_argument() {
 
     assert_eq!(command.program, OsString::from("xdg-open"));
     assert_eq!(command.args, vec![path.into_os_string()]);
+}
+
+#[test]
+fn open_target_command_uses_xdg_open_with_target_argument() {
+    let command = actions::open_target_command("https://github.com");
+
+    assert_eq!(command.program, OsString::from("xdg-open"));
+    assert_eq!(command.args, vec![OsString::from("https://github.com")]);
+}
+
+#[test]
+fn parse_action_command_preserves_alias_command_arguments() {
+    let command =
+        actions::parse_action_command(r#"notify-send "Hello world""#).expect("command spec");
+
+    assert_eq!(command.program, OsString::from("notify-send"));
+    assert_eq!(command.args, vec![OsString::from("Hello world")]);
+}
+
+#[test]
+fn launch_alias_rejects_invalid_quoted_command() {
+    let alias = AliasConfig {
+        name: "Broken".to_owned(),
+        query: "broken".to_owned(),
+        target: r#"notify-send "unfinished"#.to_owned(),
+        kind: Some(AliasKind::Command),
+    };
+
+    assert!(actions::launch_alias(&alias).is_err());
 }
 
 #[test]

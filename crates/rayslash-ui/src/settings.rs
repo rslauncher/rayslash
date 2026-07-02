@@ -8,6 +8,8 @@ use crate::AppWindow;
 pub(crate) enum SettingsConfigError {
     EmptyAlternateFolderOpener,
     InvalidMaxResults,
+    InvalidTheme,
+    InvalidDensity,
 }
 
 pub(crate) fn set_settings_properties(
@@ -30,8 +32,11 @@ pub(crate) fn set_settings_properties(
     ui.set_settings_provider_apps(config.providers.apps);
     ui.set_settings_provider_folders(config.providers.folders);
     ui.set_settings_provider_calculator(config.providers.calculator);
+    ui.set_settings_provider_aliases(config.providers.aliases);
     ui.set_settings_alternate_folder_opener_enabled(config.actions.alternate_folder_opener_enabled);
     ui.set_settings_ranking_learn_from_usage(config.ranking.learn_from_usage);
+    ui.set_settings_theme(appearance_theme_label(config.appearance.theme).into());
+    ui.set_settings_density(appearance_density_label(config.appearance.density).into());
     ui.set_settings_max_results(config.appearance.max_results.to_string().into());
     ui.set_settings_config_path(path_option_label(config::config_file()).into());
     ui.set_settings_state_path(path_option_label(config::state_dir()).into());
@@ -49,9 +54,13 @@ pub(crate) fn config_from_settings_fields(
     apps_enabled: bool,
     folders_enabled: bool,
     calculator_enabled: bool,
+    aliases_enabled: bool,
     alternate_folder_opener_enabled: bool,
     learn_from_usage: bool,
+    theme: &str,
+    density: &str,
     max_results_text: &str,
+    aliases: Vec<config::AliasConfig>,
 ) -> Result<config::Config, SettingsConfigError> {
     let alternate_folder_opener_command = alternate_folder_opener_command.trim();
     if alternate_folder_opener_enabled && alternate_folder_opener_command.is_empty() {
@@ -60,19 +69,27 @@ pub(crate) fn config_from_settings_fields(
 
     let max_results =
         parse_max_results(max_results_text).ok_or(SettingsConfigError::InvalidMaxResults)?;
+    let theme = parse_theme(theme).ok_or(SettingsConfigError::InvalidTheme)?;
+    let density = parse_density(density).ok_or(SettingsConfigError::InvalidDensity)?;
 
     Ok(config::Config {
         folder_sources: parse_folder_sources_text(folder_sources_text),
+        aliases,
         providers: config::ProviderConfig {
             apps: apps_enabled,
             folders: folders_enabled,
             calculator: calculator_enabled,
+            aliases: aliases_enabled,
         },
         actions: config::ActionConfig {
             alternate_folder_opener_enabled,
             alternate_folder_opener_command: alternate_folder_opener_command.to_owned(),
         },
-        appearance: config::AppearanceConfig { max_results },
+        appearance: config::AppearanceConfig {
+            theme,
+            density,
+            max_results,
+        },
         ranking: config::RankingConfig { learn_from_usage },
     })
 }
@@ -95,6 +112,36 @@ pub(crate) fn first_existing_folder_source(text: &str) -> Option<PathBuf> {
 pub(crate) fn parse_max_results(text: &str) -> Option<usize> {
     let max_results = text.trim().parse().ok()?;
     (max_results > 0).then_some(max_results)
+}
+
+pub(crate) fn parse_theme(text: &str) -> Option<config::AppearanceTheme> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "dark" => Some(config::AppearanceTheme::Dark),
+        "dim" => Some(config::AppearanceTheme::Dim),
+        _ => None,
+    }
+}
+
+pub(crate) fn parse_density(text: &str) -> Option<config::AppearanceDensity> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "compact" => Some(config::AppearanceDensity::Compact),
+        "comfortable" => Some(config::AppearanceDensity::Comfortable),
+        _ => None,
+    }
+}
+
+fn appearance_theme_label(theme: config::AppearanceTheme) -> &'static str {
+    match theme {
+        config::AppearanceTheme::Dark => "dark",
+        config::AppearanceTheme::Dim => "dim",
+    }
+}
+
+fn appearance_density_label(density: config::AppearanceDensity) -> &'static str {
+    match density {
+        config::AppearanceDensity::Compact => "compact",
+        config::AppearanceDensity::Comfortable => "comfortable",
+    }
 }
 
 fn folder_sources_text(sources: &[PathBuf]) -> String {
@@ -161,6 +208,17 @@ mod tests {
     }
 
     #[test]
+    fn parse_theme_and_density_accept_known_values() {
+        assert_eq!(parse_theme("dim"), Some(config::AppearanceTheme::Dim));
+        assert_eq!(
+            parse_density("compact"),
+            Some(config::AppearanceDensity::Compact)
+        );
+        assert_eq!(parse_theme("solarized"), None);
+        assert_eq!(parse_density("tiny"), None);
+    }
+
+    #[test]
     fn config_from_settings_fields_builds_config() {
         let config = config_from_settings_fields(
             "~/Documents; /tmp/rayslash",
@@ -169,8 +227,17 @@ mod tests {
             false,
             true,
             true,
+            true,
             false,
+            "dim",
+            "compact",
             "25",
+            vec![config::AliasConfig {
+                name: "GitHub".to_owned(),
+                query: "gh".to_owned(),
+                target: "https://github.com".to_owned(),
+                kind: Some(config::AliasKind::Url),
+            }],
         )
         .expect("settings config");
 
@@ -181,23 +248,58 @@ mod tests {
         assert!(config.providers.apps);
         assert!(!config.providers.folders);
         assert!(config.providers.calculator);
+        assert!(config.providers.aliases);
+        assert_eq!(config.aliases.len(), 1);
         assert!(config.actions.alternate_folder_opener_enabled);
         assert_eq!(
             config.actions.alternate_folder_opener_command,
             "code --reuse-window"
         );
         assert!(!config.ranking.learn_from_usage);
-        assert_eq!(config.appearance.max_results, 25);
+        assert_eq!(
+            config.appearance,
+            config::AppearanceConfig {
+                theme: config::AppearanceTheme::Dim,
+                density: config::AppearanceDensity::Compact,
+                max_results: 25,
+            }
+        );
     }
 
     #[test]
     fn config_from_settings_fields_validates_user_editable_fields() {
         assert_eq!(
-            config_from_settings_fields("", " ", true, true, true, true, true, "50"),
+            config_from_settings_fields(
+                "",
+                " ",
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                "dark",
+                "comfortable",
+                "50",
+                Vec::new()
+            ),
             Err(SettingsConfigError::EmptyAlternateFolderOpener)
         );
         assert_eq!(
-            config_from_settings_fields("", "code", true, true, true, true, true, "0"),
+            config_from_settings_fields(
+                "",
+                "code",
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                "dark",
+                "comfortable",
+                "0",
+                Vec::new()
+            ),
             Err(SettingsConfigError::InvalidMaxResults)
         );
     }

@@ -1,7 +1,11 @@
 mod fixtures;
 
 use fixtures::{app, project, ranking_with_launches};
-use rayslash_core::{config::ProviderConfig, ranking::RankingState, search};
+use rayslash_core::{
+    config::{AliasConfig, AliasKind, ProviderConfig},
+    ranking::RankingState,
+    search,
+};
 
 #[test]
 fn mixed_search_orders_apps_projects_and_calculator_with_fixture_data() {
@@ -51,6 +55,7 @@ fn learned_ranking_integration_respects_provider_toggles_and_calculator_preceden
     let learned = search::mixed_results_with_ranking(
         &[],
         &apps,
+        &[],
         "al",
         &ProviderConfig::default(),
         Some(&ranking),
@@ -62,16 +67,18 @@ fn learned_ranking_integration_respects_provider_toggles_and_calculator_preceden
         apps: false,
         folders: true,
         calculator: true,
+        aliases: true,
     };
     let projects = vec![project("/tmp/alpha-project", "Alpha Project")];
     let hidden =
-        search::mixed_results_with_ranking(&projects, &apps, "al", &providers, Some(&ranking));
+        search::mixed_results_with_ranking(&projects, &apps, &[], "al", &providers, Some(&ranking));
 
     assert_eq!(hidden[0].title, "Alpha Project");
 
     let calculator_first = search::mixed_results_with_ranking(
         &[],
         &apps,
+        &[],
         "2 + 2",
         &ProviderConfig::default(),
         Some(&ranking),
@@ -86,6 +93,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
         apps: false,
         folders: true,
         calculator: false,
+        aliases: true,
     };
     let projects = vec![project("/tmp/rayslash", "rayslash")];
     let apps = vec![app("rayslash.desktop", "Rayslash")];
@@ -104,6 +112,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             apps: true,
             folders: true,
             calculator: false,
+            aliases: true,
         },
     );
 
@@ -112,7 +121,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             .iter()
             .map(|result| result.title.as_str())
             .collect::<Vec<_>>(),
-        vec!["Open applications", "Find folders"]
+        vec!["Open applications", "Find folders", "Use aliases"]
     );
 
     let calculator_only = search::mixed_results_with_providers(
@@ -123,6 +132,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             apps: false,
             folders: false,
             calculator: true,
+            aliases: false,
         },
     );
 
@@ -137,10 +147,51 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             apps: false,
             folders: false,
             calculator: false,
+            aliases: false,
         },
     );
 
     assert_eq!(no_providers[0].title, "No providers enabled");
+}
+
+#[test]
+fn mixed_search_matches_alias_names_and_queries_when_provider_enabled() {
+    let aliases = vec![
+        AliasConfig {
+            name: "GitHub".to_owned(),
+            query: "gh".to_owned(),
+            target: "https://github.com".to_owned(),
+            kind: Some(AliasKind::Url),
+        },
+        AliasConfig {
+            name: "Project notes".to_owned(),
+            query: "notes".to_owned(),
+            target: "~/Documents/notes.md".to_owned(),
+            kind: Some(AliasKind::File),
+        },
+    ];
+
+    let by_query = search::mixed_results_with_aliases(&[], &[], &aliases, "gh");
+
+    assert_eq!(by_query[0].title, "GitHub");
+    assert!(by_query[0].alias().is_some());
+    assert_eq!(by_query[0].stable_id(), Some("alias:gh".to_owned()));
+
+    let disabled = search::mixed_results_with_ranking(
+        &[],
+        &[],
+        &aliases,
+        "gh",
+        &ProviderConfig {
+            apps: false,
+            folders: false,
+            calculator: false,
+            aliases: false,
+        },
+        None,
+    );
+
+    assert_eq!(disabled[0].title, "No providers enabled");
 }
 
 #[test]
@@ -171,7 +222,7 @@ fn mixed_search_distinguishes_calculator_errors_normal_queries_placeholders_and_
     assert_eq!(no_results[0].title, "No results");
     assert_eq!(
         no_results[0].subtitle,
-        "No apps, folders, or calculations match \"zzz\""
+        "No apps, folders, calculations, or aliases match \"zzz\""
     );
     assert!(no_results[0].is_no_results());
 }
@@ -182,6 +233,7 @@ fn mixed_search_no_results_wording_uses_enabled_provider_names() {
         apps: false,
         folders: true,
         calculator: false,
+        aliases: false,
     };
     let projects = vec![project("/tmp/rayslash", "rayslash")];
 
@@ -207,6 +259,7 @@ fn learned_ranking_integration_keeps_strong_textual_matches_above_weaker_history
     let results = search::mixed_results_with_ranking(
         &projects,
         &apps,
+        &[],
         "ray",
         &ProviderConfig::default(),
         Some(&ranking),

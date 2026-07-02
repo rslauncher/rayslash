@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::actions::CommandSpec;
+use crate::{actions::CommandSpec, config::AliasConfig};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchResult {
@@ -26,6 +26,7 @@ pub enum SearchResultKind {
     CalculatorError { expression: String, message: String },
     App { id: String, command: CommandSpec },
     Project { path: PathBuf },
+    Alias { alias: AliasConfig },
 }
 
 impl SearchResult {
@@ -37,6 +38,7 @@ impl SearchResult {
             SearchResultKind::CalculatorError { .. } => None,
             SearchResultKind::App { .. } => None,
             SearchResultKind::Project { path } => Some(path),
+            SearchResultKind::Alias { .. } => None,
         }
     }
 
@@ -47,7 +49,8 @@ impl SearchResult {
             | SearchResultKind::NoResults { .. }
             | SearchResultKind::Calculator { .. }
             | SearchResultKind::CalculatorError { .. }
-            | SearchResultKind::Project { .. } => None,
+            | SearchResultKind::Project { .. }
+            | SearchResultKind::Alias { .. } => None,
         }
     }
 
@@ -58,7 +61,8 @@ impl SearchResult {
             | SearchResultKind::NoResults { .. }
             | SearchResultKind::CalculatorError { .. }
             | SearchResultKind::App { .. }
-            | SearchResultKind::Project { .. } => None,
+            | SearchResultKind::Project { .. }
+            | SearchResultKind::Alias { .. } => None,
         }
     }
 
@@ -69,7 +73,8 @@ impl SearchResult {
             | SearchResultKind::NoResults { .. }
             | SearchResultKind::Calculator { .. }
             | SearchResultKind::App { .. }
-            | SearchResultKind::Project { .. } => None,
+            | SearchResultKind::Project { .. }
+            | SearchResultKind::Alias { .. } => None,
         }
     }
 
@@ -85,6 +90,7 @@ impl SearchResult {
             | SearchResultKind::CalculatorError { expression, .. } => {
                 Some(format!("calculator:{}", expression.trim()))
             }
+            SearchResultKind::Alias { alias } => Some(format!("alias:{}", alias.query.trim())),
             SearchResultKind::NoResults { query } => Some(format!("no-results:{}", query.trim())),
             SearchResultKind::Placeholder => None,
         }
@@ -96,7 +102,15 @@ impl SearchResult {
             SearchResultKind::Placeholder
             | SearchResultKind::NoResults { .. }
             | SearchResultKind::Calculator { .. }
-            | SearchResultKind::CalculatorError { .. } => None,
+            | SearchResultKind::CalculatorError { .. }
+            | SearchResultKind::Alias { .. } => None,
+        }
+    }
+
+    pub fn alias(&self) -> Option<&AliasConfig> {
+        match &self.kind {
+            SearchResultKind::Alias { alias } => Some(alias),
+            _ => None,
         }
     }
 }

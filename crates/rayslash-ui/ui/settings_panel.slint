@@ -9,8 +9,11 @@ export component SettingsPanel inherits FocusScope {
     in-out property <bool> provider-apps;
     in-out property <bool> provider-folders;
     in-out property <bool> provider-calculator;
+    in-out property <bool> provider-aliases;
     in-out property <bool> alternate-folder-opener-enabled;
     in-out property <bool> ranking-learn-from-usage;
+    in-out property <string> theme;
+    in-out property <string> density;
     in-out property <string> max-results;
     in property <string> config-path;
     in property <string> state-path;
@@ -25,7 +28,7 @@ export component SettingsPanel inherits FocusScope {
     callback browse-folder-requested(string);
     callback choose-alternate-opener-requested(string);
     callback clear-ranking-requested();
-    callback save-requested(string, string, bool, bool, bool, bool, bool, string);
+    callback save-requested(string, string, bool, bool, bool, bool, bool, bool, string, string, string);
 
     public function focus-settings() {
         settings-scroll.viewport-y = 0px;
@@ -39,8 +42,11 @@ export component SettingsPanel inherits FocusScope {
             root.provider-apps,
             root.provider-folders,
             root.provider-calculator,
+            root.provider-aliases,
             root.alternate-folder-opener-enabled,
             root.ranking-learn-from-usage,
+            root.theme,
+            root.density,
             settings-max-results-input.text);
     }
 
@@ -382,6 +388,15 @@ export component SettingsPanel inherits FocusScope {
                         root.save-settings();
                     }
                 }
+
+                SettingToggle {
+                    label: "Aliases";
+                    description: "Manual quick links";
+                    checked <=> root.provider-aliases;
+                    toggled => {
+                        root.save-settings();
+                    }
+                }
             }
 
             HorizontalLayout {
@@ -496,6 +511,130 @@ export component SettingsPanel inherits FocusScope {
                     checked <=> root.alternate-folder-opener-enabled;
                     toggled => {
                         root.save-settings();
+                    }
+                }
+            }
+
+            Text {
+                text: "Appearance";
+                color: #d8d8d8;
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            HorizontalLayout {
+                height: 42px;
+                spacing: 8px;
+
+                Rectangle {
+                    width: 86px;
+                    height: 38px;
+                    border-radius: 8px;
+                    background: root.theme == "dark" ? #d6d6d6 : theme-dark-touch.has-hover ? #292929 : #202020;
+                    border-width: 1px;
+                    border-color: root.theme == "dark" ? #eeeeee : #3a3a3a;
+
+                    Text {
+                        width: 100%;
+                        height: 100%;
+                        text: "Dark";
+                        color: root.theme == "dark" ? #181818 : #dddddd;
+                        font-size: 12px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    theme-dark-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.theme = "dark";
+                            root.save-settings();
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 86px;
+                    height: 38px;
+                    border-radius: 8px;
+                    background: root.theme == "dim" ? #d6d6d6 : theme-dim-touch.has-hover ? #292929 : #202020;
+                    border-width: 1px;
+                    border-color: root.theme == "dim" ? #eeeeee : #3a3a3a;
+
+                    Text {
+                        width: 100%;
+                        height: 100%;
+                        text: "Dim";
+                        color: root.theme == "dim" ? #181818 : #dddddd;
+                        font-size: 12px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    theme-dim-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.theme = "dim";
+                            root.save-settings();
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 112px;
+                    height: 38px;
+                    border-radius: 8px;
+                    background: root.density == "comfortable" ? #d6d6d6 : density-comfort-touch.has-hover ? #292929 : #202020;
+                    border-width: 1px;
+                    border-color: root.density == "comfortable" ? #eeeeee : #3a3a3a;
+
+                    Text {
+                        width: 100%;
+                        height: 100%;
+                        text: "Comfort";
+                        color: root.density == "comfortable" ? #181818 : #dddddd;
+                        font-size: 12px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    density-comfort-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.density = "comfortable";
+                            root.save-settings();
+                        }
+                    }
+                }
+
+                Rectangle {
+                    width: 94px;
+                    height: 38px;
+                    border-radius: 8px;
+                    background: root.density == "compact" ? #d6d6d6 : density-compact-touch.has-hover ? #292929 : #202020;
+                    border-width: 1px;
+                    border-color: root.density == "compact" ? #eeeeee : #3a3a3a;
+
+                    Text {
+                        width: 100%;
+                        height: 100%;
+                        text: "Compact";
+                        color: root.density == "compact" ? #181818 : #dddddd;
+                        font-size: 12px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+
+                    density-compact-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => {
+                            root.density = "compact";
+                            root.save-settings();
+                        }
                     }
                 }
             }

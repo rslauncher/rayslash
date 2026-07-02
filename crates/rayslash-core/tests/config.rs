@@ -7,7 +7,8 @@ use std::{
 
 use fixtures::TempDir;
 use rayslash_core::config::{
-    self, ActionConfig, AppearanceConfig, Config, ProviderConfig, RankingConfig,
+    self, ActionConfig, AliasConfig, AliasKind, AppearanceConfig, AppearanceDensity,
+    AppearanceTheme, Config, ProviderConfig, RankingConfig,
 };
 
 #[test]
@@ -85,10 +86,17 @@ fn config_loads_provider_action_and_appearance_settings_from_toml() {
             r#"
 folder_sources = ["/tmp/alpha"]
 
+[[aliases]]
+name = "GitHub"
+query = "gh"
+target = "https://github.com"
+kind = "url"
+
 [providers]
 apps = false
 folders = true
 calculator = false
+aliases = false
 
 [actions]
 alternate_folder_opener_enabled = false
@@ -96,6 +104,8 @@ alternate_folder_opener_command = "codium"
 
 [appearance]
 max_results = 20
+theme = "dim"
+density = "compact"
 
 [ranking]
 learn_from_usage = false
@@ -107,16 +117,33 @@ learn_from_usage = false
 
     assert_eq!(config.folder_sources, vec![PathBuf::from("/tmp/alpha")]);
     assert_eq!(
+        config.aliases,
+        vec![AliasConfig {
+            name: "GitHub".to_owned(),
+            query: "gh".to_owned(),
+            target: "https://github.com".to_owned(),
+            kind: Some(AliasKind::Url),
+        }]
+    );
+    assert_eq!(
         config.providers,
         ProviderConfig {
             apps: false,
             folders: true,
             calculator: false,
+            aliases: false,
         }
     );
     assert!(!config.actions.alternate_folder_opener_enabled);
     assert_eq!(config.actions.alternate_folder_opener_command, "codium");
-    assert_eq!(config.appearance, AppearanceConfig { max_results: 20 });
+    assert_eq!(
+        config.appearance,
+        AppearanceConfig {
+            theme: AppearanceTheme::Dim,
+            density: AppearanceDensity::Compact,
+            max_results: 20,
+        }
+    );
     assert_eq!(
         config.ranking,
         RankingConfig {
@@ -174,6 +201,7 @@ max_results = 0
             apps: false,
             folders: true,
             calculator: true,
+            aliases: true,
         }
     );
     assert_eq!(
@@ -224,21 +252,56 @@ folder_sources = ["relative/projects"]
 }
 
 #[test]
+fn config_normalizes_inferred_file_and_folder_alias_targets() {
+    let dir = TempDir::new("rayslash-config-alias-normalize-test");
+    let path = dir
+        .write(
+            "config.toml",
+            r#"
+[[aliases]]
+name = "Documents"
+query = "docs"
+target = "~/Documents"
+"#,
+        )
+        .expect("write config");
+
+    let config = config::load_config_from_path(&path).expect("load config");
+    let home = dirs::home_dir().expect("home dir");
+
+    assert_eq!(
+        config.aliases[0].target,
+        home.join("Documents").display().to_string()
+    );
+}
+
+#[test]
 fn config_can_be_saved_and_loaded_from_toml() {
     let dir = TempDir::new("rayslash-config-save-test");
     let path = dir.join("nested/config.toml");
     let config = Config {
         folder_sources: vec![PathBuf::from("~/Documents")],
+        aliases: vec![AliasConfig {
+            name: "Docs".to_owned(),
+            query: "docs".to_owned(),
+            target: "~/Documents".to_owned(),
+            kind: Some(AliasKind::Folder),
+        }],
         providers: ProviderConfig {
             apps: true,
             folders: false,
             calculator: true,
+            aliases: true,
         },
         actions: ActionConfig {
             alternate_folder_opener_enabled: false,
             alternate_folder_opener_command: "codium".to_owned(),
         },
-        appearance: AppearanceConfig { max_results: 25 },
+        appearance: AppearanceConfig {
+            theme: AppearanceTheme::Dim,
+            density: AppearanceDensity::Compact,
+            max_results: 25,
+        },
         ranking: RankingConfig {
             learn_from_usage: false,
         },
@@ -250,11 +313,18 @@ fn config_can_be_saved_and_loaded_from_toml() {
     let home = dirs::home_dir().expect("home dir");
 
     assert!(saved.contains("folder_sources"));
+    assert!(saved.contains("[[aliases]]"));
     assert!(saved.contains("folders = false"));
     assert!(saved.contains("alternate_folder_opener_enabled = false"));
     assert!(saved.contains("alternate_folder_opener_command = \"codium\""));
+    assert!(saved.contains("theme = \"dim\""));
+    assert!(saved.contains("density = \"compact\""));
     assert!(saved.contains("learn_from_usage = false"));
     assert_eq!(loaded.folder_sources, vec![home.join("Documents")]);
+    assert_eq!(
+        loaded.aliases[0].target,
+        home.join("Documents").display().to_string()
+    );
     assert_eq!(loaded.providers, config.providers);
     assert_eq!(loaded.actions, config.actions);
     assert_eq!(loaded.appearance, config.appearance);

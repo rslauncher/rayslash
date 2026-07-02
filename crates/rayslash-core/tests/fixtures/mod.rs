@@ -82,9 +82,13 @@ pub fn write_hicolor_app_icon(dir: &TempDir, size: &str, name: &str, extension: 
 pub fn config_with_max_results(max_results: usize) -> config::Config {
     config::Config {
         folder_sources: Vec::new(),
+        aliases: Vec::new(),
         providers: config::ProviderConfig::default(),
         actions: config::ActionConfig::default(),
-        appearance: config::AppearanceConfig { max_results },
+        appearance: config::AppearanceConfig {
+            max_results,
+            ..config::AppearanceConfig::default()
+        },
         ranking: config::RankingConfig::default(),
     }
 }

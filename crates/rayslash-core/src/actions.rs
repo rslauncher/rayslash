@@ -5,6 +5,8 @@ use std::{
     process::{Child, Command, Stdio},
 };
 
+use crate::config::{AliasConfig, AliasKind};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
     pub program: OsString,
@@ -58,6 +60,30 @@ pub fn launch_app(command: &CommandSpec) -> io::Result<Child> {
     spawn_command(command)
 }
 
+pub fn launch_alias(alias: &AliasConfig) -> io::Result<Child> {
+    match crate::aliases::alias_kind(alias) {
+        AliasKind::Url | AliasKind::File | AliasKind::Folder => {
+            spawn_command(&open_target_command(&alias.target))
+        }
+        AliasKind::Command => {
+            let command = parse_action_command(&alias.target).ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "alias command is empty or invalid",
+                )
+            })?;
+            spawn_command(&command)
+        }
+    }
+}
+
+pub fn open_target_command(target: &str) -> CommandSpec {
+    CommandSpec {
+        program: OsString::from("xdg-open"),
+        args: vec![OsString::from(target)],
+    }
+}
+
 fn spawn_command(command: &CommandSpec) -> io::Result<Child> {
     command_builder(command).spawn()
 }
@@ -76,7 +102,7 @@ fn command_builder(command: &CommandSpec) -> Command {
     builder
 }
 
-fn parse_action_command(command: &str) -> Option<CommandSpec> {
+pub fn parse_action_command(command: &str) -> Option<CommandSpec> {
     let mut parts = tokenize_action_command(command)?;
     let program = parts.next()?;
 

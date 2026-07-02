@@ -185,6 +185,24 @@ pub(crate) fn register_activation_callback(
                                 }
                             }
                         }
+                    } else if let Some(alias) = result.alias().cloned() {
+                        match actions::launch_alias(&alias) {
+                            Ok(_child) => {
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(format!("Opening {}", result.title).into());
+                                    hide_launcher(&ui, is_visible.as_ref());
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!("failed to launch alias {}: {error}", result.title);
+
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        format!("Could not open alias {}", result.title).into(),
+                                    );
+                                }
+                            }
+                        }
                     } else if let Some(ui) = weak.upgrade() {
                         ui.set_status_text(format!("Preview only: {}", result.title).into());
                     }

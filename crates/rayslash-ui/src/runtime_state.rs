@@ -38,8 +38,14 @@ pub(crate) fn search_results(
     query: &str,
 ) -> Vec<search::SearchResult> {
     let ranking = config.ranking.learn_from_usage.then_some(ranking_state);
-    let mut results =
-        search::mixed_results_with_ranking(projects, apps, query, &config.providers, ranking);
+    let mut results = search::mixed_results_with_ranking(
+        projects,
+        apps,
+        &config.aliases,
+        query,
+        &config.providers,
+        ranking,
+    );
     results.truncate(config.appearance.max_results);
     results
 }
@@ -169,9 +175,13 @@ mod tests {
     fn search_results_respect_configured_max_results() {
         let config = config::Config {
             folder_sources: Vec::new(),
+            aliases: Vec::new(),
             providers: config::ProviderConfig::default(),
             actions: config::ActionConfig::default(),
-            appearance: config::AppearanceConfig { max_results: 1 },
+            appearance: config::AppearanceConfig {
+                max_results: 1,
+                ..config::AppearanceConfig::default()
+            },
             ranking: config::RankingConfig::default(),
         };
         let ranking_state = ranking::RankingState::default();
@@ -195,6 +205,7 @@ mod tests {
     fn search_results_ignore_ranking_when_learning_is_disabled() {
         let config = config::Config {
             folder_sources: Vec::new(),
+            aliases: Vec::new(),
             providers: config::ProviderConfig::default(),
             actions: config::ActionConfig::default(),
             appearance: config::AppearanceConfig::default(),

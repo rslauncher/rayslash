@@ -4,14 +4,14 @@ mod result;
 
 use crate::apps::DesktopApp;
 use crate::calc;
-use crate::config::ProviderConfig;
+use crate::config::{AliasConfig, ProviderConfig};
 use crate::projects::Project;
 use crate::ranking::RankingState;
 
 use matcher::{boosted_score, fuzzy_matcher, fuzzy_pattern, search_result_order};
 use nucleo_matcher::Utf32Str;
 use providers::{
-    app_result, calculator_result, disabled_providers_result, no_results,
+    alias_result, app_result, calculator_result, disabled_providers_result, no_results,
     placeholder_results_for_providers, project_result,
 };
 pub use providers::{display_path, placeholder_results, project_results};
@@ -20,7 +20,23 @@ use providers::{display_path_for_home, project_result_with_subtitle};
 pub use result::{SearchResult, SearchResultIcon, SearchResultKind};
 
 pub fn mixed_results(projects: &[Project], apps: &[DesktopApp], query: &str) -> Vec<SearchResult> {
-    mixed_results_with_providers(projects, apps, query, &ProviderConfig::default())
+    mixed_results_with_aliases(projects, apps, &[], query)
+}
+
+pub fn mixed_results_with_aliases(
+    projects: &[Project],
+    apps: &[DesktopApp],
+    aliases: &[AliasConfig],
+    query: &str,
+) -> Vec<SearchResult> {
+    mixed_results_with_ranking(
+        projects,
+        apps,
+        aliases,
+        query,
+        &ProviderConfig::default(),
+        None,
+    )
 }
 
 pub fn mixed_results_with_providers(
@@ -29,12 +45,13 @@ pub fn mixed_results_with_providers(
     query: &str,
     providers: &ProviderConfig,
 ) -> Vec<SearchResult> {
-    mixed_results_with_ranking(projects, apps, query, providers, None)
+    mixed_results_with_ranking(projects, apps, &[], query, providers, None)
 }
 
 pub fn mixed_results_with_ranking(
     projects: &[Project],
     apps: &[DesktopApp],
+    aliases: &[AliasConfig],
     query: &str,
     providers: &ProviderConfig,
     ranking: Option<&RankingState>,
@@ -45,14 +62,15 @@ pub fn mixed_results_with_ranking(
         .then(|| calc::calculate(query).map(calculator_result))
         .flatten();
 
-    if !providers.apps && !providers.folders && !providers.calculator {
+    if !providers.apps && !providers.folders && !providers.calculator && !providers.aliases {
         return vec![disabled_providers_result()];
     }
 
     let enabled_projects = if providers.folders { projects } else { &[] };
     let enabled_apps = if providers.apps { apps } else { &[] };
+    let enabled_aliases = if providers.aliases { aliases } else { &[] };
 
-    if enabled_projects.is_empty() && enabled_apps.is_empty() {
+    if enabled_projects.is_empty() && enabled_apps.is_empty() && enabled_aliases.is_empty() {
         return calculation
             .map(|result| vec![result])
             .unwrap_or_else(|| placeholder_results_for_providers(providers));
@@ -63,6 +81,7 @@ pub fn mixed_results_with_ranking(
             .iter()
             .map(project_result)
             .chain(enabled_apps.iter().map(app_result))
+            .chain(enabled_aliases.iter().map(alias_result))
             .collect::<Vec<_>>();
         results.sort_by(search_result_order);
         return results;
@@ -89,6 +108,21 @@ pub fn mixed_results_with_ranking(
             let result = app_result(app);
             let boosted_score = boosted_score(&result, score, query, ranking);
             matches.push((result, score, boosted_score));
+        }
+    }
+
+    for alias in enabled_aliases {
+        let name_score = {
+            let haystack = Utf32Str::new(&alias.name, &mut char_buf);
+            pattern.score(haystack, &mut matcher)
+        };
+        let query_score = {
+            let haystack = Utf32Str::new(&alias.query, &mut char_buf);
+            pattern.score(haystack, &mut matcher)
+        };
+        if let Some(score) = name_score.max(query_score) {
+            let result = alias_result(alias);
+            matches.push((result, score, score));
         }
     }
 
