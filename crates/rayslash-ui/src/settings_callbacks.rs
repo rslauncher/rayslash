@@ -25,6 +25,7 @@ pub(crate) struct SettingsCallbackContext {
     pub icon_cache: Rc<RefCell<IconImageCache>>,
     pub socket_path: PathBuf,
     pub suppress_next_focus_hide: Rc<Cell<bool>>,
+    pub settings_save_blocked: bool,
     pub profile: bool,
 }
 
@@ -40,6 +41,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         icon_cache,
         socket_path,
         suppress_next_focus_hide,
+        settings_save_blocked,
         profile,
     } = context;
 
@@ -135,6 +137,15 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
               alternate_folder_opener_enabled,
               learn_from_usage,
               max_results_text| {
+            if settings_save_blocked {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_status_text(
+                        "Could not save settings: fix config.toml and restart rayslash.".into(),
+                    );
+                }
+                return;
+            }
+
             let editor_command = editor_command.trim();
             if alternate_folder_opener_enabled && editor_command.is_empty() {
                 if let Some(ui) = weak.upgrade() {
@@ -165,7 +176,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 ranking: config::RankingConfig { learn_from_usage },
             };
 
-            if let Err(error) = config::save_config(&config_to_save) {
+            if let Err(error) = config::save_config_with_backup(&config_to_save) {
                 eprintln!("{error}");
                 if let Some(ui) = weak.upgrade() {
                     ui.set_status_text(format!("Could not save settings: {error}").into());

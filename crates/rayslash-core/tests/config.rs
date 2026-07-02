@@ -263,6 +263,45 @@ fn config_can_be_saved_and_loaded_from_toml() {
 }
 
 #[test]
+fn backup_save_preserves_existing_config_before_rewrite() {
+    let dir = TempDir::new("rayslash-config-backup-save-test");
+    let path = dir
+        .write(
+            "config.toml",
+            r#"# hand-authored comment
+folder_sources = ["/tmp/original"]
+"#,
+        )
+        .expect("write original config");
+    let config = Config {
+        folder_sources: vec![PathBuf::from("/tmp/updated")],
+        ..Config::default()
+    };
+
+    config::save_config_to_path_with_backup(&path, &config).expect("save config with backup");
+
+    let backups = backup_files(path.parent().expect("config parent"));
+    assert_eq!(backups.len(), 1);
+    let backup = fs::read_to_string(&backups[0]).expect("read backup");
+    let saved = fs::read_to_string(&path).expect("read saved config");
+
+    assert!(backup.contains("# hand-authored comment"));
+    assert!(backup.contains("/tmp/original"));
+    assert!(saved.contains("/tmp/updated"));
+}
+
+#[test]
+fn backup_save_does_not_create_backup_for_missing_config() {
+    let dir = TempDir::new("rayslash-config-missing-backup-save-test");
+    let path = dir.join("config.toml");
+    let config = Config::default();
+
+    config::save_config_to_path_with_backup(&path, &config).expect("save config with backup");
+
+    assert!(backup_files(path.parent().expect("config parent")).is_empty());
+}
+
+#[test]
 fn saved_config_writes_normalized_folder_sources() {
     let dir = TempDir::new("rayslash-config-normalized-save-test");
     let path = dir.join("config.toml");
@@ -279,6 +318,19 @@ fn saved_config_writes_normalized_folder_sources() {
 
     assert!(saved.contains(&expected.display().to_string()));
     assert!(!saved.contains("\"relative/projects\""));
+}
+
+fn backup_files(dir: &Path) -> Vec<PathBuf> {
+    fs::read_dir(dir)
+        .expect("read save directory")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("config.toml.backup-"))
+        })
+        .collect()
 }
 
 fn assert_no_temp_save_files(dir: &Path) {

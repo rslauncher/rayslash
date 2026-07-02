@@ -1,6 +1,9 @@
 use std::{
     env, fmt, fs, io,
+    io::Write,
     path::{Path, PathBuf},
+    process,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use serde::{Deserialize, Serialize};
@@ -69,6 +72,7 @@ pub enum ConfigError {
 #[derive(Debug)]
 pub enum SaveConfigError {
     CreateDir { path: PathBuf, source: io::Error },
+    Backup { path: PathBuf, source: io::Error },
     Serialize { source: toml::ser::Error },
     Write { path: PathBuf, source: io::Error },
 }
@@ -105,6 +109,9 @@ impl fmt::Display for SaveConfigError {
                     path.display()
                 )
             }
+            Self::Backup { path, source } => {
+                write!(f, "failed to back up config {}: {source}", path.display())
+            }
             Self::Serialize { source } => write!(f, "failed to serialize config: {source}"),
             Self::Write { path, source } => {
                 write!(f, "failed to write config {}: {source}", path.display())
@@ -117,6 +124,7 @@ impl std::error::Error for SaveConfigError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::CreateDir { source, .. } => Some(source),
+            Self::Backup { source, .. } => Some(source),
             Self::Serialize { source } => Some(source),
             Self::Write { source, .. } => Some(source),
         }
@@ -235,6 +243,20 @@ pub fn save_config(config: &Config) -> Result<(), SaveConfigError> {
     save_config_to_path(&path, config)
 }
 
+pub fn save_config_with_backup(config: &Config) -> Result<(), SaveConfigError> {
+    let Some(path) = config_file() else {
+        return Err(SaveConfigError::Write {
+            path: PathBuf::from("config.toml"),
+            source: io::Error::new(
+                io::ErrorKind::NotFound,
+                "system config directory is unavailable",
+            ),
+        });
+    };
+
+    save_config_to_path_with_backup(&path, config)
+}
+
 pub fn save_config_to_path(path: &Path, config: &Config) -> Result<(), SaveConfigError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| SaveConfigError::CreateDir {
@@ -250,6 +272,18 @@ pub fn save_config_to_path(path: &Path, config: &Config) -> Result<(), SaveConfi
         path: path.to_path_buf(),
         source,
     })
+}
+
+pub fn save_config_to_path_with_backup(
+    path: &Path,
+    config: &Config,
+) -> Result<(), SaveConfigError> {
+    backup_existing_config(path).map_err(|source| SaveConfigError::Backup {
+        path: path.to_path_buf(),
+        source,
+    })?;
+
+    save_config_to_path(path, config)
 }
 
 fn default_folder_sources() -> Vec<PathBuf> {
@@ -309,4 +343,34 @@ fn absolute_path(path: PathBuf) -> PathBuf {
     env::current_dir()
         .map(|current_dir| current_dir.join(&path))
         .unwrap_or(path)
+}
+
+fn backup_existing_config(path: &Path) -> io::Result<()> {
+    let contents = match fs::read(path) {
+        Ok(contents) => contents,
+        Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(source) => return Err(source),
+    };
+
+    let backup_path = backup_path(path);
+    let mut backup_file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(backup_path)?;
+    backup_file.write_all(&contents)?;
+    backup_file.sync_all()
+}
+
+fn backup_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.toml");
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let backup_file_name = format!("{file_name}.backup-{}-{timestamp}", process::id());
+
+    path.with_file_name(backup_file_name)
 }

@@ -131,10 +131,13 @@ fn run_gui(
     let suppress_next_focus_hide = Rc::new(Cell::new(false));
 
     let stage_started = Instant::now();
-    let config = config::load_config().unwrap_or_else(|error| {
-        eprintln!("{error}; using default config");
-        config::Config::default()
-    });
+    let (config, settings_save_blocked) = match config::load_config() {
+        Ok(config) => (config, false),
+        Err(error) => {
+            eprintln!("{error}; using default config");
+            (config::Config::default(), true)
+        }
+    };
     let config_state = Rc::new(RefCell::new(config));
     profile_stage(profile, "config load", stage_started);
 
@@ -387,6 +390,7 @@ fn run_gui(
             icon_cache: icon_cache.clone(),
             socket_path: socket_path.clone(),
             suppress_next_focus_hide: suppress_next_focus_hide.clone(),
+            settings_save_blocked,
             profile,
         },
     );
