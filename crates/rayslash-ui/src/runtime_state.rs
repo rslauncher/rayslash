@@ -1,6 +1,13 @@
-use std::time::Instant;
+use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use rayslash_core::{apps, config, projects, ranking, search};
+use slint::VecModel;
+
+use crate::{
+    AppChoiceItem,
+    opener_visual::{app_icon_count, to_app_choice_items},
+    result_items::IconImageCache,
+};
 
 pub(crate) fn profile_enabled() -> bool {
     std::env::var_os("RAYSLASH_PROFILE").is_some_and(|value| value != "0")
@@ -34,6 +41,32 @@ pub(crate) fn search_results(
         search::mixed_results_with_ranking(projects, apps, query, &config.providers, ranking);
     results.truncate(config.appearance.max_results);
     results
+}
+
+pub(crate) fn refresh_desktop_apps(
+    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
+    choices_model: &Rc<VecModel<AppChoiceItem>>,
+    icon_cache: &Rc<RefCell<IconImageCache>>,
+    profile: bool,
+    label: &str,
+) {
+    let stage_started = Instant::now();
+    let discovered_apps = apps::discover_desktop_apps();
+    let app_count = discovered_apps.len();
+    let icon_count = app_icon_count(&discovered_apps);
+
+    icon_cache.borrow_mut().clear();
+    choices_model.set_vec(to_app_choice_items(
+        &discovered_apps,
+        &mut icon_cache.borrow_mut(),
+    ));
+    *apps_state.borrow_mut() = discovered_apps;
+
+    profile_stage(
+        profile,
+        &format!("{label} app refresh ({app_count} apps, {icon_count} icons)"),
+        stage_started,
+    );
 }
 
 pub(crate) fn selected_index_for_query(query: &str, result_count: i32) -> i32 {

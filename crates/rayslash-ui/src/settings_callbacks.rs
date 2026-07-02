@@ -5,9 +5,9 @@ use slint::{ComponentHandle, Timer, VecModel};
 
 use crate::{
     AppChoiceItem, AppWindow, DEFAULT_STATUS_TEXT, ResultItem,
-    opener_visual::{app_icon_count, set_alternate_opener_visual, to_app_choice_items},
+    opener_visual::{app_icon_count, set_alternate_opener_visual},
     result_items::{IconImageCache, to_result_items},
-    runtime_state::{search_results, selected_index_for_query},
+    runtime_state::{refresh_desktop_apps, search_results, selected_index_for_query},
     settings::{
         first_existing_folder_source, parse_folder_sources_text, parse_max_results,
         set_settings_properties,
@@ -25,6 +25,7 @@ pub(crate) struct SettingsCallbackContext {
     pub icon_cache: Rc<RefCell<IconImageCache>>,
     pub socket_path: PathBuf,
     pub suppress_next_focus_hide: Rc<Cell<bool>>,
+    pub profile: bool,
 }
 
 pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallbackContext) {
@@ -39,6 +40,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         icon_cache,
         socket_path,
         suppress_next_focus_hide,
+        profile,
     } = context;
 
     ui.on_settings_requested({
@@ -58,7 +60,22 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     return;
                 }
 
-                refresh_desktop_apps(&apps, &alternate_opener_choices, &icon_cache);
+                refresh_desktop_apps(
+                    &apps,
+                    &alternate_opener_choices,
+                    &icon_cache,
+                    profile,
+                    "settings-open",
+                );
+                set_alternate_opener_visual(
+                    &ui,
+                    &config_state
+                        .borrow()
+                        .actions
+                        .alternate_folder_opener_command,
+                    &apps.borrow(),
+                    &mut icon_cache.borrow_mut(),
+                );
                 set_settings_properties(
                     &ui,
                     &config_state.borrow(),
@@ -298,19 +315,6 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             }
         }
     });
-}
-
-fn refresh_desktop_apps(
-    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
-    choices_model: &Rc<VecModel<AppChoiceItem>>,
-    icon_cache: &Rc<RefCell<IconImageCache>>,
-) {
-    let discovered_apps = apps::discover_desktop_apps();
-    choices_model.set_vec(to_app_choice_items(
-        &discovered_apps,
-        &mut icon_cache.borrow_mut(),
-    ));
-    *apps_state.borrow_mut() = discovered_apps;
 }
 
 fn set_ephemeral_status(ui: &AppWindow, message: &str) {

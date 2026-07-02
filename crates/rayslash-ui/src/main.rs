@@ -22,8 +22,8 @@ use opener_visual::{app_icon_count, set_alternate_opener_visual, to_app_choice_i
 use rayslash_core::{apps, config, projects};
 use result_items::{IconImageCache, to_result_items};
 use runtime_state::{
-    load_runtime_ranking_state, profile_enabled, profile_stage, search_results,
-    selected_index_for_query,
+    load_runtime_ranking_state, profile_enabled, profile_stage, refresh_desktop_apps,
+    search_results, selected_index_for_query,
 };
 use settings::set_settings_properties;
 use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
@@ -261,8 +261,15 @@ fn run_gui(
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
         move || {
-            refresh_desktop_apps(&apps, &alternate_opener_choices, &icon_cache);
+            refresh_desktop_apps(
+                &apps,
+                &alternate_opener_choices,
+                &icon_cache,
+                profile,
+                "show/reset",
+            );
             let results = search_results(
                 &config_state.borrow(),
                 &ranking_state.borrow(),
@@ -281,6 +288,30 @@ fn run_gui(
                 ui.set_selected_index(-1);
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(false);
+                ui.set_alternate_folder_opener_enabled(
+                    config_state
+                        .borrow()
+                        .actions
+                        .alternate_folder_opener_enabled,
+                );
+                set_alternate_opener_visual(
+                    &ui,
+                    &config_state
+                        .borrow()
+                        .actions
+                        .alternate_folder_opener_command,
+                    &apps.borrow(),
+                    &mut icon_cache.borrow_mut(),
+                );
+                set_settings_properties(
+                    &ui,
+                    &config_state.borrow(),
+                    &socket_path,
+                    projects.borrow().len(),
+                    apps.borrow().len(),
+                    app_icon_count(&apps.borrow()),
+                    ranking_state.borrow().entries.len(),
+                );
                 ui.invoke_reset_result_scroll();
             }
         }
@@ -354,6 +385,7 @@ fn run_gui(
             icon_cache: icon_cache.clone(),
             socket_path: socket_path.clone(),
             suppress_next_focus_hide: suppress_next_focus_hide.clone(),
+            profile,
         },
     );
 
@@ -369,17 +401,4 @@ fn run_gui(
     });
 
     ui.run()
-}
-
-fn refresh_desktop_apps(
-    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
-    choices_model: &Rc<VecModel<AppChoiceItem>>,
-    icon_cache: &Rc<RefCell<IconImageCache>>,
-) {
-    let discovered_apps = apps::discover_desktop_apps();
-    choices_model.set_vec(to_app_choice_items(
-        &discovered_apps,
-        &mut icon_cache.borrow_mut(),
-    ));
-    *apps_state.borrow_mut() = discovered_apps;
 }
