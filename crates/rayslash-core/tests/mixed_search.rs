@@ -81,7 +81,7 @@ fn learned_ranking_integration_respects_provider_toggles_and_calculator_preceden
 }
 
 #[test]
-fn mixed_search_provider_and_empty_index_rows_are_stable() {
+fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
     let providers = ProviderConfig {
         apps: false,
         folders: true,
@@ -107,7 +107,27 @@ fn mixed_search_provider_and_empty_index_rows_are_stable() {
         },
     );
 
-    assert_eq!(disabled_calculator, search::placeholder_results());
+    assert_eq!(
+        disabled_calculator
+            .iter()
+            .map(|result| result.title.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Open applications", "Find folders"]
+    );
+
+    let calculator_only = search::mixed_results_with_providers(
+        &[],
+        &[],
+        "not math",
+        &ProviderConfig {
+            apps: false,
+            folders: false,
+            calculator: true,
+        },
+    );
+
+    assert_eq!(calculator_only.len(), 1);
+    assert_eq!(calculator_only[0].title, "Calculate");
 
     let no_providers = search::mixed_results_with_providers(
         &[],
@@ -149,7 +169,26 @@ fn mixed_search_distinguishes_calculator_errors_normal_queries_placeholders_and_
     let no_results = search::mixed_results(&[project("/tmp/rayslash", "rayslash")], &[], "zzz");
 
     assert_eq!(no_results[0].title, "No results");
+    assert_eq!(
+        no_results[0].subtitle,
+        "No apps, folders, or calculations match \"zzz\""
+    );
     assert!(no_results[0].is_no_results());
+}
+
+#[test]
+fn mixed_search_no_results_wording_uses_enabled_provider_names() {
+    let providers = ProviderConfig {
+        apps: false,
+        folders: true,
+        calculator: false,
+    };
+    let projects = vec![project("/tmp/rayslash", "rayslash")];
+
+    let no_results = search::mixed_results_with_providers(&projects, &[], "zzz", &providers);
+
+    assert_eq!(no_results[0].title, "No results");
+    assert_eq!(no_results[0].subtitle, "No folders match \"zzz\"");
 }
 
 #[test]

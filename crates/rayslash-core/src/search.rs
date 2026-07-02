@@ -11,7 +11,8 @@ use crate::ranking::RankingState;
 use matcher::{boosted_score, fuzzy_matcher, fuzzy_pattern, search_result_order};
 use nucleo_matcher::Utf32Str;
 use providers::{
-    app_result, calculator_result, disabled_providers_result, no_results, project_result,
+    app_result, calculator_result, disabled_providers_result, no_results,
+    placeholder_results_for_providers, project_result,
 };
 pub use providers::{display_path, placeholder_results, project_results};
 #[cfg(test)]
@@ -54,7 +55,7 @@ pub fn mixed_results_with_ranking(
     if enabled_projects.is_empty() && enabled_apps.is_empty() {
         return calculation
             .map(|result| vec![result])
-            .unwrap_or_else(placeholder_results);
+            .unwrap_or_else(|| placeholder_results_for_providers(providers));
     }
 
     if query.is_empty() {
@@ -110,7 +111,7 @@ pub fn mixed_results_with_ranking(
     }
 
     if results.is_empty() {
-        results.push(no_results(query));
+        results.push(no_results(query, providers));
     }
 
     results

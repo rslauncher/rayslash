@@ -7,7 +7,11 @@ use rayslash_core::search;
 
 #[test]
 fn placeholder_results_are_available() {
-    assert_eq!(search::placeholder_results().len(), 3);
+    let results = search::placeholder_results();
+
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[1].title, "Find folders");
+    assert!(results[1].subtitle.contains("folders"));
 }
 
 #[test]

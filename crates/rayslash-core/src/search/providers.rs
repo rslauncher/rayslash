@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::apps::DesktopApp;
 use crate::calc;
+use crate::config::ProviderConfig;
 use crate::projects::Project;
 use nucleo_matcher::Utf32Str;
 
@@ -9,26 +10,44 @@ use super::matcher::{fuzzy_matcher, fuzzy_pattern, project_order};
 use super::{SearchResult, SearchResultIcon, SearchResultKind};
 
 pub fn placeholder_results() -> Vec<SearchResult> {
-    vec![
-        SearchResult {
+    placeholder_results_for_providers(&ProviderConfig::default())
+}
+
+pub(super) fn placeholder_results_for_providers(providers: &ProviderConfig) -> Vec<SearchResult> {
+    let mut results = Vec::new();
+
+    if providers.apps {
+        results.push(SearchResult {
             title: "Open applications".to_owned(),
             subtitle: "Desktop app search is available when applications are discovered".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
-        },
-        SearchResult {
-            title: "Find projects".to_owned(),
-            subtitle: "Folder search is available when folder sources contain projects".to_owned(),
+        });
+    }
+
+    if providers.folders {
+        results.push(SearchResult {
+            title: "Find folders".to_owned(),
+            subtitle: "Folder search is available when folder sources contain folders".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
-        },
-        SearchResult {
+        });
+    }
+
+    if providers.calculator {
+        results.push(SearchResult {
             title: "Calculate".to_owned(),
             subtitle: "Type an expression such as 2 + 2".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
-        },
-    ]
+        });
+    }
+
+    if results.is_empty() {
+        results.push(disabled_providers_result());
+    }
+
+    results
 }
 
 pub fn project_results(projects: &[Project], query: &str) -> Vec<SearchResult> {
@@ -124,14 +143,36 @@ pub(super) fn calculator_result(calculation: calc::Calculation) -> SearchResult 
     }
 }
 
-pub(super) fn no_results(query: &str) -> SearchResult {
+pub(super) fn no_results(query: &str, providers: &ProviderConfig) -> SearchResult {
     SearchResult {
         title: "No results".to_owned(),
-        subtitle: format!("No apps, projects, or calculations match \"{query}\""),
+        subtitle: format!("No {} match \"{query}\"", provider_match_phrase(providers)),
         icon: SearchResultIcon::Placeholder,
         kind: SearchResultKind::NoResults {
             query: query.to_owned(),
         },
+    }
+}
+
+fn provider_match_phrase(providers: &ProviderConfig) -> String {
+    let mut labels = Vec::new();
+
+    if providers.apps {
+        labels.push("apps");
+    }
+    if providers.folders {
+        labels.push("folders");
+    }
+    if providers.calculator {
+        labels.push("calculations");
+    }
+
+    match labels.as_slice() {
+        [] => "enabled providers".to_owned(),
+        [only] => (*only).to_owned(),
+        [first, second] => format!("{first} or {second}"),
+        [first, second, third] => format!("{first}, {second}, or {third}"),
+        _ => labels.join(", "),
     }
 }
 
