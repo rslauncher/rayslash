@@ -2,6 +2,7 @@ mod fixtures;
 
 use std::{
     fs,
+    path::Path,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -33,6 +34,7 @@ fn ranking_state_can_be_saved_and_loaded() {
     assert!(saved.contains("version = 1"));
     assert!(saved.contains("launch_count = 2"));
     assert_eq!(loaded, state);
+    assert_no_temp_save_files(path.parent().expect("ranking parent"));
 }
 
 #[test]
@@ -92,4 +94,19 @@ fn clear_ranking_state_removes_existing_file_and_accepts_missing_file() {
 
 fn unix_time(seconds: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(seconds)
+}
+
+fn assert_no_temp_save_files(dir: &Path) {
+    let temp_files = fs::read_dir(dir)
+        .expect("read save directory")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.starts_with(".ranking.toml.") && name.ends_with(".tmp"))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(temp_files.is_empty());
 }

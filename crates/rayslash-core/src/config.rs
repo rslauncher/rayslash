@@ -1,11 +1,11 @@
 use std::{
-    fmt, fs, io,
+    env, fmt, fs, io,
     path::{Path, PathBuf},
 };
 
 use serde::{Deserialize, Serialize};
 
-use crate::APP_NAME;
+use crate::{APP_NAME, atomic_write};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -243,10 +243,10 @@ pub fn save_config_to_path(path: &Path, config: &Config) -> Result<(), SaveConfi
         })?;
     }
 
-    let contents =
-        toml::to_string_pretty(config).map_err(|source| SaveConfigError::Serialize { source })?;
+    let contents = toml::to_string_pretty(&config.clone().normalized())
+        .map_err(|source| SaveConfigError::Serialize { source })?;
 
-    fs::write(path, contents).map_err(|source| SaveConfigError::Write {
+    atomic_write::write(path, &contents).map_err(|source| SaveConfigError::Write {
         path: path.to_path_buf(),
         source,
     })
@@ -257,7 +257,11 @@ fn default_folder_sources() -> Vec<PathBuf> {
 }
 
 fn normalize_folder_sources(sources: Vec<PathBuf>) -> Vec<PathBuf> {
-    sources.into_iter().map(expand_home).collect()
+    sources
+        .into_iter()
+        .map(expand_home)
+        .map(absolute_path)
+        .collect()
 }
 
 fn default_true() -> bool {
@@ -295,4 +299,14 @@ fn expand_home(path: PathBuf) -> PathBuf {
     }
 
     path
+}
+
+fn absolute_path(path: PathBuf) -> PathBuf {
+    if path.is_absolute() {
+        return path;
+    }
+
+    env::current_dir()
+        .map(|current_dir| current_dir.join(&path))
+        .unwrap_or(path)
 }

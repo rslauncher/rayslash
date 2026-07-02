@@ -38,7 +38,7 @@ impl From<io::Error> for BindSocketError {
 pub fn socket_path() -> PathBuf {
     let runtime_dir = env::var_os("XDG_RUNTIME_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(env::temp_dir);
+        .unwrap_or_else(fallback_runtime_dir);
 
     socket_path_in(runtime_dir)
 }
@@ -53,6 +53,10 @@ pub fn send_request(path: &Path, request: IpcRequest) -> io::Result<()> {
 }
 
 pub fn bind_server_socket(path: &Path) -> Result<UnixListener, BindSocketError> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
     match UnixListener::bind(path) {
         Ok(listener) => Ok(listener),
         Err(error) if error.kind() == io::ErrorKind::AddrInUse => {
@@ -65,6 +69,18 @@ pub fn bind_server_socket(path: &Path) -> Result<UnixListener, BindSocketError> 
         }
         Err(error) => Err(BindSocketError::Io(error)),
     }
+}
+
+fn fallback_runtime_dir() -> PathBuf {
+    env::temp_dir().join(format!("rayslash-{}", effective_user_id()))
+}
+
+fn effective_user_id() -> u32 {
+    unsafe extern "C" {
+        fn geteuid() -> u32;
+    }
+
+    unsafe { geteuid() }
 }
 
 pub fn start_server(
@@ -125,6 +141,34 @@ mod tests {
             socket_path_in("/tmp/rayslash-runtime"),
             PathBuf::from("/tmp/rayslash-runtime/rayslash.sock")
         );
+    }
+
+    #[test]
+    fn fallback_socket_path_uses_user_specific_temp_subdirectory() {
+        let path = socket_path_in(fallback_runtime_dir());
+
+        assert!(path.ends_with("rayslash.sock"));
+        assert!(
+            path.parent()
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("rayslash-"))
+        );
+    }
+
+    #[test]
+    fn binding_socket_creates_parent_directory() {
+        let dir = test_dir().join("nested");
+        let path = socket_path_in(&dir);
+
+        let listener = bind_server_socket(&path).expect("socket should bind");
+
+        assert!(dir.is_dir());
+
+        drop(listener);
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_dir(&dir);
+        let _ = fs::remove_dir(dir.parent().expect("test dir parent"));
     }
 
     #[test]

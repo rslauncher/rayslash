@@ -1,3 +1,5 @@
+mod atomic_write;
+
 pub mod actions;
 pub mod apps;
 pub mod calc;

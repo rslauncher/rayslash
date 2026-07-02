@@ -7,7 +7,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::config;
+use crate::{atomic_write, config};
 
 pub const RANKING_STATE_VERSION: u32 = 1;
 pub const RANKING_STATE_FILE_NAME: &str = "ranking.toml";
@@ -263,7 +263,7 @@ pub fn save_ranking_state_to_path(
     let contents = toml::to_string_pretty(state)
         .map_err(|source| SaveRankingStateError::Serialize { source })?;
 
-    fs::write(path, contents).map_err(|source| SaveRankingStateError::Write {
+    atomic_write::write(path, &contents).map_err(|source| SaveRankingStateError::Write {
         path: path.to_path_buf(),
         source,
     })

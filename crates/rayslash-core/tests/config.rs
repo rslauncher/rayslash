@@ -1,6 +1,9 @@
 mod fixtures;
 
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use fixtures::TempDir;
 use rayslash_core::config::{
@@ -201,6 +204,26 @@ folder_sources = ["~/Documents"]
 }
 
 #[test]
+fn config_normalizes_relative_folder_sources_to_absolute_paths() {
+    let dir = TempDir::new("rayslash-config-relative-test");
+    let path = dir
+        .write(
+            "config.toml",
+            r#"
+folder_sources = ["relative/projects"]
+"#,
+        )
+        .expect("write config");
+
+    let config = config::load_config_from_path(&path).expect("load config");
+    let expected = std::env::current_dir()
+        .expect("current dir")
+        .join("relative/projects");
+
+    assert_eq!(config.folder_sources, vec![expected]);
+}
+
+#[test]
 fn config_can_be_saved_and_loaded_from_toml() {
     let dir = TempDir::new("rayslash-config-save-test");
     let path = dir.join("nested/config.toml");
@@ -236,4 +259,39 @@ fn config_can_be_saved_and_loaded_from_toml() {
     assert_eq!(loaded.actions, config.actions);
     assert_eq!(loaded.appearance, config.appearance);
     assert_eq!(loaded.ranking, config.ranking);
+    assert_no_temp_save_files(path.parent().expect("config parent"));
+}
+
+#[test]
+fn saved_config_writes_normalized_folder_sources() {
+    let dir = TempDir::new("rayslash-config-normalized-save-test");
+    let path = dir.join("config.toml");
+    let config = Config {
+        folder_sources: vec![PathBuf::from("relative/projects")],
+        ..Config::default()
+    };
+
+    config::save_config_to_path(&path, &config).expect("save config");
+    let saved = fs::read_to_string(&path).expect("read saved config");
+    let expected = std::env::current_dir()
+        .expect("current dir")
+        .join("relative/projects");
+
+    assert!(saved.contains(&expected.display().to_string()));
+    assert!(!saved.contains("\"relative/projects\""));
+}
+
+fn assert_no_temp_save_files(dir: &Path) {
+    let temp_files = fs::read_dir(dir)
+        .expect("read save directory")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_str()
+                .is_some_and(|name| name.starts_with(".config.toml.") && name.ends_with(".tmp"))
+        })
+        .collect::<Vec<_>>();
+
+    assert!(temp_files.is_empty());
 }
