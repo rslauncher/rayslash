@@ -7,7 +7,7 @@ use std::{
 };
 
 use fixtures::TempDir;
-use rayslash_core::ranking::{self, RankingState};
+use rayslash_core::ranking::{self, RankingEntry, RankingState};
 
 #[test]
 fn missing_ranking_state_loads_default() {
@@ -78,6 +78,68 @@ fn ranking_boost_is_bounded_and_query_sensitive() {
     assert_eq!(state.boost_for("app:editor.desktop", "ed"), 20);
     assert!(state.boost_for("app:editor.desktop", "other") <= 8);
     assert_eq!(state.boost_for("missing", "ed"), 0);
+}
+
+#[test]
+fn ranking_prune_removes_missing_and_old_entries() {
+    let mut state = RankingState::default();
+    let now = 200 + 181 * 24 * 60 * 60;
+    state.record_launch_at("app:active.desktop", "ac", unix_time(now));
+    state.record_launch_at("app:removed.desktop", "rm", unix_time(now));
+    state.record_launch_at("folder:/tmp/old", "ol", unix_time(1));
+
+    state.prune(
+        vec![
+            "app:active.desktop".to_owned(),
+            "folder:/tmp/old".to_owned(),
+        ],
+        unix_time(now),
+    );
+
+    assert!(state.entries.contains_key("app:active.desktop"));
+    assert!(!state.entries.contains_key("app:removed.desktop"));
+    assert!(!state.entries.contains_key("folder:/tmp/old"));
+}
+
+#[test]
+fn ranking_prune_caps_query_prefixes_by_count() {
+    let mut state = RankingState::default();
+    let mut entry = RankingEntry {
+        launch_count: 1,
+        last_launched_unix: 100,
+        query_prefixes: Default::default(),
+    };
+    for index in 0..80 {
+        entry
+            .query_prefixes
+            .insert(format!("prefix-{index:02}"), index);
+    }
+    state.entries.insert("app:active.desktop".to_owned(), entry);
+
+    state.prune(vec!["app:active.desktop".to_owned()], unix_time(100));
+
+    let prefixes = &state.entries["app:active.desktop"].query_prefixes;
+    assert_eq!(prefixes.len(), 64);
+    assert!(!prefixes.contains_key("prefix-00"));
+    assert!(prefixes.contains_key("prefix-79"));
+}
+
+#[test]
+fn ranking_prune_caps_total_entries_by_recency() {
+    let mut state = RankingState::default();
+    let active_ids = (0..1100)
+        .map(|index| {
+            let id = format!("app:{index:04}.desktop");
+            state.record_launch_at(&id, "ap", unix_time(index));
+            id
+        })
+        .collect::<Vec<_>>();
+
+    state.prune(active_ids, unix_time(1100));
+
+    assert_eq!(state.entries.len(), 1000);
+    assert!(!state.entries.contains_key("app:0000.desktop"));
+    assert!(state.entries.contains_key("app:1099.desktop"));
 }
 
 #[test]

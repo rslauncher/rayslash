@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt, fs, io,
     path::{Path, PathBuf},
     time::{SystemTime, UNIX_EPOCH},
@@ -15,6 +15,9 @@ const MAX_QUERY_PREFIX_LEN: usize = 32;
 const MAX_TOTAL_BOOST: u32 = 20;
 const MAX_COUNT_BOOST: u32 = 8;
 const MAX_PREFIX_BOOST: u32 = 16;
+const MAX_QUERY_PREFIXES_PER_ENTRY: usize = 64;
+const MAX_RANKING_ENTRIES: usize = 1000;
+const ENTRY_RETENTION_SECONDS: u64 = 180 * 24 * 60 * 60;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RankingState {
@@ -178,6 +181,41 @@ impl RankingState {
     pub fn record_launch(&mut self, result_id: &str, query: &str) {
         self.record_launch_at(result_id, query, SystemTime::now());
     }
+
+    pub fn prune<I>(&mut self, active_result_ids: I, now: SystemTime)
+    where
+        I: IntoIterator<Item = String>,
+    {
+        let active_result_ids = active_result_ids.into_iter().collect::<BTreeSet<_>>();
+        let cutoff = unix_seconds(now).saturating_sub(ENTRY_RETENTION_SECONDS);
+
+        self.entries.retain(|id, entry| {
+            active_result_ids.contains(id) && entry.last_launched_unix >= cutoff
+        });
+
+        for entry in self.entries.values_mut() {
+            entry.prune_query_prefixes();
+        }
+
+        if self.entries.len() > MAX_RANKING_ENTRIES {
+            let keep_ids = self
+                .entries
+                .iter()
+                .map(|(id, entry)| (id.clone(), entry.last_launched_unix))
+                .collect::<BTreeMap<_, _>>();
+            let mut keep_ids = keep_ids.into_iter().collect::<Vec<_>>();
+            keep_ids.sort_by(|(a_id, a_time), (b_id, b_time)| {
+                b_time.cmp(a_time).then_with(|| a_id.cmp(b_id))
+            });
+            keep_ids.truncate(MAX_RANKING_ENTRIES);
+            let keep_ids = keep_ids
+                .into_iter()
+                .map(|(id, _time)| id)
+                .collect::<BTreeSet<_>>();
+
+            self.entries.retain(|id, _entry| keep_ids.contains(id));
+        }
+    }
 }
 
 impl RankingEntry {
@@ -199,6 +237,23 @@ impl RankingEntry {
         count_boost
             .saturating_add(prefix_boost)
             .min(MAX_TOTAL_BOOST)
+    }
+
+    fn prune_query_prefixes(&mut self) {
+        if self.query_prefixes.len() <= MAX_QUERY_PREFIXES_PER_ENTRY {
+            return;
+        }
+
+        let mut prefixes = self
+            .query_prefixes
+            .iter()
+            .map(|(prefix, count)| (prefix.clone(), *count))
+            .collect::<Vec<_>>();
+        prefixes.sort_by(|(a_prefix, a_count), (b_prefix, b_count)| {
+            b_count.cmp(a_count).then_with(|| a_prefix.cmp(b_prefix))
+        });
+        prefixes.truncate(MAX_QUERY_PREFIXES_PER_ENTRY);
+        self.query_prefixes = prefixes.into_iter().collect();
     }
 }
 

@@ -369,6 +369,8 @@ fn run_gui(
         current_results.clone(),
         config_state.clone(),
         ranking_state.clone(),
+        projects.clone(),
+        apps.clone(),
         is_visible.clone(),
     );
 

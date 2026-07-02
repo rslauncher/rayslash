@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use rayslash_core::{actions, config, ranking, search};
+use rayslash_core::{actions, apps, config, projects, ranking, search};
 use slint::ComponentHandle;
 
 use crate::{AppWindow, window_state::hide_launcher};
@@ -14,6 +14,8 @@ pub(crate) fn register_activation_callback(
     current_results: Rc<RefCell<Vec<search::SearchResult>>>,
     config_state: Rc<RefCell<config::Config>>,
     ranking_state: Rc<RefCell<ranking::RankingState>>,
+    projects: Rc<RefCell<Vec<projects::Project>>>,
+    apps: Rc<RefCell<Vec<apps::DesktopApp>>>,
     is_visible: Arc<AtomicBool>,
 ) {
     ui.on_activate_selected_result({
@@ -75,6 +77,8 @@ pub(crate) fn register_activation_callback(
                                         record_learned_launch(
                                             &config_state.borrow(),
                                             &ranking_state,
+                                            &projects.borrow(),
+                                            &apps.borrow(),
                                             &result,
                                             query.as_str(),
                                         );
@@ -114,6 +118,8 @@ pub(crate) fn register_activation_callback(
                                         record_learned_launch(
                                             &config_state.borrow(),
                                             &ranking_state,
+                                            &projects.borrow(),
+                                            &apps.borrow(),
                                             &result,
                                             query.as_str(),
                                         );
@@ -149,6 +155,8 @@ pub(crate) fn register_activation_callback(
                                     record_learned_launch(
                                         &config_state.borrow(),
                                         &ranking_state,
+                                        &projects.borrow(),
+                                        &apps.borrow(),
                                         &result,
                                         query.as_str(),
                                     );
@@ -194,6 +202,8 @@ pub(crate) fn register_activation_callback(
 fn record_learned_launch(
     config: &config::Config,
     ranking_state: &Rc<RefCell<ranking::RankingState>>,
+    projects: &[projects::Project],
+    apps: &[apps::DesktopApp],
     result: &search::SearchResult,
     query: &str,
 ) {
@@ -208,11 +218,26 @@ fn record_learned_launch(
     {
         let mut state = ranking_state.borrow_mut();
         state.record_launch(&result_id, query);
+        state.prune(
+            active_learning_ids(projects, apps),
+            std::time::SystemTime::now(),
+        );
     }
 
     if let Err(error) = ranking::save_ranking_state(&ranking_state.borrow()) {
         eprintln!("{error}");
     }
+}
+
+fn active_learning_ids(projects: &[projects::Project], apps: &[apps::DesktopApp]) -> Vec<String> {
+    apps.iter()
+        .map(|app| format!("app:{}", app.id))
+        .chain(
+            projects
+                .iter()
+                .map(|project| format!("folder:{}", project.path.display())),
+        )
+        .collect()
 }
 
 fn command_display(command: &actions::CommandSpec) -> String {
