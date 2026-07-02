@@ -33,6 +33,32 @@ fn open_project_in_editor_command_uses_configured_editor_with_project_path_argum
 }
 
 #[test]
+fn open_project_in_editor_command_preserves_configured_arguments_before_path() {
+    let path = PathBuf::from("/tmp/rayslash");
+
+    let command = actions::open_project_in_editor_command(&path, "code --reuse-window");
+
+    assert_eq!(command.program, OsString::from("code"));
+    assert_eq!(
+        command.args,
+        vec![OsString::from("--reuse-window"), path.into_os_string()]
+    );
+}
+
+#[test]
+fn open_project_in_editor_command_preserves_quoted_configured_arguments() {
+    let path = PathBuf::from("/tmp/rayslash");
+
+    let command = actions::open_project_in_editor_command(&path, r#"editor "--profile=Work Dev""#);
+
+    assert_eq!(command.program, OsString::from("editor"));
+    assert_eq!(
+        command.args,
+        vec![OsString::from("--profile=Work Dev"), path.into_os_string()]
+    );
+}
+
+#[test]
 fn open_project_in_editor_command_uses_terminal_default_without_path_argument() {
     let path = PathBuf::from("/tmp/rayslash");
 
@@ -40,6 +66,16 @@ fn open_project_in_editor_command_uses_terminal_default_without_path_argument() 
 
     assert_eq!(command.program, OsString::from("xdg-terminal-exec"));
     assert!(command.args.is_empty());
+}
+
+#[test]
+fn open_project_in_editor_command_preserves_terminal_arguments_without_path_argument() {
+    let path = PathBuf::from("/tmp/rayslash");
+
+    let command = actions::open_project_in_editor_command(&path, "xdg-terminal-exec --wait");
+
+    assert_eq!(command.program, OsString::from("xdg-terminal-exec"));
+    assert_eq!(command.args, vec![OsString::from("--wait")]);
 }
 
 #[test]

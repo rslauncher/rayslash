@@ -28,17 +28,17 @@ pub fn open_project_in_vscode_command(path: &Path) -> CommandSpec {
 }
 
 pub fn open_project_in_editor_command(path: &Path, editor_command: &str) -> CommandSpec {
-    if editor_command.trim() == "xdg-terminal-exec" {
-        return CommandSpec {
-            program: OsString::from("xdg-terminal-exec"),
-            args: Vec::new(),
-        };
+    let mut command = parse_action_command(editor_command).unwrap_or_else(|| CommandSpec {
+        program: OsString::from(editor_command.trim()),
+        args: Vec::new(),
+    });
+
+    if command.program == "xdg-terminal-exec" {
+        return command;
     }
 
-    CommandSpec {
-        program: OsString::from(editor_command.trim()),
-        args: vec![path.as_os_str().to_owned()],
-    }
+    command.args.push(path.as_os_str().to_owned());
+    command
 }
 
 pub fn open_project_in_vscode(path: &Path) -> io::Result<Child> {
@@ -47,7 +47,7 @@ pub fn open_project_in_vscode(path: &Path) -> io::Result<Child> {
 
 pub fn open_project_in_editor(path: &Path, editor_command: &str) -> io::Result<Child> {
     let command = open_project_in_editor_command(path, editor_command);
-    if editor_command.trim() == "xdg-terminal-exec" {
+    if command.program == "xdg-terminal-exec" {
         spawn_command_in_dir(&command, path)
     } else {
         spawn_command(&command)
@@ -74,4 +74,60 @@ fn command_builder(command: &CommandSpec) -> Command {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     builder
+}
+
+fn parse_action_command(command: &str) -> Option<CommandSpec> {
+    let mut parts = tokenize_action_command(command)?;
+    let program = parts.next()?;
+
+    Some(CommandSpec {
+        program: OsString::from(program),
+        args: parts.map(OsString::from).collect(),
+    })
+}
+
+fn tokenize_action_command(command: &str) -> Option<impl Iterator<Item = String>> {
+    let mut args = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut has_current = false;
+    let mut chars = command.trim().chars();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => {
+                in_quotes = !in_quotes;
+                has_current = true;
+            }
+            '\\' => {
+                if let Some(next) = chars.next() {
+                    current.push(next);
+                    has_current = true;
+                } else {
+                    current.push(ch);
+                    has_current = true;
+                }
+            }
+            ' ' | '\t' if !in_quotes => {
+                if has_current {
+                    args.push(std::mem::take(&mut current));
+                    has_current = false;
+                }
+            }
+            _ => {
+                current.push(ch);
+                has_current = true;
+            }
+        }
+    }
+
+    if in_quotes {
+        return None;
+    }
+
+    if has_current {
+        args.push(current);
+    }
+
+    Some(args.into_iter())
 }
