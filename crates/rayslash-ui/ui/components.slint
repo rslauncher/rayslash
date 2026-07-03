@@ -1,5 +1,6 @@
 export component SearchBox inherits Rectangle {
     in-out property <string> query-text;
+    in property <bool> light;
 
     callback close-requested();
     callback select-previous();
@@ -10,9 +11,9 @@ export component SearchBox inherits Rectangle {
 
     height: 62px;
     border-radius: 12px;
-    background: search-input.has-focus ? #242424 : #202020;
+    background: root.light ? search-input.has-focus ? #ffffff : #f7f7f7 : search-input.has-focus ? #242424 : #202020;
     border-width: 1.5px;
-    border-color: search-input.has-focus ? #7a7a7a : #3a3a3a;
+    border-color: root.light ? search-input.has-focus ? #767676 : #c9c9c9 : search-input.has-focus ? #7a7a7a : #3a3a3a;
 
     forward-focus: search-input;
 
@@ -25,7 +26,7 @@ export component SearchBox inherits Rectangle {
         height: parent.height;
         vertical-alignment: center;
         text: "Search apps, folders, or calculations";
-        color: #9a9a9a;
+        color: root.light ? #6b6b6b : #9a9a9a;
         font-size: 18px;
         visible: search-input.text == "";
     }
@@ -36,12 +37,12 @@ export component SearchBox inherits Rectangle {
         width: parent.width - 36px;
         height: parent.height;
         vertical-alignment: center;
-        color: #f2f2f2;
+        color: root.light ? #1f1f1f : #f2f2f2;
         font-size: 19px;
         font-weight: 500;
         single-line: true;
-        selection-background-color: #d4d4d4;
-        selection-foreground-color: #181818;
+        selection-background-color: root.light ? #2f2f2f : #d4d4d4;
+        selection-foreground-color: root.light ? #ffffff : #181818;
         text <=> root.query-text;
 
         edited => {
@@ -86,6 +87,8 @@ export component SearchBox inherits Rectangle {
 }
 
 export component SettingsGearIcon inherits Rectangle {
+    in property <color> icon-color: #d8d8d8;
+
     background: transparent;
 
     Path {
@@ -96,7 +99,7 @@ export component SettingsGearIcon inherits Rectangle {
         viewbox-width: 24;
         viewbox-height: 24;
         commands: "M9.6 3.1h4.8l.5 2.5c.5.2 1 .4 1.4.8l2.4-.9 2.4 4.1-1.9 1.6v1.6l1.9 1.6-2.4 4.1-2.4-.9c-.4.3-.9.6-1.4.8l-.5 2.5H9.6l-.5-2.5c-.5-.2-1-.4-1.4-.8l-2.4.9-2.4-4.1 1.9-1.6v-1.6L2.9 9.6l2.4-4.1 2.4.9c.4-.3.9-.6 1.4-.8l.5-2.5Z";
-        stroke: #d8d8d8;
+        stroke: root.icon-color;
         stroke-width: 1.8px;
         fill: transparent;
     }
@@ -109,7 +112,7 @@ export component SettingsGearIcon inherits Rectangle {
         viewbox-width: 24;
         viewbox-height: 24;
         commands: "M15.1 12 A3.1 3.1 0 1 0 8.9 12 A3.1 3.1 0 1 0 15.1 12";
-        stroke: #d8d8d8;
+        stroke: root.icon-color;
         stroke-width: 1.8px;
         fill: transparent;
     }
@@ -118,14 +121,15 @@ export component SettingsGearIcon inherits Rectangle {
 export component SettingToggle inherits Rectangle {
     in property <string> label;
     in property <string> description;
+    in property <bool> light;
     in-out property <bool> checked;
     callback toggled();
 
-    height: 52px;
+    height: 58px;
     border-radius: 8px;
-    background: toggle-touch.has-hover ? #242424 : #202020;
+    background: root.light ? toggle-touch.has-hover ? #ffffff : #f6f6f6 : toggle-touch.has-hover ? #242424 : #202020;
     border-width: 1px;
-    border-color: #363636;
+    border-color: root.light ? toggle-touch.has-hover ? #bdbdbd : #d4d4d4 : #363636;
 
     animate background { duration: 90ms; }
     animate border-color { duration: 90ms; }
@@ -133,17 +137,17 @@ export component SettingToggle inherits Rectangle {
     HorizontalLayout {
         padding-left: 12px;
         padding-right: 12px;
-        padding-top: 8px;
-        padding-bottom: 8px;
+        padding-top: 9px;
+        padding-bottom: 9px;
         spacing: 12px;
 
         Rectangle {
             width: 30px;
             height: 18px;
             border-radius: 9px;
-            background: root.checked ? #d6d6d6 : #303030;
+            background: root.light ? root.checked ? #202020 : #e1e1e1 : root.checked ? #d6d6d6 : #303030;
             border-width: 1px;
-            border-color: root.checked ? #eeeeee : #666666;
+            border-color: root.light ? root.checked ? #202020 : #a9a9a9 : root.checked ? #eeeeee : #666666;
 
             Rectangle {
                 x: root.checked ? 14px : 2px;
@@ -151,7 +155,7 @@ export component SettingToggle inherits Rectangle {
                 width: 14px;
                 height: 14px;
                 border-radius: 7px;
-                background: root.checked ? #181818 : #b8b8b8;
+                background: root.light ? root.checked ? #ffffff : #777777 : root.checked ? #181818 : #b8b8b8;
             }
         }
 
@@ -160,17 +164,42 @@ export component SettingToggle inherits Rectangle {
 
             Text {
                 text: root.label;
-                color: #eeeeee;
+                color: root.light ? #1f1f1f : #eeeeee;
                 font-size: 13px;
                 font-weight: 700;
+                overflow: elide;
             }
 
             Text {
                 text: root.description;
-                color: #9a9a9a;
-                font-size: 10px;
+                color: root.light ? #5f5f5f : #9a9a9a;
+                font-size: 11px;
                 overflow: elide;
             }
+        }
+    }
+
+    if toggle-touch.has-hover: Rectangle {
+        x: 10px;
+        y: parent.height - 2px;
+        width: parent.width - 20px;
+        height: 30px;
+        border-radius: 7px;
+        background: root.light ? #222222 : #f2f2f2;
+        border-width: 1px;
+        border-color: root.light ? #111111 : #ffffff;
+        z: 10;
+
+        Text {
+            x: 9px;
+            width: parent.width - 18px;
+            height: 100%;
+            text: root.label + ": " + root.description;
+            color: root.light ? #ffffff : #202020;
+            font-size: 11px;
+            font-weight: 600;
+            overflow: elide;
+            vertical-alignment: center;
         }
     }
 

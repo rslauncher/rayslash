@@ -1,9 +1,42 @@
 import { SettingToggle } from "./components.slint";
 import { AppChoiceItem } from "./models.slint";
 
+component SegmentButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> light;
+    callback clicked();
+
+    height: 34px;
+    border-radius: 7px;
+    background: root.selected ? root.light ? #202020 : #d6d6d6 : segment-touch.has-hover ? root.light ? #eeeeee : #292929 : transparent;
+
+    animate background { duration: 90ms; }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.label;
+        color: root.selected ? root.light ? #ffffff : #181818 : root.light ? #333333 : #dddddd;
+        font-size: 12px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    segment-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
 export component SettingsPanel inherits FocusScope {
     in-out property <bool> open;
     in property <[AppChoiceItem]> alternate-opener-choices;
+    in property <bool> light;
     in-out property <string> folder-sources;
     in-out property <string> alternate-folder-opener-command;
     in-out property <bool> provider-apps;
@@ -29,6 +62,17 @@ export component SettingsPanel inherits FocusScope {
     callback choose-alternate-opener-requested(string);
     callback clear-ranking-requested();
     callback save-requested(string, string, bool, bool, bool, bool, bool, bool, string, string, string);
+
+    private property <color> text-strong: root.light ? #1f1f1f : #f2f2f2;
+    private property <color> text-main: root.light ? #2d2d2d : #d8d8d8;
+    private property <color> text-muted: root.light ? #666666 : #9a9a9a;
+    private property <color> text-soft: root.light ? #555555 : #b8b8b8;
+    private property <color> field-bg: root.light ? #ffffff : #202020;
+    private property <color> field-bg-hover: root.light ? #f0f0f0 : #292929;
+    private property <color> field-bg-pressed: root.light ? #e6e6e6 : #333333;
+    private property <color> field-border: root.light ? #d0d0d0 : #3a3a3a;
+    private property <color> field-border-focus: root.light ? #747474 : #777777;
+    private property <color> icon-fill: root.light ? #4a4a4a : #d0d0d0;
 
     public function focus-settings() {
         settings-scroll.viewport-y = 0px;
@@ -75,7 +119,7 @@ export component SettingsPanel inherits FocusScope {
         width: 100%;
         height: 100%;
         viewport-width: self.width;
-        viewport-height: root.open ? 540px : 0px;
+        viewport-height: root.open ? root.alternate-picker-open ? 940px : 790px : 0px;
         interactive: root.open;
 
         VerticalLayout {
@@ -84,14 +128,14 @@ export component SettingsPanel inherits FocusScope {
 
             Text {
                 text: "Settings";
-                color: #f2f2f2;
+                color: root.text-strong;
                 font-size: 18px;
                 font-weight: 700;
             }
 
             Text {
                 text: "Folder source";
-                color: #d8d8d8;
+                color: root.text-main;
                 font-size: 12px;
                 font-weight: 700;
             }
@@ -103,9 +147,9 @@ export component SettingsPanel inherits FocusScope {
                 Rectangle {
                     horizontal-stretch: 1;
                     border-radius: 8px;
-                    background: #202020;
+                    background: root.field-bg;
                     border-width: 1px;
-                    border-color: settings-sources-input.has-focus ? #777777 : #363636;
+                    border-color: settings-sources-input.has-focus ? root.field-border-focus : root.field-border;
 
                     settings-sources-input := TextInput {
                         x: 12px;
@@ -113,7 +157,7 @@ export component SettingsPanel inherits FocusScope {
                         width: parent.width - 24px;
                         height: parent.height;
                         text: root.folder-sources;
-                        color: #eeeeee;
+                        color: root.text-strong;
                         font-size: 13px;
                         single-line: true;
                         vertical-alignment: center;
@@ -141,9 +185,9 @@ export component SettingsPanel inherits FocusScope {
                 Rectangle {
                     width: 42px;
                     border-radius: 8px;
-                    background: browse-touch.pressed ? #333333 : browse-touch.has-hover ? #292929 : #202020;
+                    background: browse-touch.pressed ? root.field-bg-pressed : browse-touch.has-hover ? root.field-bg-hover : root.field-bg;
                     border-width: 1px;
-                    border-color: #3a3a3a;
+                    border-color: root.field-border;
 
                     Rectangle {
                         x: 9px;
@@ -151,7 +195,7 @@ export component SettingsPanel inherits FocusScope {
                         width: 24px;
                         height: 14px;
                         border-radius: 3px;
-                        background: #d0d0d0;
+                        background: root.icon-fill;
                     }
 
                     Rectangle {
@@ -160,7 +204,7 @@ export component SettingsPanel inherits FocusScope {
                         width: 12px;
                         height: 7px;
                         border-radius: 2px;
-                        background: #d0d0d0;
+                        background: root.icon-fill;
                     }
 
                     browse-touch := TouchArea {
@@ -174,13 +218,13 @@ export component SettingsPanel inherits FocusScope {
 
             Text {
                 text: "Immediate child folders become folder results; separate multiple sources with semicolons";
-                color: #9a9a9a;
+                color: root.text-muted;
                 font-size: 11px;
             }
 
             Text {
                 text: "Alternate folder opener";
-                color: #d8d8d8;
+                color: root.text-main;
                 font-size: 12px;
                 font-weight: 700;
             }
@@ -192,9 +236,9 @@ export component SettingsPanel inherits FocusScope {
                 Rectangle {
                     horizontal-stretch: 1;
                     border-radius: 8px;
-                    background: #202020;
+                    background: root.field-bg;
                     border-width: 1px;
-                    border-color: settings-editor-input.has-focus ? #777777 : #363636;
+                    border-color: settings-editor-input.has-focus ? root.field-border-focus : root.field-border;
 
                     settings-editor-input := TextInput {
                         x: 12px;
@@ -202,7 +246,7 @@ export component SettingsPanel inherits FocusScope {
                         width: parent.width - 24px;
                         height: parent.height;
                         text: root.alternate-folder-opener-command;
-                        color: #eeeeee;
+                        color: root.text-strong;
                         font-size: 13px;
                         single-line: true;
                         vertical-alignment: center;
@@ -231,15 +275,15 @@ export component SettingsPanel inherits FocusScope {
                     width: 82px;
                     height: 42px;
                     border-radius: 8px;
-                    background: picker-touch.pressed ? #333333 : picker-touch.has-hover || root.alternate-picker-open ? #292929 : #202020;
+                    background: picker-touch.pressed ? root.field-bg-pressed : picker-touch.has-hover || root.alternate-picker-open ? root.field-bg-hover : root.field-bg;
                     border-width: 1px;
-                    border-color: #3a3a3a;
+                    border-color: root.field-border;
 
                     Text {
                         width: 100%;
                         height: 100%;
                         text: "Pick";
-                        color: #dddddd;
+                        color: root.text-main;
                         font-size: 12px;
                         font-weight: 700;
                         horizontal-alignment: center;
@@ -268,9 +312,9 @@ export component SettingsPanel inherits FocusScope {
                     for choice in root.alternate-opener-choices: Rectangle {
                         height: 34px;
                         border-radius: 8px;
-                        background: choice-touch.pressed ? #333333 : choice-touch.has-hover ? #292929 : #202020;
+                        background: choice-touch.pressed ? root.field-bg-pressed : choice-touch.has-hover ? root.field-bg-hover : root.field-bg;
                         border-width: 1px;
-                        border-color: #353535;
+                        border-color: root.field-border;
 
                         HorizontalLayout {
                             padding-left: 10px;
@@ -296,14 +340,14 @@ export component SettingsPanel inherits FocusScope {
                                     width: 22px;
                                     height: 22px;
                                     border-radius: 5px;
-                                    background: #3a3a3a;
+                                    background: root.light ? #dfdfdf : #3a3a3a;
                                     visible: !choice.has_icon;
 
                                     Text {
                                         width: 100%;
                                         height: 100%;
                                         text: "AP";
-                                        color: #d0d0d0;
+                                        color: root.text-muted;
                                         font-size: 9px;
                                         font-weight: 800;
                                         horizontal-alignment: center;
@@ -314,7 +358,7 @@ export component SettingsPanel inherits FocusScope {
 
                             Text {
                                 text: choice.name;
-                                color: #eeeeee;
+                                color: root.text-strong;
                                 font-size: 12px;
                                 font-weight: 700;
                                 horizontal-stretch: 1;
@@ -324,7 +368,7 @@ export component SettingsPanel inherits FocusScope {
 
                             Text {
                                 text: choice.command;
-                                color: #9a9a9a;
+                                color: root.text-muted;
                                 font-size: 10px;
                                 horizontal-stretch: 0;
                                 overflow: elide;
@@ -347,24 +391,25 @@ export component SettingsPanel inherits FocusScope {
 
             Text {
                 text: "Used with Ctrl+Enter or Ctrl+click instead of the system file manager";
-                color: #9a9a9a;
+                color: root.text-muted;
                 font-size: 11px;
             }
 
             Text {
                 text: "Search features";
-                color: #d8d8d8;
+                color: root.text-main;
                 font-size: 12px;
                 font-weight: 700;
             }
 
             HorizontalLayout {
-                height: 52px;
+                height: 58px;
                 spacing: 8px;
 
                 SettingToggle {
                     label: "Apps";
                     description: "Desktop applications";
+                    light: root.light;
                     checked <=> root.provider-apps;
                     toggled => {
                         root.save-settings();
@@ -374,15 +419,22 @@ export component SettingsPanel inherits FocusScope {
                 SettingToggle {
                     label: "Folders";
                     description: "Folder source results";
+                    light: root.light;
                     checked <=> root.provider-folders;
                     toggled => {
                         root.save-settings();
                     }
                 }
+            }
+
+            HorizontalLayout {
+                height: 58px;
+                spacing: 8px;
 
                 SettingToggle {
                     label: "Calculator";
                     description: "Local math results";
+                    light: root.light;
                     checked <=> root.provider-calculator;
                     toggled => {
                         root.save-settings();
@@ -392,6 +444,7 @@ export component SettingsPanel inherits FocusScope {
                 SettingToggle {
                     label: "Aliases";
                     description: "Manual quick links";
+                    light: root.light;
                     checked <=> root.provider-aliases;
                     toggled => {
                         root.save-settings();
@@ -400,12 +453,13 @@ export component SettingsPanel inherits FocusScope {
             }
 
             HorizontalLayout {
-                height: 52px;
+                height: 58px;
                 spacing: 8px;
 
                 SettingToggle {
                     label: "Learning";
                     description: "Local result ranking";
+                    light: root.light;
                     checked <=> root.ranking-learn-from-usage;
                     toggled => {
                         root.save-settings();
@@ -413,12 +467,12 @@ export component SettingsPanel inherits FocusScope {
                 }
 
                 Rectangle {
-                    width: 118px;
-                    height: 52px;
+                    width: 146px;
+                    height: 58px;
                     border-radius: 8px;
-                    background: clear-ranking-touch.pressed ? #333333 : clear-ranking-touch.has-hover ? #292929 : #202020;
+                    background: clear-ranking-touch.pressed ? root.field-bg-pressed : clear-ranking-touch.has-hover ? root.field-bg-hover : root.field-bg;
                     border-width: 1px;
-                    border-color: #3a3a3a;
+                    border-color: root.field-border;
 
                     VerticalLayout {
                         padding-left: 10px;
@@ -429,7 +483,7 @@ export component SettingsPanel inherits FocusScope {
 
                         Text {
                             text: "Clear history";
-                            color: #dddddd;
+                            color: root.text-main;
                             font-size: 12px;
                             font-weight: 700;
                             horizontal-alignment: center;
@@ -437,7 +491,7 @@ export component SettingsPanel inherits FocusScope {
 
                         Text {
                             text: root.ranking-entry-count + " entries";
-                            color: #9a9a9a;
+                            color: root.text-muted;
                             font-size: 10px;
                             horizontal-alignment: center;
                         }
@@ -461,7 +515,7 @@ export component SettingsPanel inherits FocusScope {
 
                     Text {
                         text: "Max results";
-                        color: #d8d8d8;
+                        color: root.text-main;
                         font-size: 12px;
                         font-weight: 700;
                     }
@@ -469,9 +523,9 @@ export component SettingsPanel inherits FocusScope {
                     Rectangle {
                         height: 26px;
                         border-radius: 7px;
-                        background: #202020;
+                        background: root.field-bg;
                         border-width: 1px;
-                        border-color: settings-max-results-input.has-focus ? #777777 : #363636;
+                        border-color: settings-max-results-input.has-focus ? root.field-border-focus : root.field-border;
 
                         settings-max-results-input := TextInput {
                             x: 10px;
@@ -479,7 +533,7 @@ export component SettingsPanel inherits FocusScope {
                             width: parent.width - 20px;
                             height: parent.height;
                             text: root.max-results;
-                            color: #eeeeee;
+                            color: root.text-strong;
                             font-size: 12px;
                             single-line: true;
                             vertical-alignment: center;
@@ -508,6 +562,7 @@ export component SettingsPanel inherits FocusScope {
                 SettingToggle {
                     label: "Alt opener";
                     description: "Ctrl+Enter folders";
+                    light: root.light;
                     checked <=> root.alternate-folder-opener-enabled;
                     toggled => {
                         root.save-settings();
@@ -517,123 +572,119 @@ export component SettingsPanel inherits FocusScope {
 
             Text {
                 text: "Appearance";
-                color: #d8d8d8;
+                color: root.text-main;
                 font-size: 12px;
                 font-weight: 700;
             }
 
             HorizontalLayout {
-                height: 42px;
+                height: 80px;
                 spacing: 8px;
 
                 Rectangle {
-                    width: 86px;
-                    height: 38px;
+                    horizontal-stretch: 1;
+                    height: 72px;
                     border-radius: 8px;
-                    background: root.theme == "dark" ? #d6d6d6 : theme-dark-touch.has-hover ? #292929 : #202020;
+                    background: root.field-bg;
                     border-width: 1px;
-                    border-color: root.theme == "dark" ? #eeeeee : #3a3a3a;
+                    border-color: root.field-border;
 
-                    Text {
-                        width: 100%;
-                        height: 100%;
-                        text: "Dark";
-                        color: root.theme == "dark" ? #181818 : #dddddd;
-                        font-size: 12px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
+                    VerticalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        padding-top: 7px;
+                        padding-bottom: 7px;
+                        spacing: 6px;
 
-                    theme-dark-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.theme = "dark";
-                            root.save-settings();
+                        Text {
+                            text: "Theme";
+                            color: root.text-muted;
+                            font-size: 10px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
+                        }
+
+                        HorizontalLayout {
+                            spacing: 0px;
+
+                            SegmentButton {
+                                label: "Dark";
+                                selected: root.theme == "dark";
+                                light: root.light;
+                                clicked => {
+                                    root.theme = "dark";
+                                    root.save-settings();
+                                }
+                            }
+
+                            SegmentButton {
+                                label: "Dim";
+                                selected: root.theme == "dim";
+                                light: root.light;
+                                clicked => {
+                                    root.theme = "dim";
+                                    root.save-settings();
+                                }
+                            }
+
+                            SegmentButton {
+                                label: "Light";
+                                selected: root.theme == "light";
+                                light: root.light;
+                                clicked => {
+                                    root.theme = "light";
+                                    root.save-settings();
+                                }
+                            }
                         }
                     }
                 }
 
                 Rectangle {
-                    width: 86px;
-                    height: 38px;
+                    width: 238px;
+                    height: 72px;
                     border-radius: 8px;
-                    background: root.theme == "dim" ? #d6d6d6 : theme-dim-touch.has-hover ? #292929 : #202020;
+                    background: root.field-bg;
                     border-width: 1px;
-                    border-color: root.theme == "dim" ? #eeeeee : #3a3a3a;
+                    border-color: root.field-border;
 
-                    Text {
-                        width: 100%;
-                        height: 100%;
-                        text: "Dim";
-                        color: root.theme == "dim" ? #181818 : #dddddd;
-                        font-size: 12px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
+                    VerticalLayout {
+                        padding-left: 8px;
+                        padding-right: 8px;
+                        padding-top: 7px;
+                        padding-bottom: 7px;
+                        spacing: 6px;
 
-                    theme-dim-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.theme = "dim";
-                            root.save-settings();
+                        Text {
+                            text: "Density";
+                            color: root.text-muted;
+                            font-size: 10px;
+                            font-weight: 700;
+                            horizontal-alignment: center;
                         }
-                    }
-                }
 
-                Rectangle {
-                    width: 112px;
-                    height: 38px;
-                    border-radius: 8px;
-                    background: root.density == "comfortable" ? #d6d6d6 : density-comfort-touch.has-hover ? #292929 : #202020;
-                    border-width: 1px;
-                    border-color: root.density == "comfortable" ? #eeeeee : #3a3a3a;
+                        HorizontalLayout {
+                            spacing: 0px;
 
-                    Text {
-                        width: 100%;
-                        height: 100%;
-                        text: "Comfort";
-                        color: root.density == "comfortable" ? #181818 : #dddddd;
-                        font-size: 12px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
+                            SegmentButton {
+                                label: "Comfort";
+                                selected: root.density == "comfortable";
+                                light: root.light;
+                                clicked => {
+                                    root.density = "comfortable";
+                                    root.save-settings();
+                                }
+                            }
 
-                    density-comfort-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.density = "comfortable";
-                            root.save-settings();
-                        }
-                    }
-                }
-
-                Rectangle {
-                    width: 94px;
-                    height: 38px;
-                    border-radius: 8px;
-                    background: root.density == "compact" ? #d6d6d6 : density-compact-touch.has-hover ? #292929 : #202020;
-                    border-width: 1px;
-                    border-color: root.density == "compact" ? #eeeeee : #3a3a3a;
-
-                    Text {
-                        width: 100%;
-                        height: 100%;
-                        text: "Compact";
-                        color: root.density == "compact" ? #181818 : #dddddd;
-                        font-size: 12px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
-
-                    density-compact-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.density = "compact";
-                            root.save-settings();
+                            SegmentButton {
+                                label: "Compact";
+                                selected: root.density == "compact";
+                                light: root.light;
+                                clicked => {
+                                    root.density = "compact";
+                                    root.save-settings();
+                                }
+                            }
                         }
                     }
                 }
@@ -653,14 +704,14 @@ export component SettingsPanel inherits FocusScope {
 
                     Text {
                         text: "Config location";
-                        color: #d8d8d8;
+                        color: root.text-main;
                         font-size: 11px;
                         font-weight: 700;
                     }
 
                     Text {
                         text: root.config-path;
-                        color: #9a9a9a;
+                        color: root.text-muted;
                         font-size: 10px;
                         overflow: elide;
                     }
@@ -671,14 +722,14 @@ export component SettingsPanel inherits FocusScope {
 
                     Text {
                         text: "State location";
-                        color: #d8d8d8;
+                        color: root.text-main;
                         font-size: 11px;
                         font-weight: 700;
                     }
 
                     Text {
                         text: root.state-path;
-                        color: #9a9a9a;
+                        color: root.text-muted;
                         font-size: 10px;
                         overflow: elide;
                     }
@@ -691,28 +742,28 @@ export component SettingsPanel inherits FocusScope {
 
                 Text {
                     text: "Folders: " + root.project-count;
-                    color: #b8b8b8;
+                    color: root.text-soft;
                     font-size: 11px;
                     horizontal-stretch: 0;
                 }
 
                 Text {
                     text: "Apps: " + root.app-count;
-                    color: #b8b8b8;
+                    color: root.text-soft;
                     font-size: 11px;
                     horizontal-stretch: 0;
                 }
 
                 Text {
                     text: "Icons: " + root.icon-count;
-                    color: #b8b8b8;
+                    color: root.text-soft;
                     font-size: 11px;
                     horizontal-stretch: 0;
                 }
 
                 Text {
                     text: "Socket: " + root.socket-path;
-                    color: #8f8f8f;
+                    color: root.text-muted;
                     font-size: 10px;
                     overflow: elide;
                 }

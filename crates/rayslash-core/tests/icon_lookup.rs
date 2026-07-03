@@ -82,6 +82,23 @@ fn resolve_desktop_icon_checks_theme_specific_app_directories() {
 }
 
 #[test]
+fn resolve_desktop_icon_falls_back_for_reverse_dns_suffix_icons() {
+    let dir = TempDir::new("rayslash-icons-reverse-dns-suffix");
+    let theme_dir = dir.create_dir_all("Papirus").expect("create theme dir");
+    let icon = dir
+        .write(
+            "Papirus/48x48/apps/wps-office2019-kprometheus.svg",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .expect("write icon");
+
+    assert_eq!(
+        resolve_desktop_icon_in_dirs("com.wps.Office.kprometheus", &[theme_dir]),
+        Some(icon)
+    );
+}
+
+#[test]
 fn resolve_desktop_icon_checks_pixmaps_style_directories() {
     let dir = TempDir::new("rayslash-icons-pixmaps");
     let icon = dir

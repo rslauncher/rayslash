@@ -11,15 +11,27 @@ pub use desktop_entry::{parse_desktop_entry, parse_exec_command};
 pub use icon_lookup::resolve_desktop_icon_in_dirs;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DesktopAction {
+    pub id: String,
+    pub name: String,
+    pub exec: Option<String>,
+    pub command: Option<CommandSpec>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DesktopApp {
     pub id: String,
     pub name: String,
+    pub localized_names: Vec<String>,
     pub generic_name: Option<String>,
     pub comment: Option<String>,
     pub exec: String,
     pub icon: Option<String>,
     pub mime_types: Vec<String>,
     pub categories: Vec<String>,
+    pub keywords: Vec<String>,
+    pub actions: Vec<DesktopAction>,
+    pub dbus_activatable: bool,
     pub icon_path: Option<PathBuf>,
     pub command: CommandSpec,
     pub desktop_file: PathBuf,

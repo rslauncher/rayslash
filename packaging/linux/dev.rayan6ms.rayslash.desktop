@@ -2,6 +2,7 @@
 Type=Application
 Name=rayslash
 Comment=Keyboard-driven desktop launcher
+Keywords=launcher;search;apps;folders;calculator;
 Exec=rayslash toggle
 Icon=dev.rayan6ms.rayslash
 Terminal=false

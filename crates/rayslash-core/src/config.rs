@@ -83,6 +83,7 @@ pub enum AppearanceTheme {
     #[default]
     Dark,
     Dim,
+    Light,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -354,7 +355,7 @@ fn default_alternate_folder_opener_command() -> String {
 }
 
 fn default_max_results() -> usize {
-    50
+    20
 }
 
 fn normalize_command(command: String) -> String {

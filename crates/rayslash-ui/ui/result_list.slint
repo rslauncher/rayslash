@@ -10,6 +10,7 @@ export component ResultList inherits Flickable {
     in property <color> alternate-folder-opener-background;
     in property <string> alternate-folder-opener-label;
     in property <string> density: "comfortable";
+    in property <bool> light;
     callback activate-result(int, bool);
 
     private property <length> row-height: root.density == "compact" ? 54px : 64px;
@@ -56,9 +57,9 @@ export component ResultList inherits Flickable {
         width: root.width;
         height: root.row-height;
         border-radius: 12px;
-        background: row-touch.pressed ? #3c3c3c : i == root.selected-index ? #343434 : row-touch.has-hover && root.row-fully-visible(i) ? #2a2a2a : #222222;
+        background: root.light ? row-touch.pressed ? #d8d8d8 : i == root.selected-index ? #dedede : row-touch.has-hover && root.row-fully-visible(i) ? #e8e8e8 : #ffffff : row-touch.pressed ? #3c3c3c : i == root.selected-index ? #343434 : row-touch.has-hover && root.row-fully-visible(i) ? #2a2a2a : #222222;
         border-width: 1px;
-        border-color: i == root.selected-index ? #6a6a6a : row-touch.has-hover && root.row-fully-visible(i) ? #474747 : #303030;
+        border-color: root.light ? i == root.selected-index ? #9c9c9c : row-touch.has-hover && root.row-fully-visible(i) ? #c4c4c4 : #d7d7d7 : i == root.selected-index ? #6a6a6a : row-touch.has-hover && root.row-fully-visible(i) ? #474747 : #303030;
 
         animate background { duration: 90ms; }
         animate border-color { duration: 90ms; }
@@ -92,7 +93,7 @@ export component ResultList inherits Flickable {
                     height: 42px;
                     border-radius: 10px;
                     property <bool> alternate-icon: root.control-held && item.icon_kind == "folder";
-                    background: self.alternate-icon ? root.alternate-folder-opener-background : i == root.selected-index ? #d6d6d6 : #3a3a3a;
+                    background: self.alternate-icon ? root.alternate-folder-opener-background : root.light ? i == root.selected-index ? #202020 : #e0e0e0 : i == root.selected-index ? #d6d6d6 : #3a3a3a;
                     visible: !item.has_icon;
 
                     animate background { duration: 120ms; easing: ease; }
@@ -103,7 +104,7 @@ export component ResultList inherits Flickable {
                         width: 100%;
                         height: 100%;
                         text: item.icon_text;
-                        color: i == root.selected-index ? #242424 : #d0d0d0;
+                        color: root.light ? i == root.selected-index ? #ffffff : #4d4d4d : i == root.selected-index ? #242424 : #d0d0d0;
                         font-size: 19px;
                         font-weight: 800;
                         horizontal-alignment: center;
@@ -141,7 +142,7 @@ export component ResultList inherits Flickable {
                         width: 28px;
                         height: 19px;
                         border-radius: 3px;
-                        background: i == root.selected-index ? #303030 : #d0d0d0;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "folder";
                         opacity: parent.alternate-icon ? 0 : 1;
                         animate opacity { duration: 120ms; easing: ease; }
@@ -153,7 +154,7 @@ export component ResultList inherits Flickable {
                         width: 14px;
                         height: 8px;
                         border-radius: 2px;
-                        background: i == root.selected-index ? #303030 : #d0d0d0;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "folder";
                         opacity: parent.alternate-icon ? 0 : 1;
                         animate opacity { duration: 120ms; easing: ease; }
@@ -167,7 +168,7 @@ export component ResultList inherits Flickable {
                         border-radius: 3px;
                         background: transparent;
                         border-width: 2px;
-                        border-color: i == root.selected-index ? #303030 : #d0d0d0;
+                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "calculator";
                     }
 
@@ -176,7 +177,7 @@ export component ResultList inherits Flickable {
                         y: 14px;
                         width: 10px;
                         height: 2px;
-                        background: i == root.selected-index ? #303030 : #d0d0d0;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "calculator";
                     }
 
@@ -186,7 +187,7 @@ export component ResultList inherits Flickable {
                         width: 8px;
                         height: 8px;
                         border-radius: 2px;
-                        background: i == root.selected-index ? #303030 : #d0d0d0;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "app";
                     }
 
@@ -196,7 +197,7 @@ export component ResultList inherits Flickable {
                         width: 8px;
                         height: 8px;
                         border-radius: 2px;
-                        background: i == root.selected-index ? #303030 : #d0d0d0;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "app";
                     }
 
@@ -206,7 +207,7 @@ export component ResultList inherits Flickable {
                         width: 8px;
                         height: 8px;
                         border-radius: 2px;
-                        background: i == root.selected-index ? #303030 : #d0d0d0;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "app";
                     }
 
@@ -216,7 +217,7 @@ export component ResultList inherits Flickable {
                         width: 8px;
                         height: 8px;
                         border-radius: 2px;
-                        background: i == root.selected-index ? #303030 : #d0d0d0;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "app";
                     }
 
@@ -226,7 +227,7 @@ export component ResultList inherits Flickable {
                         width: 10px;
                         height: 10px;
                         border-radius: 5px;
-                        background: i == root.selected-index ? #303030 : #d0d0d0;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "placeholder";
                     }
                 }
@@ -237,14 +238,14 @@ export component ResultList inherits Flickable {
 
                 Text {
                     text: item.title;
-                    color: #f4f4f4;
+                    color: root.light ? #202020 : #f4f4f4;
                     font-size: 16px;
                     font-weight: 700;
                 }
 
                 Text {
                     text: item.subtitle;
-                    color: i == root.selected-index ? #d0d0d0 : #a0a0a0;
+                    color: root.light ? i == root.selected-index ? #3f3f3f : #656565 : i == root.selected-index ? #d0d0d0 : #a0a0a0;
                     font-size: 13px;
                 }
             }

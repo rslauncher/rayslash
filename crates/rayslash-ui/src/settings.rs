@@ -118,6 +118,7 @@ pub(crate) fn parse_theme(text: &str) -> Option<config::AppearanceTheme> {
     match text.trim().to_ascii_lowercase().as_str() {
         "dark" => Some(config::AppearanceTheme::Dark),
         "dim" => Some(config::AppearanceTheme::Dim),
+        "light" => Some(config::AppearanceTheme::Light),
         _ => None,
     }
 }
@@ -134,6 +135,7 @@ fn appearance_theme_label(theme: config::AppearanceTheme) -> &'static str {
     match theme {
         config::AppearanceTheme::Dark => "dark",
         config::AppearanceTheme::Dim => "dim",
+        config::AppearanceTheme::Light => "light",
     }
 }
 
@@ -210,6 +212,7 @@ mod tests {
     #[test]
     fn parse_theme_and_density_accept_known_values() {
         assert_eq!(parse_theme("dim"), Some(config::AppearanceTheme::Dim));
+        assert_eq!(parse_theme("light"), Some(config::AppearanceTheme::Light));
         assert_eq!(
             parse_density("compact"),
             Some(config::AppearanceDensity::Compact)

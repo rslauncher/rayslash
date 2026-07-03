@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>dev.rayan6ms.rayslash</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>rayslash</name>
+  <summary>Fast native Linux desktop launcher</summary>
+  <description>
+    <p>
+      rayslash is a lightweight keyboard-first launcher for Linux desktops. It
+      searches installed desktop applications, configured folder sources,
+      aliases, and calculator expressions from a compact native Slint window.
+    </p>
+    <p>
+      The app is designed for desktop-managed shortcuts and exposes
+      <code>rayslash toggle</code> for resident show and hide behavior.
+    </p>
+  </description>
+  <developer id="dev.rayan6ms">
+    <name>rayan6ms</name>
+  </developer>
+  <url type="homepage">https://github.com/rayan/rayslash</url>
+  <launchable type="desktop-id">dev.rayan6ms.rayslash.desktop</launchable>
+  <provides>
+    <binary>rayslash</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-07-03">
+      <description>
+        <p>Initial public packaging metadata and Linux integration files.</p>
+      </description>
+    </release>
+  </releases>
+</component>

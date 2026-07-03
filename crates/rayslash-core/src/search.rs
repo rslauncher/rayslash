@@ -14,7 +14,7 @@ use providers::{
     alias_result, app_result, calculator_result, disabled_providers_result, no_results,
     placeholder_results_for_providers, project_result,
 };
-pub use providers::{display_path, placeholder_results, project_results};
+pub use providers::{display_path, max_results_tip, placeholder_results, project_results};
 #[cfg(test)]
 use providers::{display_path_for_home, project_result_with_subtitle};
 pub use result::{SearchResult, SearchResultIcon, SearchResultKind};
@@ -103,8 +103,7 @@ pub fn mixed_results_with_ranking(
     }
 
     for app in enabled_apps {
-        let haystack = Utf32Str::new(&app.name, &mut char_buf);
-        if let Some(score) = pattern.score(haystack, &mut matcher) {
+        if let Some(score) = app_match_score(app, &pattern, &mut matcher, &mut char_buf) {
             let result = app_result(app);
             let boosted_score = boosted_score(&result, score, query, ranking);
             matches.push((result, score, boosted_score));
@@ -149,6 +148,38 @@ pub fn mixed_results_with_ranking(
     }
 
     results
+}
+
+fn app_match_score(
+    app: &DesktopApp,
+    pattern: &nucleo_matcher::pattern::Pattern,
+    matcher: &mut nucleo_matcher::Matcher,
+    char_buf: &mut Vec<char>,
+) -> Option<u32> {
+    let mut score = score_text(&app.name, pattern, matcher, char_buf);
+
+    for term in app
+        .localized_names
+        .iter()
+        .chain(app.keywords.iter())
+        .map(String::as_str)
+        .chain(app.generic_name.as_deref())
+        .chain(app.comment.as_deref())
+    {
+        score = score.max(score_text(term, pattern, matcher, char_buf));
+    }
+
+    score
+}
+
+fn score_text(
+    text: &str,
+    pattern: &nucleo_matcher::pattern::Pattern,
+    matcher: &mut nucleo_matcher::Matcher,
+    char_buf: &mut Vec<char>,
+) -> Option<u32> {
+    let haystack = Utf32Str::new(text, char_buf);
+    pattern.score(haystack, matcher)
 }
 
 #[cfg(test)]

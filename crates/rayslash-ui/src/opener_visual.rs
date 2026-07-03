@@ -260,12 +260,16 @@ mod tests {
         apps::DesktopApp {
             id: format!("{}.desktop", name.to_ascii_lowercase()),
             name: name.to_owned(),
+            localized_names: Vec::new(),
             generic_name: None,
             comment: None,
             exec: program.to_owned(),
             icon: None,
             mime_types: mime_types.into_iter().map(str::to_owned).collect(),
             categories: categories.into_iter().map(str::to_owned).collect(),
+            keywords: Vec::new(),
+            actions: Vec::new(),
+            dbus_activatable: false,
             icon_path: None,
             command: CommandSpec {
                 program: OsString::from(program),

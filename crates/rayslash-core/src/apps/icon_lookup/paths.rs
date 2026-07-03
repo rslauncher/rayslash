@@ -36,12 +36,15 @@ fn resolve_desktop_icon_in_dir(icon: &str, dir: &Path) -> Option<PathBuf> {
 
     for theme_root in icon_theme_roots(dir) {
         for relative_dir in icon_theme_app_dirs() {
+            let app_dir = theme_root.join(&relative_dir);
             for name in &names {
-                if let Some(path) =
-                    supported_existing_icon(&theme_root.join(&relative_dir).join(name))
-                {
+                if let Some(path) = supported_existing_icon(&app_dir.join(name)) {
                     return Some(path);
                 }
+            }
+
+            if let Some(path) = supported_existing_icon_with_reverse_dns_suffix(icon, &app_dir) {
+                return Some(path);
             }
         }
     }
@@ -73,7 +76,12 @@ fn icon_theme_app_dirs() -> Vec<PathBuf> {
         "256x256/apps",
         "512x512/apps",
         "16x16/apps",
+        "16x16/symbolic/apps",
+        "22x22/symbolic/apps",
+        "24x24/symbolic/apps",
+        "32x32/symbolic/apps",
         "scalable/apps",
+        "apps/scalable",
     ]
     .into_iter()
     .map(PathBuf::from)
@@ -105,6 +113,43 @@ fn supported_existing_absolute_icon(path: &Path) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+fn supported_existing_icon_with_reverse_dns_suffix(icon: &str, dir: &Path) -> Option<PathBuf> {
+    let suffix = reverse_dns_icon_suffix(icon)?;
+    let mut matches = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_stem()
+                .and_then(|stem| stem.to_str())
+                .is_some_and(|stem| stem.to_ascii_lowercase().ends_with(&suffix))
+                && path.extension().is_some_and(is_supported_icon_extension)
+        })
+        .collect::<Vec<_>>();
+
+    matches.sort();
+    matches.into_iter().next()
+}
+
+fn reverse_dns_icon_suffix(icon: &str) -> Option<String> {
+    let path = Path::new(icon);
+    let stem = if path.extension().is_some_and(is_supported_icon_extension) {
+        path.file_stem()?.to_str()?
+    } else {
+        icon
+    };
+    if stem.matches('.').count() < 2 {
+        return None;
+    }
+
+    let suffix = stem.rsplit('.').next()?;
+    if suffix.len() < 10 {
+        return None;
+    }
+
+    Some(format!("-{}", suffix.to_ascii_lowercase()))
 }
 
 fn is_supported_icon_extension(extension: &std::ffi::OsStr) -> bool {

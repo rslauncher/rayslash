@@ -209,7 +209,7 @@ max_results = 0
         "xdg-terminal-exec"
     );
     assert!(config.actions.alternate_folder_opener_enabled);
-    assert_eq!(config.appearance.max_results, 50);
+    assert_eq!(config.appearance.max_results, 20);
     assert!(config.ranking.learn_from_usage);
 }
 

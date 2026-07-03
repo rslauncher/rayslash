@@ -116,12 +116,16 @@ pub fn app(id: &str, name: &str) -> DesktopApp {
     DesktopApp {
         id: id.to_owned(),
         name: name.to_owned(),
+        localized_names: Vec::new(),
         generic_name: None,
         comment: None,
         exec: name.to_ascii_lowercase(),
         icon: None,
         mime_types: Vec::new(),
         categories: Vec::new(),
+        keywords: Vec::new(),
+        actions: Vec::new(),
+        dbus_activatable: false,
         icon_path: None,
         command: CommandSpec {
             program: name.to_ascii_lowercase().into(),

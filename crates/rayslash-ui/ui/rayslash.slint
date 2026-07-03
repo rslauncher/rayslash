@@ -7,6 +7,7 @@ export { AppChoiceItem, ResultItem }from "./models.slint";
 
 component HeaderBar inherits HorizontalLayout {
     in property <bool> settings-open;
+    in property <bool> light;
     callback settings-requested();
 
     height: 36px;
@@ -32,7 +33,7 @@ component HeaderBar inherits HorizontalLayout {
 
         Text {
             text: "rayslash";
-            color: #f5f5f5;
+            color: root.light ? #171717 : #f5f5f5;
             font-size: 22px;
             font-weight: 700;
             vertical-alignment: center;
@@ -50,6 +51,7 @@ component HeaderBar inherits HorizontalLayout {
         SettingsGearIcon {
             width: 34px;
             height: 34px;
+            icon-color: root.light ? #2f2f2f : #d8d8d8;
         }
 
         settings-button-touch := TouchArea {
@@ -62,7 +64,8 @@ component HeaderBar inherits HorizontalLayout {
 }
 
 component HintKey inherits Text {
-    color: #dedede;
+    in property <bool> light;
+    color: root.light ? #2f2f2f : #dedede;
     font-size: 11px;
     font-weight: 700;
     horizontal-stretch: 0;
@@ -70,7 +73,8 @@ component HintKey inherits Text {
 }
 
 component HintText inherits Text {
-    color: #9a9a9a;
+    in property <bool> light;
+    color: root.light ? #6a6a6a : #9a9a9a;
     font-size: 11px;
     horizontal-stretch: 0;
     vertical-alignment: center;
@@ -79,6 +83,7 @@ component HintText inherits Text {
 component LauncherHint inherits Rectangle {
     in property <string> status-text;
     in property <bool> alternate-folder-opener-enabled;
+    in property <bool> light;
 
     height: 16px;
     background: transparent;
@@ -86,7 +91,7 @@ component LauncherHint inherits Rectangle {
     if root.status-text != "": Text {
         height: 16px;
         text: root.status-text;
-        color: #b8b8b8;
+        color: root.light ? #555555 : #b8b8b8;
         font-size: 11px;
         overflow: elide;
         vertical-alignment: center;
@@ -98,25 +103,31 @@ component LauncherHint inherits Rectangle {
 
         HintKey {
             text: "Enter";
+            light: root.light;
         }
 
         HintText {
             text: ": launch/open/show result";
+            light: root.light;
         }
 
         if root.alternate-folder-opener-enabled: HintKey {
             text: "  Ctrl+Enter";
+            light: root.light;
         }
         if root.alternate-folder-opener-enabled: HintText {
             text: ": alt-open folders";
+            light: root.light;
         }
 
         HintKey {
             text: "  Esc";
+            light: root.light;
         }
 
         HintText {
             text: ": hide";
+            light: root.light;
         }
 
         Rectangle {
@@ -144,7 +155,7 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-ranking-learn-from-usage: true;
     in-out property <string> settings-theme: "dark";
     in-out property <string> settings-density: "comfortable";
-    in-out property <string> settings-max-results: "50";
+    in-out property <string> settings-max-results: "20";
     in-out property <string> settings-config-path: "";
     in-out property <string> settings-state-path: "";
     in-out property <string> settings-socket-path: "";
@@ -159,6 +170,7 @@ export component AppWindow inherits Window {
     in property <string> alternate-folder-opener-label: "TM";
     in-out property <bool> control-held: false;
     in-out property <bool> settings-alternate-picker-open: false;
+    private property <bool> light-theme: root.settings-theme == "light";
 
     callback close-requested();
     callback query-changed(string);
@@ -270,9 +282,9 @@ export component AppWindow inherits Window {
                 width: 100%;
                 height: 100%;
                 border-radius: 14px;
-                background: root.settings-theme == "dim" ? #202020 : #181818;
+                background: root.light-theme ? #f3f3f3 : root.settings-theme == "dim" ? #202020 : #181818;
                 border-width: 1px;
-                border-color: #343434;
+                border-color: root.light-theme ? #cfcfcf : #343434;
                 clip: true;
 
                 VerticalLayout {
@@ -284,6 +296,7 @@ export component AppWindow inherits Window {
 
                     HeaderBar {
                         settings-open: root.settings-open;
+                        light: root.light-theme;
                         settings-requested => {
                             root.settings-requested();
                         }
@@ -297,6 +310,7 @@ export component AppWindow inherits Window {
                     search := SearchBox {
                         height: root.settings-open ? 0px : 62px;
                         visible: !root.settings-open;
+                        light: root.light-theme;
                         query-text <=> root.query-text;
 
                         close-requested => {
@@ -329,6 +343,7 @@ export component AppWindow inherits Window {
                         visible: !root.settings-open;
                         status-text: root.status-text;
                         alternate-folder-opener-enabled: root.alternate-folder-opener-enabled;
+                        light: root.light-theme;
                     }
 
                     Rectangle {
@@ -348,6 +363,7 @@ export component AppWindow inherits Window {
                         alternate-folder-opener-enabled <=> root.settings-alternate-folder-opener-enabled;
                         ranking-learn-from-usage <=> root.settings-ranking-learn-from-usage;
                         theme <=> root.settings-theme;
+                        light: root.light-theme;
                         density <=> root.settings-density;
                         max-results <=> root.settings-max-results;
                         config-path: root.settings-config-path;
@@ -402,6 +418,7 @@ export component AppWindow inherits Window {
                         alternate-folder-opener-background: root.alternate-folder-opener-background;
                         alternate-folder-opener-label: root.alternate-folder-opener-label;
                         density: root.settings-density;
+                        light: root.light-theme;
 
                         activate-result(index, use-alternate-opener) => {
                             root.activate-selected-result(index, use-alternate-opener);

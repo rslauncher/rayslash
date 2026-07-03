@@ -195,6 +195,20 @@ fn mixed_search_matches_alias_names_and_queries_when_provider_enabled() {
 }
 
 #[test]
+fn mixed_search_matches_app_keywords_and_localized_names() {
+    let mut settings = app("settings.desktop", "Settings");
+    settings.localized_names = vec!["Configuracoes".to_owned()];
+    settings.keywords = vec!["preferences".to_owned(), "display".to_owned()];
+    let apps = vec![settings];
+
+    let by_keyword = search::mixed_results(&[], &apps, "display");
+    let by_localized_name = search::mixed_results(&[], &apps, "config");
+
+    assert_eq!(by_keyword[0].title, "Settings");
+    assert_eq!(by_localized_name[0].title, "Settings");
+}
+
+#[test]
 fn mixed_search_distinguishes_calculator_errors_normal_queries_placeholders_and_no_results() {
     let apps = vec![app("calculator.desktop", "Calculator")];
 

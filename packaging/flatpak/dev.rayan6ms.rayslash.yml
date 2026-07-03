@@ -1,0 +1,26 @@
+app-id: dev.rayan6ms.rayslash
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+command: rayslash
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=xdg-config/rayslash:create
+  - --filesystem=xdg-data/applications:ro
+  - --filesystem=~/.local/share/applications:ro
+  - --filesystem=/usr/share/applications:ro
+modules:
+  - name: rayslash
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --locked -p rayslash
+      - install -Dm0755 target/release/rayslash /app/bin/rayslash
+      - install -Dm0644 packaging/linux/dev.rayan6ms.rayslash.desktop /app/share/applications/dev.rayan6ms.rayslash.desktop
+      - install -Dm0644 icons/rayslash-icon.svg /app/share/icons/hicolor/scalable/apps/dev.rayan6ms.rayslash.svg
+      - install -Dm0644 packaging/linux/dev.rayan6ms.rayslash.metainfo.xml /app/share/metainfo/dev.rayan6ms.rayslash.metainfo.xml
+    sources:
+      - type: dir
+        path: ../..

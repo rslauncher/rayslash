@@ -46,7 +46,12 @@ pub(crate) fn search_results(
         &config.providers,
         ranking,
     );
-    results.truncate(config.appearance.max_results);
+    let total_results = results.len();
+    let max_results = config.appearance.max_results;
+    if total_results > max_results {
+        results.truncate(max_results);
+        results.push(search::max_results_tip(max_results));
+    }
     results
 }
 
@@ -172,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn search_results_respect_configured_max_results() {
+    fn search_results_respect_configured_max_results_and_add_tip() {
         let config = config::Config {
             folder_sources: Vec::new(),
             aliases: Vec::new(),
@@ -198,7 +203,9 @@ mod tests {
 
         let results = search_results(&config, &ranking_state, &projects, &[], "");
 
-        assert_eq!(results.len(), 1);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].title, "alpha");
+        assert_eq!(results[1].title, "Max results: 1");
     }
 
     #[test]

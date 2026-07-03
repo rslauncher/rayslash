@@ -12,12 +12,19 @@ fn parse_desktop_entry_keeps_visible_applications() {
 [Desktop Entry]
 Type=Application
 Name=Example Browser
+Name[pt_BR]=Navegador Exemplo
 GenericName=Web Browser
 Comment=Browse the web
 Exec=example-browser --new-window %U
 Icon=example-browser
 MimeType=text/html;inode/directory;
 Categories=Network;WebBrowser;
+Keywords=web;internet;
+Actions=new-window;
+
+[Desktop Action new-window]
+Name=New Window
+Exec=example-browser --new-window
 "#,
         "example.desktop".to_owned(),
         PathBuf::from("/tmp/example.desktop"),
@@ -25,17 +32,57 @@ Categories=Network;WebBrowser;
     .expect("app entry");
 
     assert_eq!(app.name, "Example Browser");
+    assert_eq!(app.localized_names, vec!["Navegador Exemplo"]);
     assert_eq!(app.generic_name.as_deref(), Some("Web Browser"));
     assert_eq!(app.comment.as_deref(), Some("Browse the web"));
     assert_eq!(app.icon.as_deref(), Some("example-browser"));
     assert!(app.supports_mime_type("text/html"));
     assert!(app.supports_directory_opening());
     assert!(app.has_category("WebBrowser"));
+    assert_eq!(app.keywords, vec!["web", "internet"]);
+    assert_eq!(app.actions.len(), 1);
+    assert_eq!(app.actions[0].id, "new-window");
+    assert_eq!(app.actions[0].name, "New Window");
+    assert_eq!(
+        app.actions[0].command.as_ref().expect("action command"),
+        &CommandSpec {
+            program: OsString::from("example-browser"),
+            args: vec![OsString::from("--new-window")]
+        }
+    );
     assert_eq!(
         app.command,
         CommandSpec {
             program: OsString::from("example-browser"),
             args: vec![OsString::from("--new-window")]
+        }
+    );
+}
+
+#[test]
+fn parse_desktop_entry_supports_dbus_activatable_entries() {
+    let app = parse_desktop_entry(
+        r#"
+[Desktop Entry]
+Type=Application
+Name=DBus App
+DBusActivatable=true
+"#,
+        "org.example.DBusApp.desktop".to_owned(),
+        PathBuf::from("/tmp/org.example.DBusApp.desktop"),
+    )
+    .expect("dbus app entry");
+
+    assert!(app.dbus_activatable);
+    assert_eq!(app.exec, "");
+    assert_eq!(
+        app.command,
+        CommandSpec {
+            program: OsString::from("gio"),
+            args: vec![
+                OsString::from("launch"),
+                OsString::from("org.example.DBusApp.desktop")
+            ],
         }
     );
 }
