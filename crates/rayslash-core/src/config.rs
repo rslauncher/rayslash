@@ -355,7 +355,7 @@ fn default_alternate_folder_opener_command() -> String {
 }
 
 fn default_max_results() -> usize {
-    20
+    36
 }
 
 fn normalize_command(command: String) -> String {

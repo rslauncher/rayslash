@@ -209,15 +209,6 @@ pub(super) fn disabled_providers_result() -> SearchResult {
     }
 }
 
-pub fn max_results_tip(max_results: usize) -> SearchResult {
-    SearchResult {
-        title: format!("Max results: {max_results}"),
-        subtitle: "Change this cap in Settings".to_owned(),
-        icon: SearchResultIcon::Placeholder,
-        kind: SearchResultKind::LimitTip { max_results },
-    }
-}
-
 pub fn display_path(path: &Path) -> String {
     dirs::home_dir()
         .map(|home| display_path_for_home(path, &home))

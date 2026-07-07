@@ -4,10 +4,10 @@ use rayslash_core::{apps, config, projects, ranking, search};
 use slint::{ComponentHandle, Timer, VecModel};
 
 use crate::{
-    AppChoiceItem, AppWindow, DEFAULT_STATUS_TEXT, ResultItem,
+    AppChoiceItem, AppWindow, DEFAULT_STATUS_TEXT, DESKTOP_APP_REFRESH_INTERVAL, ResultItem,
     result_items::IconImageCache,
     runtime_state::{
-        ResultRefreshContext, ResultSelection, refresh_desktop_apps, refresh_result_view,
+        ResultRefreshContext, ResultSelection, refresh_desktop_apps_if_stale, refresh_result_view,
         refresh_settings_dependent_ui,
     },
     settings::{SettingsConfigError, config_from_settings_fields, first_existing_folder_source},
@@ -24,6 +24,7 @@ pub(crate) struct SettingsCallbackContext {
     pub icon_cache: Rc<RefCell<IconImageCache>>,
     pub socket_path: PathBuf,
     pub suppress_next_focus_hide: Rc<Cell<bool>>,
+    pub last_desktop_app_refresh: Rc<RefCell<std::time::Instant>>,
     pub settings_save_blocked: bool,
     pub profile: bool,
 }
@@ -40,6 +41,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         icon_cache,
         socket_path,
         suppress_next_focus_hide,
+        last_desktop_app_refresh,
         settings_save_blocked,
         profile,
     } = context;
@@ -51,6 +53,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let apps = apps.clone();
         let alternate_opener_choices = alternate_opener_choices.clone();
         let icon_cache = icon_cache.clone();
+        let last_desktop_app_refresh = last_desktop_app_refresh.clone();
         let ranking_state = ranking_state.clone();
         let socket_path = socket_path.clone();
         move || {
@@ -61,10 +64,12 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     return;
                 }
 
-                refresh_desktop_apps(
+                refresh_desktop_apps_if_stale(
                     &apps,
                     &alternate_opener_choices,
                     &icon_cache,
+                    &last_desktop_app_refresh,
+                    DESKTOP_APP_REFRESH_INTERVAL,
                     profile,
                     "settings-open",
                 );
@@ -169,7 +174,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 }
                 Err(SettingsConfigError::InvalidTheme) => {
                     if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text("Theme must be dark or dim.".into());
+                        ui.set_status_text("Theme must be dark, dim, or light.".into());
                     }
                     return;
                 }

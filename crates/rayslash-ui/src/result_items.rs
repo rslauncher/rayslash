@@ -25,6 +25,7 @@ pub(crate) fn to_result_items(
             ResultItem {
                 title: result.title.clone().into(),
                 subtitle: result.subtitle.clone().into(),
+                subtitle_tooltip: subtitle_tooltip(result).into(),
                 icon: icon.image,
                 has_icon: icon.has_image,
                 icon_kind: icon.kind.into(),
@@ -32,6 +33,16 @@ pub(crate) fn to_result_items(
             }
         })
         .collect()
+}
+
+fn subtitle_tooltip(result: &search::SearchResult) -> String {
+    match &result.kind {
+        search::SearchResultKind::Project { path } => path.display().to_string(),
+        search::SearchResultKind::App { .. } if result.subtitle != "Application" => {
+            result.subtitle.clone()
+        }
+        _ => String::new(),
+    }
 }
 
 pub(crate) fn load_icon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -> Option<Image> {

@@ -14,7 +14,7 @@ use providers::{
     alias_result, app_result, calculator_result, disabled_providers_result, no_results,
     placeholder_results_for_providers, project_result,
 };
-pub use providers::{display_path, max_results_tip, placeholder_results, project_results};
+pub use providers::{display_path, placeholder_results, project_results};
 #[cfg(test)]
 use providers::{display_path_for_home, project_result_with_subtitle};
 pub use result::{SearchResult, SearchResultIcon, SearchResultKind};

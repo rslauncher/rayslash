@@ -77,8 +77,6 @@ fn result_type_order(kind: &SearchResultKind) -> u8 {
         SearchResultKind::App { .. } => 1,
         SearchResultKind::Project { .. } => 2,
         SearchResultKind::Alias { .. } => 3,
-        SearchResultKind::Placeholder
-        | SearchResultKind::LimitTip { .. }
-        | SearchResultKind::NoResults { .. } => 4,
+        SearchResultKind::Placeholder | SearchResultKind::NoResults { .. } => 4,
     }
 }

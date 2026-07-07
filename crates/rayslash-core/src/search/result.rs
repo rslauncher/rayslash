@@ -21,7 +21,6 @@ pub enum SearchResultIcon {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchResultKind {
     Placeholder,
-    LimitTip { max_results: usize },
     NoResults { query: String },
     Calculator { expression: String, result: String },
     CalculatorError { expression: String, message: String },
@@ -34,7 +33,6 @@ impl SearchResult {
     pub fn project_path(&self) -> Option<&Path> {
         match &self.kind {
             SearchResultKind::Placeholder => None,
-            SearchResultKind::LimitTip { .. } => None,
             SearchResultKind::NoResults { .. } => None,
             SearchResultKind::Calculator { .. } => None,
             SearchResultKind::CalculatorError { .. } => None,
@@ -48,7 +46,6 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::App { command, .. } => Some(command),
             SearchResultKind::Placeholder
-            | SearchResultKind::LimitTip { .. }
             | SearchResultKind::NoResults { .. }
             | SearchResultKind::Calculator { .. }
             | SearchResultKind::CalculatorError { .. }
@@ -61,7 +58,6 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::Calculator { result, .. } => Some(result),
             SearchResultKind::Placeholder
-            | SearchResultKind::LimitTip { .. }
             | SearchResultKind::NoResults { .. }
             | SearchResultKind::CalculatorError { .. }
             | SearchResultKind::App { .. }
@@ -74,7 +70,6 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::CalculatorError { message, .. } => Some(message),
             SearchResultKind::Placeholder
-            | SearchResultKind::LimitTip { .. }
             | SearchResultKind::NoResults { .. }
             | SearchResultKind::Calculator { .. }
             | SearchResultKind::App { .. }
@@ -97,7 +92,6 @@ impl SearchResult {
             }
             SearchResultKind::Alias { alias } => Some(format!("alias:{}", alias.query.trim())),
             SearchResultKind::NoResults { query } => Some(format!("no-results:{}", query.trim())),
-            SearchResultKind::LimitTip { max_results } => Some(format!("limit-tip:{max_results}")),
             SearchResultKind::Placeholder => None,
         }
     }
@@ -106,7 +100,6 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::App { .. } | SearchResultKind::Project { .. } => self.stable_id(),
             SearchResultKind::Placeholder
-            | SearchResultKind::LimitTip { .. }
             | SearchResultKind::NoResults { .. }
             | SearchResultKind::Calculator { .. }
             | SearchResultKind::CalculatorError { .. }

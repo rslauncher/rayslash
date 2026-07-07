@@ -118,6 +118,120 @@ export component SettingsGearIcon inherits Rectangle {
     }
 }
 
+export component LegendTooltipBubble inherits Rectangle {
+    in property <string> text;
+    in property <bool> light;
+
+    width: root.text == "" ? 0px : min(tip-text.preferred-width + 18px, 560px);
+    height: root.text == "" ? 0px : 30px;
+    border-radius: 7px;
+    background: root.light ? #222222 : #f2f2f2;
+    border-width: root.text == "" ? 0px : 1px;
+    border-color: root.light ? #111111 : #ffffff;
+
+    tip-text := Text {
+        x: 9px;
+        width: parent.width - 18px;
+        height: 100%;
+        text: root.text;
+        color: root.light ? #ffffff : #202020;
+        font-size: 11px;
+        font-weight: 600;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+}
+
+export component TooltipText inherits Rectangle {
+    in property <string> text;
+    in property <string> tooltip-text;
+    in property <bool> light;
+    in property <color> text-color;
+    in property <length> text-font-size: 11px;
+    in property <int> text-font-weight: 400;
+
+    callback clicked();
+    callback pointer-event(PointerEvent);
+    callback hover-changed(bool);
+
+    height: display-text.preferred-height;
+    background: transparent;
+
+    display-text := Text {
+        width: parent.width;
+        height: parent.height;
+        text: root.text;
+        color: root.text-color;
+        font-size: root.text-font-size;
+        font-weight: root.text-font-weight;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+
+    tooltip-measure := Text {
+        width: 0px;
+        height: 0px;
+        text: root.tooltip-text;
+        font-size: 11px;
+        font-weight: 600;
+        visible: false;
+    }
+
+    tooltip-delay := Timer {
+        interval: 2s;
+        running: false;
+
+        triggered => {
+            self.running = false;
+            if tooltip-touch.has-hover && root.tooltip-text != "" {
+                tooltip-popup.show();
+            }
+        }
+    }
+
+    tooltip-popup := PopupWindow {
+        x: 0px;
+        y: root.height + 6px;
+        width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, 560px);
+        height: root.tooltip-text == "" ? 0px : 30px;
+        close-policy: PopupClosePolicy.no-auto-close;
+
+        LegendTooltipBubble {
+            width: 100%;
+            height: 100%;
+            text: root.tooltip-text;
+            light: root.light;
+        }
+    }
+
+    changed tooltip-text => {
+        tooltip-delay.running = false;
+        tooltip-popup.close();
+    }
+
+    tooltip-touch := TouchArea {
+        mouse-cursor: pointer;
+
+        clicked => {
+            root.clicked();
+        }
+
+        pointer-event(event) => {
+            root.pointer-event(event);
+        }
+
+        changed has-hover => {
+            if self.has-hover && root.tooltip-text != "" {
+                tooltip-delay.running = true;
+            } else {
+                tooltip-delay.running = false;
+                tooltip-popup.close();
+            }
+            root.hover-changed(self.has-hover);
+        }
+    }
+}
+
 export component SettingToggle inherits Rectangle {
     in property <string> label;
     in property <string> description;
@@ -125,14 +239,24 @@ export component SettingToggle inherits Rectangle {
     in-out property <bool> checked;
     callback toggled();
 
+    private property <bool> description-hover: false;
+
     height: 58px;
     border-radius: 8px;
-    background: root.light ? toggle-touch.has-hover ? #ffffff : #f6f6f6 : toggle-touch.has-hover ? #242424 : #202020;
+    background: root.light ? toggle-touch.has-hover || root.description-hover ? #ffffff : #f6f6f6 : toggle-touch.has-hover || root.description-hover ? #242424 : #202020;
     border-width: 1px;
-    border-color: root.light ? toggle-touch.has-hover ? #bdbdbd : #d4d4d4 : #363636;
+    border-color: root.light ? toggle-touch.has-hover || root.description-hover ? #bdbdbd : #d4d4d4 : #363636;
 
     animate background { duration: 90ms; }
     animate border-color { duration: 90ms; }
+
+    toggle-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
 
     HorizontalLayout {
         padding-left: 12px;
@@ -170,44 +294,21 @@ export component SettingToggle inherits Rectangle {
                 overflow: elide;
             }
 
-            Text {
+            TooltipText {
+                horizontal-stretch: 1;
                 text: root.description;
-                color: root.light ? #5f5f5f : #9a9a9a;
-                font-size: 11px;
-                overflow: elide;
+                tooltip-text: root.label + ": " + root.description;
+                light: root.light;
+                text-color: root.light ? #5f5f5f : #9a9a9a;
+                text-font-size: 11px;
+                hover-changed(hover) => {
+                    root.description-hover = hover;
+                }
+                clicked => {
+                    root.checked = !root.checked;
+                    root.toggled();
+                }
             }
-        }
-    }
-
-    if toggle-touch.has-hover: Rectangle {
-        x: 10px;
-        y: parent.height - 2px;
-        width: parent.width - 20px;
-        height: 30px;
-        border-radius: 7px;
-        background: root.light ? #222222 : #f2f2f2;
-        border-width: 1px;
-        border-color: root.light ? #111111 : #ffffff;
-        z: 10;
-
-        Text {
-            x: 9px;
-            width: parent.width - 18px;
-            height: 100%;
-            text: root.label + ": " + root.description;
-            color: root.light ? #ffffff : #202020;
-            font-size: 11px;
-            font-weight: 600;
-            overflow: elide;
-            vertical-alignment: center;
-        }
-    }
-
-    toggle-touch := TouchArea {
-        mouse-cursor: pointer;
-        clicked => {
-            root.checked = !root.checked;
-            root.toggled();
         }
     }
 }

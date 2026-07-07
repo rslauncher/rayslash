@@ -1,4 +1,5 @@
 import { ResultItem } from "./models.slint";
+import { TooltipText } from "./components.slint";
 
 export component ResultList inherits Flickable {
     in property <[ResultItem]> results;
@@ -40,15 +41,6 @@ export component ResultList inherits Flickable {
         }
     }
 
-    function row-fully-visible(index: int) -> bool {
-        let row-top = index * root.row-stride;
-        let row-bottom = row-top + root.row-height;
-        let visible-top = -root.viewport-y;
-        let visible-bottom = visible-top + root.height;
-
-        return row-top >= visible-top && row-bottom <= visible-bottom;
-    }
-
     viewport-width: self.width;
     viewport-height: root.result-count <= 0 ? 0px : root.result-count * root.row-stride - root.row-gap;
 
@@ -57,12 +49,36 @@ export component ResultList inherits Flickable {
         width: root.width;
         height: root.row-height;
         border-radius: 12px;
-        background: root.light ? row-touch.pressed ? #d8d8d8 : i == root.selected-index ? #dedede : row-touch.has-hover && root.row-fully-visible(i) ? #e8e8e8 : #ffffff : row-touch.pressed ? #3c3c3c : i == root.selected-index ? #343434 : row-touch.has-hover && root.row-fully-visible(i) ? #2a2a2a : #222222;
+        background: root.light ? row-touch.pressed ? #d8d8d8 : i == root.selected-index ? #dedede : row-touch.has-hover ? #e8e8e8 : #ffffff : row-touch.pressed ? #3c3c3c : i == root.selected-index ? #343434 : row-touch.has-hover ? #2a2a2a : #222222;
         border-width: 1px;
-        border-color: root.light ? i == root.selected-index ? #9c9c9c : row-touch.has-hover && root.row-fully-visible(i) ? #c4c4c4 : #d7d7d7 : i == root.selected-index ? #6a6a6a : row-touch.has-hover && root.row-fully-visible(i) ? #474747 : #303030;
+        border-color: root.light ? i == root.selected-index ? #9c9c9c : row-touch.has-hover ? #c4c4c4 : #d7d7d7 : i == root.selected-index ? #6a6a6a : row-touch.has-hover ? #474747 : #303030;
 
         animate background { duration: 90ms; }
         animate border-color { duration: 90ms; }
+
+        row-touch := TouchArea {
+            mouse-cursor: pointer;
+
+            clicked => {
+                root.selected-index = i;
+                root.activate-result(i, root.click-open-in-alternate-opener);
+            }
+
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down || event.kind == PointerEventKind.up) {
+                    root.click-open-in-alternate-opener = event.modifiers.control;
+                    root.selected-index = i;
+                } else if (event.kind == PointerEventKind.move) {
+                    root.selected-index = i;
+                }
+            }
+
+            changed has-hover => {
+                if (self.has-hover) {
+                    root.selected-index = i;
+                }
+            }
+        }
 
         HorizontalLayout {
             padding-left: 14px;
@@ -243,34 +259,33 @@ export component ResultList inherits Flickable {
                     font-weight: 700;
                 }
 
-                Text {
+                TooltipText {
+                    horizontal-stretch: 1;
                     text: item.subtitle;
-                    color: root.light ? i == root.selected-index ? #3f3f3f : #656565 : i == root.selected-index ? #d0d0d0 : #a0a0a0;
-                    font-size: 13px;
-                }
-            }
-        }
+                    tooltip-text: item.subtitle_tooltip;
+                    light: root.light;
+                    text-color: root.light ? i == root.selected-index ? #3f3f3f : #656565 : i == root.selected-index ? #d0d0d0 : #a0a0a0;
+                    text-font-size: 13px;
 
-        row-touch := TouchArea {
-            mouse-cursor: pointer;
+                    clicked => {
+                        root.selected-index = i;
+                        root.activate-result(i, root.click-open-in-alternate-opener);
+                    }
 
-            clicked => {
-                root.selected-index = i;
-                root.activate-result(i, root.click-open-in-alternate-opener);
-            }
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down || event.kind == PointerEventKind.up) {
+                            root.click-open-in-alternate-opener = event.modifiers.control;
+                            root.selected-index = i;
+                        } else if (event.kind == PointerEventKind.move) {
+                            root.selected-index = i;
+                        }
+                    }
 
-            pointer-event(event) => {
-                if (event.kind == PointerEventKind.down || event.kind == PointerEventKind.up) {
-                    root.click-open-in-alternate-opener = event.modifiers.control;
-                    root.selected-index = i;
-                } else if (event.kind == PointerEventKind.move && root.row-fully-visible(i)) {
-                    root.selected-index = i;
-                }
-            }
-
-            changed has-hover => {
-                if (self.has-hover && root.row-fully-visible(i)) {
-                    root.selected-index = i;
+                    hover-changed(hover) => {
+                        if (hover) {
+                            root.selected-index = i;
+                        }
+                    }
                 }
             }
         }

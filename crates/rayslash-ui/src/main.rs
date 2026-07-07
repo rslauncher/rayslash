@@ -14,7 +14,7 @@ use std::{
     path::PathBuf,
     process::ExitCode,
     rc::Rc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use activation::register_activation_callback;
@@ -23,8 +23,7 @@ use rayslash_core::{apps, config, projects};
 use result_items::{IconImageCache, to_result_items};
 use runtime_state::{
     ResultRefreshContext, ResultSelection, load_runtime_ranking_state, profile_enabled,
-    profile_stage, refresh_desktop_apps, refresh_result_view, refresh_settings_dependent_ui,
-    search_results,
+    profile_stage, refresh_result_view, refresh_settings_dependent_ui, search_result_set,
 };
 use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
@@ -38,6 +37,7 @@ use window_state::{
 slint::include_modules!();
 
 pub(crate) const DEFAULT_STATUS_TEXT: &str = "";
+const DESKTOP_APP_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -164,6 +164,7 @@ fn run_gui(
 
     let stage_started = Instant::now();
     let apps = Rc::new(RefCell::new(apps::discover_desktop_apps()));
+    let last_desktop_app_refresh = Rc::new(RefCell::new(Instant::now()));
     profile_stage(
         profile,
         &format!("app discovery ({} apps)", apps.borrow().len()),
@@ -171,13 +172,15 @@ fn run_gui(
     );
 
     let stage_started = Instant::now();
-    let current_results = Rc::new(RefCell::new(search_results(
+    let initial_result_set = search_result_set(
         &config_state.borrow(),
         &ranking_state.borrow(),
         &projects.borrow(),
         &apps.borrow(),
         "",
-    )));
+    );
+    let initial_result_tip = initial_result_set.result_tip.clone();
+    let current_results = Rc::new(RefCell::new(initial_result_set.results));
     profile_stage(
         profile,
         &format!(
@@ -197,6 +200,7 @@ fn run_gui(
     profile_stage(profile, "startup before event loop", startup_started);
 
     ui.set_result_count(current_results.borrow().len() as i32);
+    ui.set_result_tip_text(initial_result_tip.into());
     ui.set_results(results_model.clone().into());
     ui.set_selected_index(-1);
 
@@ -243,7 +247,6 @@ fn run_gui(
         let weak = ui.as_weak();
         let projects = projects.clone();
         let apps = apps.clone();
-        let alternate_opener_choices = alternate_opener_choices.clone();
         let config_state = config_state.clone();
         let ranking_state = ranking_state.clone();
         let current_results = current_results.clone();
@@ -251,14 +254,6 @@ fn run_gui(
         let icon_cache = icon_cache.clone();
         let socket_path = socket_path.clone();
         move || {
-            refresh_desktop_apps(
-                &apps,
-                &alternate_opener_choices,
-                &icon_cache,
-                profile,
-                "show/reset",
-            );
-
             if let Some(ui) = weak.upgrade() {
                 ui.set_query_text("".into());
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
@@ -360,6 +355,7 @@ fn run_gui(
             icon_cache: icon_cache.clone(),
             socket_path: socket_path.clone(),
             suppress_next_focus_hide: suppress_next_focus_hide.clone(),
+            last_desktop_app_refresh: last_desktop_app_refresh.clone(),
             settings_save_blocked,
             profile,
         },

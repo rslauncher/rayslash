@@ -1,4 +1,9 @@
-use std::{cell::RefCell, path::Path, rc::Rc, time::Instant};
+use std::{
+    cell::RefCell,
+    path::Path,
+    rc::Rc,
+    time::{Duration, Instant},
+};
 
 use rayslash_core::{apps, config, projects, ranking, search};
 use slint::VecModel;
@@ -9,6 +14,11 @@ use crate::{
     result_items::{IconImageCache, to_result_items},
     settings::set_settings_properties,
 };
+
+pub(crate) struct SearchResultSet {
+    pub results: Vec<search::SearchResult>,
+    pub result_tip: String,
+}
 
 pub(crate) fn profile_enabled() -> bool {
     std::env::var_os("RAYSLASH_PROFILE").is_some_and(|value| value != "0")
@@ -30,13 +40,13 @@ pub(crate) fn load_runtime_ranking_state() -> ranking::RankingState {
     }
 }
 
-pub(crate) fn search_results(
+pub(crate) fn search_result_set(
     config: &config::Config,
     ranking_state: &ranking::RankingState,
     projects: &[projects::Project],
     apps: &[apps::DesktopApp],
     query: &str,
-) -> Vec<search::SearchResult> {
+) -> SearchResultSet {
     let ranking = config.ranking.learn_from_usage.then_some(ranking_state);
     let mut results = search::mixed_results_with_ranking(
         projects,
@@ -48,11 +58,17 @@ pub(crate) fn search_results(
     );
     let total_results = results.len();
     let max_results = config.appearance.max_results;
-    if total_results > max_results {
+    let result_tip = if total_results > max_results {
         results.truncate(max_results);
-        results.push(search::max_results_tip(max_results));
+        format!("Max results: {max_results}")
+    } else {
+        String::new()
+    };
+
+    SearchResultSet {
+        results,
+        result_tip,
     }
-    results
 }
 
 pub(crate) fn refresh_desktop_apps(
@@ -81,6 +97,23 @@ pub(crate) fn refresh_desktop_apps(
     );
 }
 
+pub(crate) fn refresh_desktop_apps_if_stale(
+    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
+    choices_model: &Rc<VecModel<AppChoiceItem>>,
+    icon_cache: &Rc<RefCell<IconImageCache>>,
+    last_refresh: &Rc<RefCell<Instant>>,
+    min_interval: Duration,
+    profile: bool,
+    label: &str,
+) {
+    if last_refresh.borrow().elapsed() < min_interval {
+        return;
+    }
+
+    refresh_desktop_apps(apps_state, choices_model, icon_cache, profile, label);
+    *last_refresh.borrow_mut() = Instant::now();
+}
+
 pub(crate) struct ResultRefreshContext<'a> {
     pub config: &'a config::Config,
     pub ranking_state: &'a ranking::RankingState,
@@ -102,13 +135,14 @@ pub(crate) fn refresh_result_view(
     query: &str,
     selection: ResultSelection,
 ) -> usize {
-    let results = search_results(
+    let result_set = search_result_set(
         context.config,
         context.ranking_state,
         context.projects,
         context.apps,
         query,
     );
+    let results = result_set.results;
     let count = results.len();
 
     context.results_model.set_vec(to_result_items(
@@ -118,6 +152,7 @@ pub(crate) fn refresh_result_view(
     *context.current_results.borrow_mut() = results;
 
     ui.set_result_count(count as i32);
+    ui.set_result_tip_text(result_set.result_tip.into());
     ui.set_selected_index(match selection {
         ResultSelection::Exact(index) => index,
         ResultSelection::QueryDefault => selected_index_for_query(query, count as i32),
@@ -177,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn search_results_respect_configured_max_results_and_add_tip() {
+    fn search_results_respect_configured_max_results_without_adding_tip_row() {
         let config = config::Config {
             folder_sources: Vec::new(),
             aliases: Vec::new(),
@@ -201,11 +236,11 @@ mod tests {
             },
         ];
 
-        let results = search_results(&config, &ranking_state, &projects, &[], "");
+        let result_set = search_result_set(&config, &ranking_state, &projects, &[], "");
 
-        assert_eq!(results.len(), 2);
-        assert_eq!(results[0].title, "alpha");
-        assert_eq!(results[1].title, "Max results: 1");
+        assert_eq!(result_set.results.len(), 1);
+        assert_eq!(result_set.results[0].title, "alpha");
+        assert_eq!(result_set.result_tip, "Max results: 1");
     }
 
     #[test]
@@ -237,7 +272,7 @@ mod tests {
             },
         ];
 
-        let results = search_results(&config, &ranking_state, &projects, &[], "al");
+        let results = search_result_set(&config, &ranking_state, &projects, &[], "al").results;
 
         assert_eq!(results[0].title, "Alpha");
     }

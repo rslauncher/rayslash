@@ -91,7 +91,6 @@ fn current_result_types_have_stable_ids() {
         .into_iter()
         .next()
         .expect("calculator result");
-    let limit_tip = search::max_results_tip(20);
     let no_results = search::mixed_results(&projects, &[], "zzz")
         .into_iter()
         .next()
@@ -118,8 +117,6 @@ fn current_result_types_have_stable_ids() {
         Some("calculator:2 + 2".to_owned())
     );
     assert_eq!(calculator_result.learning_id(), None);
-    assert_eq!(limit_tip.stable_id(), Some("limit-tip:20".to_owned()));
-    assert_eq!(limit_tip.learning_id(), None);
     assert_eq!(no_results.stable_id(), Some("no-results:zzz".to_owned()));
     assert_eq!(no_results.learning_id(), None);
 }

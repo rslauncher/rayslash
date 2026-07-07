@@ -137,6 +137,24 @@ component LauncherHint inherits Rectangle {
     }
 }
 
+component ResultTip inherits Rectangle {
+    in property <string> text;
+    in property <bool> light;
+
+    height: root.text == "" ? 0px : 18px;
+    visible: root.text != "";
+    background: transparent;
+
+    Text {
+        height: 100%;
+        text: root.text;
+        color: root.light ? #555555 : #b8b8b8;
+        font-size: 11px;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+}
+
 export component AppWindow inherits Window {
     in property <[ResultItem]> results;
     in property <[AppChoiceItem]> alternate-opener-choices;
@@ -144,6 +162,7 @@ export component AppWindow inherits Window {
     in-out property <int> selected-index: -1;
     in-out property <string> query-text: "";
     in-out property <string> status-text: "";
+    in-out property <string> result-tip-text: "";
     in-out property <bool> settings-open: false;
     in-out property <string> settings-folder-sources: "";
     in-out property <string> settings-alternate-folder-opener-command: "xdg-terminal-exec";
@@ -423,6 +442,13 @@ export component AppWindow inherits Window {
                         activate-result(index, use-alternate-opener) => {
                             root.activate-selected-result(index, use-alternate-opener);
                         }
+                    }
+
+                    ResultTip {
+                        height: root.settings-open || root.result-tip-text == "" ? 0px : 18px;
+                        visible: !root.settings-open && root.result-tip-text != "";
+                        text: root.result-tip-text;
+                        light: root.light-theme;
                     }
                 }
             }
