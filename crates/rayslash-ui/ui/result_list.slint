@@ -26,6 +26,9 @@ export component ResultList inherits Flickable {
     private property <length> tooltip-x: 0px;
     private property <length> tooltip-y: 0px;
     private property <bool> tooltip-visible: false;
+    private property <length> tooltip-max-width: max(0px, root.width - root.tooltip-x - 6px);
+    private property <length> tooltip-width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, root.tooltip-max-width);
+    private property <length> tooltip-height: root.tooltip-text == "" ? 0px : min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 54px);
     private property <bool> pointer-over-list: false;
     private property <length> pointer-y: 0px;
     private property <int> hovered-index: -1;
@@ -132,6 +135,16 @@ export component ResultList inherits Flickable {
         text: root.tooltip-text;
         font-size: 11px;
         font-weight: 600;
+        visible: false;
+    }
+
+    tooltip-wrapped-measure := Text {
+        width: max(0px, root.tooltip-width - 18px);
+        height: 0px;
+        text: root.tooltip-text;
+        font-size: 11px;
+        font-weight: 600;
+        wrap: word-wrap;
         visible: false;
     }
 
@@ -408,8 +421,8 @@ export component ResultList inherits Flickable {
     LegendTooltipBubble {
         x: root.tooltip-x;
         y: root.tooltip-y - root.viewport-y;
-        width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, max(0px, root.width - root.tooltip-x - 6px));
-        height: root.tooltip-visible && root.tooltip-text != "" ? 30px : 0px;
+        width: root.tooltip-width;
+        height: root.tooltip-visible && root.tooltip-text != "" ? root.tooltip-height : 0px;
         visible: root.tooltip-visible && root.tooltip-text != "";
         text: root.tooltip-text;
         light: root.light;

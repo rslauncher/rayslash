@@ -514,6 +514,33 @@ export component SettingsPanel inherits FocusScope {
             }
 
             HorizontalLayout {
+                height: 58px;
+                spacing: 8px;
+
+                SettingToggle {
+                    label: "Alt opener";
+                    description: "Ctrl+Enter folders";
+                    light: root.light;
+                    tooltips-enabled: root.show-tooltips;
+                    checked <=> root.alternate-folder-opener-enabled;
+                    toggled => {
+                        root.save-settings();
+                    }
+                }
+
+                SettingToggle {
+                    label: "Tooltips";
+                    description: "Delayed detail popups";
+                    light: root.light;
+                    tooltips-enabled: root.show-tooltips;
+                    checked <=> root.show-tooltips;
+                    toggled => {
+                        root.save-settings();
+                    }
+                }
+            }
+
+            HorizontalLayout {
                 height: 42px;
                 spacing: 8px;
 
@@ -563,17 +590,6 @@ export component SettingsPanel inherits FocusScope {
                                 }
                             }
                         }
-                    }
-                }
-
-                SettingToggle {
-                    label: "Alt opener";
-                    description: "Ctrl+Enter folders";
-                    light: root.light;
-                    tooltips-enabled: root.show-tooltips;
-                    checked <=> root.alternate-folder-opener-enabled;
-                    toggled => {
-                        root.save-settings();
                     }
                 }
             }
@@ -695,27 +711,6 @@ export component SettingsPanel inherits FocusScope {
                             }
                         }
                     }
-                }
-            }
-
-            HorizontalLayout {
-                height: 58px;
-                spacing: 8px;
-
-                SettingToggle {
-                    label: "Tooltips";
-                    description: "Delayed detail popups";
-                    light: root.light;
-                    tooltips-enabled: root.show-tooltips;
-                    checked <=> root.show-tooltips;
-                    toggled => {
-                        root.save-settings();
-                    }
-                }
-
-                Rectangle {
-                    horizontal-stretch: 1;
-                    background: transparent;
                 }
             }
 

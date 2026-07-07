@@ -122,23 +122,48 @@ export component LegendTooltipBubble inherits Rectangle {
     in property <string> text;
     in property <bool> light;
 
-    width: root.text == "" ? 0px : min(tip-text.preferred-width + 18px, 560px);
-    height: root.text == "" ? 0px : 30px;
+    private property <length> max-tooltip-width: 560px;
+    private property <length> text-width: root.text == "" ? 0px : min(single-line-measure.preferred-width, root.max-tooltip-width - 18px);
+    private property <length> tooltip-height: root.text == "" ? 0px : min(max(30px, wrapped-measure.preferred-height + 12px), 54px);
+
+    width: root.text == "" ? 0px : root.text-width + 18px;
+    height: root.tooltip-height;
     border-radius: 7px;
     background: root.light ? #222222 : #f2f2f2;
     border-width: root.text == "" ? 0px : 1px;
     border-color: root.light ? #111111 : #ffffff;
 
+    single-line-measure := Text {
+        width: 0px;
+        height: 0px;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        visible: false;
+    }
+
+    wrapped-measure := Text {
+        width: root.text-width;
+        height: 0px;
+        text: root.text;
+        font-size: 11px;
+        font-weight: 600;
+        wrap: word-wrap;
+        visible: false;
+    }
+
     tip-text := Text {
         x: 9px;
+        y: 6px;
         width: parent.width - 18px;
-        height: 100%;
+        height: parent.height - 12px;
         text: root.text;
         color: root.light ? #ffffff : #202020;
         font-size: 11px;
         font-weight: 600;
+        wrap: word-wrap;
         overflow: elide;
-        vertical-alignment: center;
+        vertical-alignment: top;
     }
 }
 
@@ -177,6 +202,16 @@ export component TooltipText inherits Rectangle {
         visible: false;
     }
 
+    tooltip-wrapped-measure := Text {
+        width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width, 542px);
+        height: 0px;
+        text: root.tooltip-text;
+        font-size: 11px;
+        font-weight: 600;
+        wrap: word-wrap;
+        visible: false;
+    }
+
     tooltip-delay := Timer {
         interval: 800ms;
         running: false;
@@ -193,7 +228,7 @@ export component TooltipText inherits Rectangle {
         x: 0px;
         y: root.height + 6px;
         width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, 560px);
-        height: root.tooltip-text == "" ? 0px : 30px;
+        height: root.tooltip-text == "" ? 0px : min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 54px);
         close-policy: PopupClosePolicy.no-auto-close;
 
         LegendTooltipBubble {
@@ -258,6 +293,16 @@ export component SettingToggle inherits Rectangle {
         visible: false;
     }
 
+    tooltip-wrapped-measure := Text {
+        width: root.tooltips-enabled ? min(tooltip-measure.preferred-width, 542px) : 0px;
+        height: 0px;
+        text: root.label + ": " + root.description;
+        font-size: 11px;
+        font-weight: 600;
+        wrap: word-wrap;
+        visible: false;
+    }
+
     tooltip-delay := Timer {
         interval: 800ms;
         running: false;
@@ -274,7 +319,7 @@ export component SettingToggle inherits Rectangle {
         x: 0px;
         y: root.height + 6px;
         width: root.tooltips-enabled ? min(tooltip-measure.preferred-width + 18px, 560px) : 0px;
-        height: root.tooltips-enabled ? 30px : 0px;
+        height: root.tooltips-enabled ? min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 54px) : 0px;
         close-policy: PopupClosePolicy.no-auto-close;
 
         LegendTooltipBubble {
