@@ -17,6 +17,8 @@ pub struct Config {
     #[serde(default)]
     pub aliases: Vec<AliasConfig>,
     #[serde(default)]
+    pub web_searches: Vec<WebSearchConfig>,
+    #[serde(default)]
     pub providers: ProviderConfig,
     #[serde(default)]
     pub actions: ActionConfig,
@@ -36,6 +38,12 @@ pub struct ProviderConfig {
     pub calculator: bool,
     #[serde(default = "default_true")]
     pub aliases: bool,
+    #[serde(default)]
+    pub web_search: bool,
+    #[serde(default)]
+    pub unit_conversion: bool,
+    #[serde(default)]
+    pub currency_conversion: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,6 +53,13 @@ pub struct AliasConfig {
     pub target: String,
     #[serde(default)]
     pub kind: Option<AliasKind>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebSearchConfig {
+    pub name: String,
+    pub query: String,
+    pub url_template: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,6 +196,7 @@ impl Default for Config {
         Self {
             folder_sources: default_folder_sources(),
             aliases: Vec::new(),
+            web_searches: Vec::new(),
             providers: ProviderConfig::default(),
             actions: ActionConfig::default(),
             appearance: AppearanceConfig::default(),
@@ -196,6 +212,9 @@ impl Default for ProviderConfig {
             folders: true,
             calculator: true,
             aliases: true,
+            web_search: false,
+            unit_conversion: false,
+            currency_conversion: false,
         }
     }
 }
@@ -232,6 +251,7 @@ impl Config {
     pub fn normalized(mut self) -> Self {
         self.folder_sources = normalize_folder_sources(self.folder_sources);
         self.aliases = crate::aliases::normalize_aliases(self.aliases);
+        self.web_searches = normalize_web_searches(self.web_searches);
         self.actions.alternate_folder_opener_command =
             normalize_command(self.actions.alternate_folder_opener_command);
         if self.appearance.max_results == 0 {
@@ -351,6 +371,27 @@ fn normalize_folder_sources(sources: Vec<PathBuf>) -> Vec<PathBuf> {
 
 fn default_true() -> bool {
     true
+}
+
+fn normalize_web_searches(searches: Vec<WebSearchConfig>) -> Vec<WebSearchConfig> {
+    searches
+        .into_iter()
+        .filter_map(|mut search| {
+            search.name = search.name.trim().to_owned();
+            search.query = search.query.trim().to_owned();
+            search.url_template = search.url_template.trim().to_owned();
+
+            if search.name.is_empty()
+                || search.query.is_empty()
+                || search.url_template.is_empty()
+                || !search.url_template.contains("{query}")
+            {
+                return None;
+            }
+
+            Some(search)
+        })
+        .collect()
 }
 
 fn default_alternate_folder_opener_command() -> String {

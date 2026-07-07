@@ -24,6 +24,7 @@ pub(crate) fn to_result_items(
 
             ResultItem {
                 title: result.title.clone().into(),
+                flair: result.flair.clone().into(),
                 subtitle: result.subtitle.clone().into(),
                 subtitle_tooltip: subtitle_tooltip(result).into(),
                 icon: icon.image,
@@ -143,6 +144,9 @@ fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache)
         }
         search::SearchResultIcon::App { path: None } => fallback_icon("app", ""),
         search::SearchResultIcon::Calculator => fallback_icon("calculator", ""),
+        search::SearchResultIcon::UnitConversion => fallback_icon("text", "U"),
+        search::SearchResultIcon::CurrencyConversion => fallback_icon("text", "$"),
+        search::SearchResultIcon::WebSearch => fallback_icon("text", "W"),
         search::SearchResultIcon::ProjectFolder => fallback_icon("folder", ""),
         search::SearchResultIcon::Placeholder => fallback_icon("placeholder", ""),
     }

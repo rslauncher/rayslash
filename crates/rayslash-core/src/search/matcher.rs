@@ -74,6 +74,10 @@ fn result_type_order(kind: &SearchResultKind) -> u8 {
     match kind {
         SearchResultKind::Calculator { .. } => 0,
         SearchResultKind::CalculatorError { .. } => 0,
+        SearchResultKind::UnitConversion { .. } => 0,
+        SearchResultKind::CurrencyConversion { .. } => 0,
+        SearchResultKind::CurrencyConversionError { .. } => 0,
+        SearchResultKind::WebSearch { .. } => 0,
         SearchResultKind::App { .. } => 1,
         SearchResultKind::Project { .. } => 2,
         SearchResultKind::Alias { .. } => 3,

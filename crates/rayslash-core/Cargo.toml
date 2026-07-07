@@ -10,3 +10,4 @@ dirs.workspace = true
 nucleo-matcher.workspace = true
 serde.workspace = true
 toml.workspace = true
+ureq.workspace = true

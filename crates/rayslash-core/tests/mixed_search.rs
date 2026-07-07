@@ -2,7 +2,7 @@ mod fixtures;
 
 use fixtures::{app, project, ranking_with_launches};
 use rayslash_core::{
-    config::{AliasConfig, AliasKind, ProviderConfig},
+    config::{AliasConfig, AliasKind, ProviderConfig, WebSearchConfig},
     ranking::RankingState,
     search,
 };
@@ -68,6 +68,7 @@ fn learned_ranking_integration_respects_provider_toggles_and_calculator_preceden
         folders: true,
         calculator: true,
         aliases: true,
+        ..ProviderConfig::default()
     };
     let projects = vec![project("/tmp/alpha-project", "Alpha Project")];
     let hidden =
@@ -94,6 +95,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
         folders: true,
         calculator: false,
         aliases: true,
+        ..ProviderConfig::default()
     };
     let projects = vec![project("/tmp/rayslash", "rayslash")];
     let apps = vec![app("rayslash.desktop", "Rayslash")];
@@ -113,6 +115,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             folders: true,
             calculator: false,
             aliases: true,
+            ..ProviderConfig::default()
         },
     );
 
@@ -133,6 +136,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             folders: false,
             calculator: true,
             aliases: false,
+            ..ProviderConfig::default()
         },
     );
 
@@ -148,6 +152,9 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             folders: false,
             calculator: false,
             aliases: false,
+            web_search: false,
+            unit_conversion: false,
+            currency_conversion: false,
         },
     );
 
@@ -187,11 +194,84 @@ fn mixed_search_matches_alias_names_and_queries_when_provider_enabled() {
             folders: false,
             calculator: false,
             aliases: false,
+            web_search: false,
+            unit_conversion: false,
+            currency_conversion: false,
         },
         None,
     );
 
     assert_eq!(disabled[0].title, "No providers enabled");
+}
+
+#[test]
+fn mixed_search_supports_configured_web_search_templates() {
+    let templates = vec![WebSearchConfig {
+        name: "DuckDuckGo".to_owned(),
+        query: "ddg".to_owned(),
+        url_template: "https://duckduckgo.com/?q={query}".to_owned(),
+    }];
+    let providers = ProviderConfig {
+        apps: false,
+        folders: false,
+        calculator: false,
+        aliases: false,
+        web_search: true,
+        unit_conversion: false,
+        currency_conversion: false,
+    };
+
+    let results = search::mixed_results_with_ranking_and_web_searches(
+        &[],
+        &[],
+        &[],
+        &templates,
+        "ddg rust slint",
+        &providers,
+        None,
+    );
+
+    assert_eq!(results[0].title, "Search DuckDuckGo for rust slint");
+    assert_eq!(
+        results[0].web_search_url(),
+        Some("https://duckduckgo.com/?q=rust%20slint")
+    );
+}
+
+#[test]
+fn mixed_search_supports_local_unit_conversion() {
+    let providers = ProviderConfig {
+        apps: false,
+        folders: false,
+        calculator: false,
+        aliases: false,
+        web_search: false,
+        unit_conversion: true,
+        currency_conversion: false,
+    };
+
+    let results = search::mixed_results_with_providers(&[], &[], "10 km to mi", &providers);
+
+    assert_eq!(results[0].title, "6.213712 mi");
+    assert_eq!(results[0].unit_conversion_result(), Some("6.213712 mi"));
+}
+
+#[test]
+fn mixed_search_supports_currency_conversion_rows_without_network_for_same_currency() {
+    let providers = ProviderConfig {
+        apps: false,
+        folders: false,
+        calculator: false,
+        aliases: false,
+        web_search: false,
+        unit_conversion: false,
+        currency_conversion: true,
+    };
+
+    let results = search::mixed_results_with_providers(&[], &[], "10 usd to usd", &providers);
+
+    assert_eq!(results[0].title, "10 USD");
+    assert_eq!(results[0].currency_conversion_result(), Some("10 USD"));
 }
 
 #[test]
@@ -248,6 +328,7 @@ fn mixed_search_no_results_wording_uses_enabled_provider_names() {
         folders: true,
         calculator: false,
         aliases: false,
+        ..ProviderConfig::default()
     };
     let projects = vec![project("/tmp/rayslash", "rayslash")];
 

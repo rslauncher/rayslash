@@ -4,20 +4,32 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use rayslash_core::{actions, apps, config, projects, ranking, search};
+use rayslash_core::{actions, app_state, apps, config, projects, ranking, search};
 use slint::ComponentHandle;
 
 use crate::{AppWindow, window_state::hide_launcher};
 
-pub(crate) fn register_activation_callback(
-    ui: &AppWindow,
-    current_results: Rc<RefCell<Vec<search::SearchResult>>>,
-    config_state: Rc<RefCell<config::Config>>,
-    ranking_state: Rc<RefCell<ranking::RankingState>>,
-    projects: Rc<RefCell<Vec<projects::Project>>>,
-    apps: Rc<RefCell<Vec<apps::DesktopApp>>>,
-    is_visible: Arc<AtomicBool>,
-) {
+pub(crate) struct ActivationCallbackContext {
+    pub current_results: Rc<RefCell<Vec<search::SearchResult>>>,
+    pub config_state: Rc<RefCell<config::Config>>,
+    pub app_install_state: Rc<RefCell<app_state::AppInstallState>>,
+    pub ranking_state: Rc<RefCell<ranking::RankingState>>,
+    pub projects: Rc<RefCell<Vec<projects::Project>>>,
+    pub apps: Rc<RefCell<Vec<apps::DesktopApp>>>,
+    pub is_visible: Arc<AtomicBool>,
+}
+
+pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCallbackContext) {
+    let ActivationCallbackContext {
+        current_results,
+        config_state,
+        app_install_state,
+        ranking_state,
+        projects,
+        apps,
+        is_visible,
+    } = context;
+
     ui.on_activate_selected_result({
         let weak = ui.as_weak();
         move |index, use_alternate_opener| {
@@ -27,22 +39,26 @@ pub(crate) fn register_activation_callback(
 
             match result {
                 Some(result) => {
-                    if let Some(calculator_result) = result.calculator_result() {
-                        match copy_to_clipboard(calculator_result) {
+                    if let Some(copyable_result) = result
+                        .calculator_result()
+                        .or_else(|| result.unit_conversion_result())
+                        .or_else(|| result.currency_conversion_result())
+                    {
+                        match copy_to_clipboard(copyable_result) {
                             Ok(()) => {
                                 if let Some(ui) = weak.upgrade() {
                                     ui.set_status_text(
-                                        format!("Copied result: {}", calculator_result).into(),
+                                        format!("Copied result: {}", copyable_result).into(),
                                     );
                                     hide_launcher(&ui, is_visible.as_ref());
                                 }
                             }
                             Err(error) => {
-                                eprintln!("failed to copy calculator result: {error}");
+                                eprintln!("failed to copy result: {error}");
 
                                 if let Some(ui) = weak.upgrade() {
                                     ui.set_status_text(
-                                        format!("Could not copy result: {}", calculator_result)
+                                        format!("Could not copy result: {}", copyable_result)
                                             .into(),
                                     );
                                 }
@@ -52,9 +68,31 @@ pub(crate) fn register_activation_callback(
                         if let Some(ui) = weak.upgrade() {
                             ui.set_status_text(calculator_error.into());
                         }
+                    } else if let Some(currency_error) = result.currency_error_message() {
+                        if let Some(ui) = weak.upgrade() {
+                            ui.set_status_text(currency_error.into());
+                        }
                     } else if result.is_no_results() {
                         if let Some(ui) = weak.upgrade() {
                             hide_launcher(&ui, is_visible.as_ref());
+                        }
+                    } else if let Some(url) = result.web_search_url() {
+                        match actions::open_url(url) {
+                            Ok(_child) => {
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(format!("Opening {}", result.title).into());
+                                    hide_launcher(&ui, is_visible.as_ref());
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!("failed to open web search {}: {error}", result.title);
+
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        "Could not open web search. Is `xdg-open` on PATH?".into(),
+                                    );
+                                }
+                            }
                         }
                     } else if let Some(path) = result.project_path() {
                         let display_path = search::display_path(path);
@@ -160,6 +198,7 @@ pub(crate) fn register_activation_callback(
                                         &result,
                                         query.as_str(),
                                     );
+                                    mark_app_selected(&app_install_state, &result);
                                     ui.set_status_text(
                                         format!("Launching {}", result.title).into(),
                                     );
@@ -215,6 +254,20 @@ pub(crate) fn register_activation_callback(
             }
         }
     });
+}
+
+fn mark_app_selected(
+    app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
+    result: &search::SearchResult,
+) {
+    let Some(app_id) = result.app_id() else {
+        return;
+    };
+
+    let changed = app_install_state.borrow_mut().mark_app_selected(app_id);
+    if changed && let Err(error) = app_state::save_app_state(&app_install_state.borrow()) {
+        eprintln!("{error}");
+    }
 }
 
 fn record_learned_launch(

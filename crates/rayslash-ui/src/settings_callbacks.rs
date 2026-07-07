@@ -1,20 +1,21 @@
 use std::{cell::Cell, cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
 
-use rayslash_core::{apps, config, projects, ranking, search};
+use rayslash_core::{app_state, apps, config, projects, ranking, search};
 use slint::{ComponentHandle, Timer, VecModel};
 
 use crate::{
     AppChoiceItem, AppWindow, DEFAULT_STATUS_TEXT, DESKTOP_APP_REFRESH_INTERVAL, ResultItem,
     result_items::IconImageCache,
     runtime_state::{
-        ResultRefreshContext, ResultSelection, refresh_desktop_apps_if_stale, refresh_result_view,
-        refresh_settings_dependent_ui,
+        DesktopAppRefreshContext, ResultRefreshContext, ResultSelection,
+        refresh_desktop_apps_if_stale, refresh_result_view, refresh_settings_dependent_ui,
     },
     settings::{SettingsConfigError, config_from_settings_fields, first_existing_folder_source},
 };
 
 pub(crate) struct SettingsCallbackContext {
     pub config_state: Rc<RefCell<config::Config>>,
+    pub app_install_state: Rc<RefCell<app_state::AppInstallState>>,
     pub ranking_state: Rc<RefCell<ranking::RankingState>>,
     pub projects: Rc<RefCell<Vec<projects::Project>>>,
     pub apps: Rc<RefCell<Vec<apps::DesktopApp>>>,
@@ -32,6 +33,7 @@ pub(crate) struct SettingsCallbackContext {
 pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallbackContext) {
     let SettingsCallbackContext {
         config_state,
+        app_install_state,
         ranking_state,
         projects,
         apps,
@@ -49,6 +51,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
     ui.on_settings_requested({
         let weak = ui.as_weak();
         let config_state = config_state.clone();
+        let app_install_state = app_install_state.clone();
         let projects = projects.clone();
         let apps = apps.clone();
         let alternate_opener_choices = alternate_opener_choices.clone();
@@ -65,13 +68,16 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 }
 
                 refresh_desktop_apps_if_stale(
-                    &apps,
-                    &alternate_opener_choices,
-                    &icon_cache,
-                    &last_desktop_app_refresh,
+                    DesktopAppRefreshContext {
+                        apps_state: &apps,
+                        app_install_state: &app_install_state,
+                        choices_model: &alternate_opener_choices,
+                        icon_cache: &icon_cache,
+                        last_refresh: &last_desktop_app_refresh,
+                        profile,
+                        label: "settings-open",
+                    },
                     DESKTOP_APP_REFRESH_INTERVAL,
-                    profile,
-                    "settings-open",
                 );
                 refresh_settings_dependent_ui(
                     &ui,
@@ -118,6 +124,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
     ui.on_settings_save_requested({
         let weak = ui.as_weak();
         let config_state = config_state.clone();
+        let app_install_state = app_install_state.clone();
         let ranking_state = ranking_state.clone();
         let projects = projects.clone();
         let apps = apps.clone();
@@ -131,6 +138,9 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
               folders_enabled,
               calculator_enabled,
               aliases_enabled,
+              web_search_enabled,
+              unit_conversion_enabled,
+              currency_conversion_enabled,
               alternate_folder_opener_enabled,
               learn_from_usage,
               theme,
@@ -153,6 +163,9 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 folders_enabled,
                 calculator_enabled,
                 aliases_enabled,
+                web_search_enabled,
+                unit_conversion_enabled,
+                currency_conversion_enabled,
                 alternate_folder_opener_enabled,
                 learn_from_usage,
                 theme.as_str(),
@@ -160,6 +173,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 max_results_text.as_str(),
                 show_tooltips,
                 config_state.borrow().aliases.clone(),
+                config_state.borrow().web_searches.clone(),
             ) {
                 Ok(config) => config,
                 Err(SettingsConfigError::EmptyAlternateFolderOpener) => {
@@ -213,6 +227,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     ResultRefreshContext {
                         config: &config_state.borrow(),
                         ranking_state: &ranking_state.borrow(),
+                        app_state: &app_install_state.borrow(),
                         projects: &projects.borrow(),
                         apps: &apps.borrow(),
                         current_results: &current_results,
@@ -270,6 +285,9 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     ui.get_settings_provider_folders(),
                     ui.get_settings_provider_calculator(),
                     ui.get_settings_provider_aliases(),
+                    ui.get_settings_provider_web_search(),
+                    ui.get_settings_provider_unit_conversion(),
+                    ui.get_settings_provider_currency_conversion(),
                     ui.get_settings_alternate_folder_opener_enabled(),
                     ui.get_settings_ranking_learn_from_usage(),
                     ui.get_settings_theme(),
@@ -284,6 +302,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
     ui.on_settings_clear_ranking_requested({
         let weak = ui.as_weak();
         let config_state = config_state.clone();
+        let app_install_state = app_install_state.clone();
         let ranking_state = ranking_state.clone();
         let projects = projects.clone();
         let apps = apps.clone();
@@ -308,6 +327,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     ResultRefreshContext {
                         config: &config_state.borrow(),
                         ranking_state: &ranking_state.borrow(),
+                        app_state: &app_install_state.borrow(),
                         projects: &projects.borrow(),
                         apps: &apps.borrow(),
                         current_results: &current_results,

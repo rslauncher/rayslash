@@ -4,15 +4,18 @@ mod result;
 
 use crate::apps::DesktopApp;
 use crate::calc;
-use crate::config::{AliasConfig, ProviderConfig};
+use crate::config::{AliasConfig, ProviderConfig, WebSearchConfig};
+use crate::currency;
 use crate::projects::Project;
 use crate::ranking::RankingState;
+use crate::{units, web_search};
 
 use matcher::{boosted_score, fuzzy_matcher, fuzzy_pattern, search_result_order};
 use nucleo_matcher::Utf32Str;
 use providers::{
-    alias_result, app_result, calculator_result, disabled_providers_result, no_results,
-    placeholder_results_for_providers, project_result,
+    alias_result, app_result, calculator_result, currency_conversion_result, currency_error_result,
+    disabled_providers_result, no_results, placeholder_results_for_providers, project_result,
+    unit_conversion_result, web_search_result,
 };
 pub use providers::{display_path, placeholder_results, project_results};
 #[cfg(test)]
@@ -56,24 +59,59 @@ pub fn mixed_results_with_ranking(
     providers: &ProviderConfig,
     ranking: Option<&RankingState>,
 ) -> Vec<SearchResult> {
-    let query = query.trim();
-    let calculation = providers
-        .calculator
-        .then(|| calc::calculate(query).map(calculator_result))
-        .flatten();
+    mixed_results_with_ranking_and_web_searches(
+        projects,
+        apps,
+        aliases,
+        &[],
+        query,
+        providers,
+        ranking,
+    )
+}
 
-    if !providers.apps && !providers.folders && !providers.calculator && !providers.aliases {
+pub fn mixed_results_with_ranking_and_web_searches(
+    projects: &[Project],
+    apps: &[DesktopApp],
+    aliases: &[AliasConfig],
+    web_searches: &[WebSearchConfig],
+    query: &str,
+    providers: &ProviderConfig,
+    ranking: Option<&RankingState>,
+) -> Vec<SearchResult> {
+    let query = query.trim();
+    let mut utility_results = utility_results(query, providers, web_searches);
+
+    if !providers.apps
+        && !providers.folders
+        && !providers.calculator
+        && !providers.aliases
+        && !providers.web_search
+        && !providers.unit_conversion
+        && !providers.currency_conversion
+    {
         return vec![disabled_providers_result()];
     }
 
     let enabled_projects = if providers.folders { projects } else { &[] };
     let enabled_apps = if providers.apps { apps } else { &[] };
     let enabled_aliases = if providers.aliases { aliases } else { &[] };
+    let enabled_web_searches = if providers.web_search {
+        web_searches
+    } else {
+        &[]
+    };
 
-    if enabled_projects.is_empty() && enabled_apps.is_empty() && enabled_aliases.is_empty() {
-        return calculation
-            .map(|result| vec![result])
-            .unwrap_or_else(|| placeholder_results_for_providers(providers));
+    if enabled_projects.is_empty()
+        && enabled_apps.is_empty()
+        && enabled_aliases.is_empty()
+        && enabled_web_searches.is_empty()
+    {
+        return if utility_results.is_empty() {
+            placeholder_results_for_providers(providers)
+        } else {
+            utility_results
+        };
     }
 
     if query.is_empty() {
@@ -139,12 +177,57 @@ pub fn mixed_results_with_ranking(
         .map(|(result, _score, _boosted_score)| result)
         .collect::<Vec<_>>();
 
-    if let Some(calculation) = calculation {
-        results.insert(0, calculation);
-    }
+    utility_results.append(&mut results);
+    let results = utility_results;
 
     if results.is_empty() {
-        results.push(no_results(query, providers));
+        return vec![no_results(query, providers)];
+    }
+
+    results
+}
+
+fn utility_results(
+    query: &str,
+    providers: &ProviderConfig,
+    web_searches: &[WebSearchConfig],
+) -> Vec<SearchResult> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    let mut results = Vec::new();
+
+    if providers.calculator
+        && let Some(calculation) = calc::calculate(query)
+    {
+        results.push(calculator_result(calculation));
+    }
+
+    if providers.unit_conversion
+        && let Some(conversion) = units::convert_query(query)
+    {
+        results.push(unit_conversion_result(conversion));
+    }
+
+    if providers.currency_conversion
+        && let Some(request) = currency::parse_query(query)
+    {
+        match currency::convert_request(&request) {
+            Ok(conversion) => results.push(currency_conversion_result(conversion)),
+            Err(error) => results.push(currency_error_result(
+                &request.expression,
+                error.to_string(),
+            )),
+        }
+    }
+
+    if providers.web_search {
+        results.extend(
+            web_search::matching_web_searches(web_searches, query)
+                .into_iter()
+                .map(web_search_result),
+        );
     }
 
     results

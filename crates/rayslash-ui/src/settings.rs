@@ -33,6 +33,9 @@ pub(crate) fn set_settings_properties(
     ui.set_settings_provider_folders(config.providers.folders);
     ui.set_settings_provider_calculator(config.providers.calculator);
     ui.set_settings_provider_aliases(config.providers.aliases);
+    ui.set_settings_provider_web_search(config.providers.web_search);
+    ui.set_settings_provider_unit_conversion(config.providers.unit_conversion);
+    ui.set_settings_provider_currency_conversion(config.providers.currency_conversion);
     ui.set_settings_alternate_folder_opener_enabled(config.actions.alternate_folder_opener_enabled);
     ui.set_settings_ranking_learn_from_usage(config.ranking.learn_from_usage);
     ui.set_settings_theme(appearance_theme_label(config.appearance.theme).into());
@@ -56,6 +59,9 @@ pub(crate) fn config_from_settings_fields(
     folders_enabled: bool,
     calculator_enabled: bool,
     aliases_enabled: bool,
+    web_search_enabled: bool,
+    unit_conversion_enabled: bool,
+    currency_conversion_enabled: bool,
     alternate_folder_opener_enabled: bool,
     learn_from_usage: bool,
     theme: &str,
@@ -63,6 +69,7 @@ pub(crate) fn config_from_settings_fields(
     max_results_text: &str,
     show_tooltips: bool,
     aliases: Vec<config::AliasConfig>,
+    web_searches: Vec<config::WebSearchConfig>,
 ) -> Result<config::Config, SettingsConfigError> {
     let alternate_folder_opener_command = alternate_folder_opener_command.trim();
     if alternate_folder_opener_enabled && alternate_folder_opener_command.is_empty() {
@@ -77,11 +84,15 @@ pub(crate) fn config_from_settings_fields(
     Ok(config::Config {
         folder_sources: parse_folder_sources_text(folder_sources_text),
         aliases,
+        web_searches,
         providers: config::ProviderConfig {
             apps: apps_enabled,
             folders: folders_enabled,
             calculator: calculator_enabled,
             aliases: aliases_enabled,
+            web_search: web_search_enabled,
+            unit_conversion: unit_conversion_enabled,
+            currency_conversion: currency_conversion_enabled,
         },
         actions: config::ActionConfig {
             alternate_folder_opener_enabled,
@@ -234,6 +245,9 @@ mod tests {
             true,
             true,
             true,
+            true,
+            false,
+            true,
             false,
             "dim",
             "compact",
@@ -244,6 +258,11 @@ mod tests {
                 query: "gh".to_owned(),
                 target: "https://github.com".to_owned(),
                 kind: Some(config::AliasKind::Url),
+            }],
+            vec![config::WebSearchConfig {
+                name: "DuckDuckGo".to_owned(),
+                query: "ddg".to_owned(),
+                url_template: "https://duckduckgo.com/?q={query}".to_owned(),
             }],
         )
         .expect("settings config");
@@ -256,7 +275,11 @@ mod tests {
         assert!(!config.providers.folders);
         assert!(config.providers.calculator);
         assert!(config.providers.aliases);
+        assert!(config.providers.web_search);
+        assert!(config.providers.unit_conversion);
+        assert!(!config.providers.currency_conversion);
         assert_eq!(config.aliases.len(), 1);
+        assert_eq!(config.web_searches.len(), 1);
         assert!(config.actions.alternate_folder_opener_enabled);
         assert_eq!(
             config.actions.alternate_folder_opener_command,
@@ -286,10 +309,14 @@ mod tests {
                 true,
                 true,
                 true,
+                true,
+                true,
+                true,
                 "dark",
                 "comfortable",
                 "50",
                 true,
+                Vec::new(),
                 Vec::new()
             ),
             Err(SettingsConfigError::EmptyAlternateFolderOpener)
@@ -304,10 +331,14 @@ mod tests {
                 true,
                 true,
                 true,
+                true,
+                true,
+                true,
                 "dark",
                 "comfortable",
                 "0",
                 true,
+                Vec::new(),
                 Vec::new()
             ),
             Err(SettingsConfigError::InvalidMaxResults)

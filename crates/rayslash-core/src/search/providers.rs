@@ -3,7 +3,10 @@ use std::path::Path;
 use crate::apps::DesktopApp;
 use crate::calc;
 use crate::config::{AliasConfig, ProviderConfig};
+use crate::currency;
 use crate::projects::Project;
+use crate::units;
+use crate::web_search;
 use nucleo_matcher::Utf32Str;
 
 use super::matcher::{fuzzy_matcher, fuzzy_pattern, project_order};
@@ -19,6 +22,7 @@ pub(super) fn placeholder_results_for_providers(providers: &ProviderConfig) -> V
     if providers.apps {
         results.push(SearchResult {
             title: "Open applications".to_owned(),
+            flair: String::new(),
             subtitle: "Desktop app search is available when applications are discovered".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
@@ -28,6 +32,7 @@ pub(super) fn placeholder_results_for_providers(providers: &ProviderConfig) -> V
     if providers.folders {
         results.push(SearchResult {
             title: "Find folders".to_owned(),
+            flair: String::new(),
             subtitle: "Folder search is available when folder sources contain folders".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
@@ -37,6 +42,7 @@ pub(super) fn placeholder_results_for_providers(providers: &ProviderConfig) -> V
     if providers.calculator {
         results.push(SearchResult {
             title: "Calculate".to_owned(),
+            flair: String::new(),
             subtitle: "Type an expression such as 2 + 2".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
@@ -46,7 +52,38 @@ pub(super) fn placeholder_results_for_providers(providers: &ProviderConfig) -> V
     if providers.aliases {
         results.push(SearchResult {
             title: "Use aliases".to_owned(),
+            flair: String::new(),
             subtitle: "Add quick links in config.toml with [[aliases]]".to_owned(),
+            icon: SearchResultIcon::Placeholder,
+            kind: SearchResultKind::Placeholder,
+        });
+    }
+
+    if providers.web_search {
+        results.push(SearchResult {
+            title: "Search the web".to_owned(),
+            flair: String::new(),
+            subtitle: "Add web search templates in config.toml with [[web_searches]]".to_owned(),
+            icon: SearchResultIcon::Placeholder,
+            kind: SearchResultKind::Placeholder,
+        });
+    }
+
+    if providers.unit_conversion {
+        results.push(SearchResult {
+            title: "Convert units".to_owned(),
+            flair: String::new(),
+            subtitle: "Type a conversion such as 10 km to mi".to_owned(),
+            icon: SearchResultIcon::Placeholder,
+            kind: SearchResultKind::Placeholder,
+        });
+    }
+
+    if providers.currency_conversion {
+        results.push(SearchResult {
+            title: "Convert currency".to_owned(),
+            flair: String::new(),
+            subtitle: "Type a conversion such as 10 USD to EUR".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
         });
@@ -107,6 +144,7 @@ pub(super) fn project_result(project: &Project) -> SearchResult {
 pub(super) fn project_result_with_subtitle(project: &Project, subtitle: String) -> SearchResult {
     SearchResult {
         title: project.name.clone(),
+        flair: String::new(),
         subtitle,
         icon: SearchResultIcon::ProjectFolder,
         kind: SearchResultKind::Project {
@@ -118,6 +156,7 @@ pub(super) fn project_result_with_subtitle(project: &Project, subtitle: String) 
 pub(super) fn app_result(app: &DesktopApp) -> SearchResult {
     SearchResult {
         title: app.name.clone(),
+        flair: String::new(),
         subtitle: app_subtitle(app),
         icon: SearchResultIcon::App {
             path: app.icon_path.clone(),
@@ -132,6 +171,7 @@ pub(super) fn app_result(app: &DesktopApp) -> SearchResult {
 pub(super) fn alias_result(alias: &AliasConfig) -> SearchResult {
     SearchResult {
         title: alias.name.clone(),
+        flair: String::new(),
         subtitle: crate::aliases::alias_subtitle(alias),
         icon: SearchResultIcon::Placeholder,
         kind: SearchResultKind::Alias {
@@ -144,6 +184,7 @@ pub(super) fn calculator_result(calculation: calc::Calculation) -> SearchResult 
     match calculation {
         calc::Calculation::Value { expression, result } => SearchResult {
             title: result.clone(),
+            flair: String::new(),
             subtitle: format!("Calculate: {expression}"),
             icon: SearchResultIcon::Calculator,
             kind: SearchResultKind::Calculator { expression, result },
@@ -153,6 +194,7 @@ pub(super) fn calculator_result(calculation: calc::Calculation) -> SearchResult 
             message,
         } => SearchResult {
             title: message.clone(),
+            flair: String::new(),
             subtitle: format!("Calculate: {expression}"),
             icon: SearchResultIcon::Calculator,
             kind: SearchResultKind::CalculatorError {
@@ -163,9 +205,74 @@ pub(super) fn calculator_result(calculation: calc::Calculation) -> SearchResult 
     }
 }
 
+pub(super) fn unit_conversion_result(conversion: units::UnitConversion) -> SearchResult {
+    SearchResult {
+        title: conversion.result.clone(),
+        flair: String::new(),
+        subtitle: format!("Convert: {}", conversion.expression),
+        icon: SearchResultIcon::UnitConversion,
+        kind: SearchResultKind::UnitConversion {
+            expression: conversion.expression,
+            result: conversion.result,
+        },
+    }
+}
+
+pub(super) fn currency_conversion_result(conversion: currency::CurrencyConversion) -> SearchResult {
+    let subtitle = if let Some(date) = conversion.date.as_deref() {
+        format!(
+            "Currency: {} ({}, {date})",
+            conversion.expression, conversion.provider
+        )
+    } else {
+        format!(
+            "Currency: {} ({})",
+            conversion.expression, conversion.provider
+        )
+    };
+
+    SearchResult {
+        title: conversion.result.clone(),
+        flair: String::new(),
+        subtitle,
+        icon: SearchResultIcon::CurrencyConversion,
+        kind: SearchResultKind::CurrencyConversion {
+            expression: conversion.expression,
+            result: conversion.result,
+        },
+    }
+}
+
+pub(super) fn currency_error_result(expression: &str, message: String) -> SearchResult {
+    SearchResult {
+        title: "Currency conversion unavailable.".to_owned(),
+        flair: String::new(),
+        subtitle: format!("Currency: {expression}"),
+        icon: SearchResultIcon::CurrencyConversion,
+        kind: SearchResultKind::CurrencyConversionError {
+            expression: expression.to_owned(),
+            message,
+        },
+    }
+}
+
+pub(super) fn web_search_result(search: web_search::WebSearch) -> SearchResult {
+    SearchResult {
+        title: format!("Search {} for {}", search.name, search.query),
+        flair: String::new(),
+        subtitle: "Web search".to_owned(),
+        icon: SearchResultIcon::WebSearch,
+        kind: SearchResultKind::WebSearch {
+            name: search.name,
+            url: search.url,
+        },
+    }
+}
+
 pub(super) fn no_results(query: &str, providers: &ProviderConfig) -> SearchResult {
     SearchResult {
         title: "No results".to_owned(),
+        flair: String::new(),
         subtitle: format!("No {} match \"{query}\"", provider_match_phrase(providers)),
         icon: SearchResultIcon::Placeholder,
         kind: SearchResultKind::NoResults {
@@ -189,6 +296,15 @@ fn provider_match_phrase(providers: &ProviderConfig) -> String {
     if providers.aliases {
         labels.push("aliases");
     }
+    if providers.web_search {
+        labels.push("web searches");
+    }
+    if providers.unit_conversion {
+        labels.push("unit conversions");
+    }
+    if providers.currency_conversion {
+        labels.push("currency conversions");
+    }
 
     match labels.as_slice() {
         [] => "enabled providers".to_owned(),
@@ -196,6 +312,15 @@ fn provider_match_phrase(providers: &ProviderConfig) -> String {
         [first, second] => format!("{first} or {second}"),
         [first, second, third] => format!("{first}, {second}, or {third}"),
         [first, second, third, fourth] => format!("{first}, {second}, {third}, or {fourth}"),
+        [first, second, third, fourth, fifth] => {
+            format!("{first}, {second}, {third}, {fourth}, or {fifth}")
+        }
+        [first, second, third, fourth, fifth, sixth] => {
+            format!("{first}, {second}, {third}, {fourth}, {fifth}, or {sixth}")
+        }
+        [first, second, third, fourth, fifth, sixth, seventh] => {
+            format!("{first}, {second}, {third}, {fourth}, {fifth}, {sixth}, or {seventh}")
+        }
         _ => labels.join(", "),
     }
 }
@@ -203,7 +328,8 @@ fn provider_match_phrase(providers: &ProviderConfig) -> String {
 pub(super) fn disabled_providers_result() -> SearchResult {
     SearchResult {
         title: "No providers enabled".to_owned(),
-        subtitle: "Enable Apps, Folders, Calculator, or Aliases in Settings".to_owned(),
+        flair: String::new(),
+        subtitle: "Enable search providers in Settings".to_owned(),
         icon: SearchResultIcon::Placeholder,
         kind: SearchResultKind::Placeholder,
     }

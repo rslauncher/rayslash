@@ -8,7 +8,7 @@ use std::{
 use fixtures::TempDir;
 use rayslash_core::config::{
     self, ActionConfig, AliasConfig, AliasKind, AppearanceConfig, AppearanceDensity,
-    AppearanceTheme, Config, ProviderConfig, RankingConfig,
+    AppearanceTheme, Config, ProviderConfig, RankingConfig, WebSearchConfig,
 };
 
 #[test]
@@ -92,11 +92,19 @@ query = "gh"
 target = "https://github.com"
 kind = "url"
 
+[[web_searches]]
+name = "DuckDuckGo"
+query = "ddg"
+url_template = "https://duckduckgo.com/?q={query}"
+
 [providers]
 apps = false
 folders = true
 calculator = false
 aliases = false
+web_search = true
+unit_conversion = false
+currency_conversion = true
 
 [actions]
 alternate_folder_opener_enabled = false
@@ -127,12 +135,23 @@ learn_from_usage = false
         }]
     );
     assert_eq!(
+        config.web_searches,
+        vec![WebSearchConfig {
+            name: "DuckDuckGo".to_owned(),
+            query: "ddg".to_owned(),
+            url_template: "https://duckduckgo.com/?q={query}".to_owned(),
+        }]
+    );
+    assert_eq!(
         config.providers,
         ProviderConfig {
             apps: false,
             folders: true,
             calculator: false,
             aliases: false,
+            web_search: true,
+            unit_conversion: false,
+            currency_conversion: true,
         }
     );
     assert!(!config.actions.alternate_folder_opener_enabled);
@@ -204,6 +223,9 @@ max_results = 0
             folders: true,
             calculator: true,
             aliases: true,
+            web_search: false,
+            unit_conversion: false,
+            currency_conversion: false,
         }
     );
     assert_eq!(
@@ -290,11 +312,19 @@ fn config_can_be_saved_and_loaded_from_toml() {
             target: "~/Documents".to_owned(),
             kind: Some(AliasKind::Folder),
         }],
+        web_searches: vec![WebSearchConfig {
+            name: "DuckDuckGo".to_owned(),
+            query: "ddg".to_owned(),
+            url_template: "https://duckduckgo.com/?q={query}".to_owned(),
+        }],
         providers: ProviderConfig {
             apps: true,
             folders: false,
             calculator: true,
             aliases: true,
+            web_search: true,
+            unit_conversion: true,
+            currency_conversion: false,
         },
         actions: ActionConfig {
             alternate_folder_opener_enabled: false,
@@ -318,7 +348,10 @@ fn config_can_be_saved_and_loaded_from_toml() {
 
     assert!(saved.contains("folder_sources"));
     assert!(saved.contains("[[aliases]]"));
+    assert!(saved.contains("[[web_searches]]"));
     assert!(saved.contains("folders = false"));
+    assert!(saved.contains("web_search = true"));
+    assert!(saved.contains("currency_conversion = false"));
     assert!(saved.contains("show_tooltips = false"));
     assert!(saved.contains("alternate_folder_opener_enabled = false"));
     assert!(saved.contains("alternate_folder_opener_command = \"codium\""));

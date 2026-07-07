@@ -17,13 +17,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-use activation::register_activation_callback;
+use activation::{ActivationCallbackContext, register_activation_callback};
 use opener_visual::to_app_choice_items;
 use rayslash_core::{apps, config, projects};
 use result_items::{IconImageCache, to_result_items};
 use runtime_state::{
-    ResultRefreshContext, ResultSelection, load_runtime_ranking_state, profile_enabled,
-    profile_stage, refresh_result_view, refresh_settings_dependent_ui, search_result_set,
+    ResultRefreshContext, ResultSelection, load_runtime_app_state, load_runtime_ranking_state,
+    profile_enabled, profile_stage, refresh_result_view, refresh_settings_dependent_ui,
+    search_result_set, sync_app_install_state,
 };
 use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
@@ -153,6 +154,17 @@ fn run_gui(
     );
 
     let stage_started = Instant::now();
+    let app_install_state = Rc::new(RefCell::new(load_runtime_app_state()));
+    profile_stage(
+        profile,
+        &format!(
+            "app state load ({} new apps)",
+            app_install_state.borrow().new_app_ids.len()
+        ),
+        stage_started,
+    );
+
+    let stage_started = Instant::now();
     let projects = Rc::new(RefCell::new(projects::scan_project_roots(
         &config_state.borrow().folder_sources,
     )));
@@ -165,6 +177,7 @@ fn run_gui(
     let stage_started = Instant::now();
     let apps = Rc::new(RefCell::new(apps::discover_desktop_apps()));
     let last_desktop_app_refresh = Rc::new(RefCell::new(Instant::now()));
+    sync_app_install_state(&app_install_state, &apps.borrow());
     profile_stage(
         profile,
         &format!("app discovery ({} apps)", apps.borrow().len()),
@@ -175,6 +188,7 @@ fn run_gui(
     let initial_result_set = search_result_set(
         &config_state.borrow(),
         &ranking_state.borrow(),
+        &app_install_state.borrow(),
         &projects.borrow(),
         &apps.borrow(),
         "",
@@ -249,6 +263,7 @@ fn run_gui(
         let apps = apps.clone();
         let config_state = config_state.clone();
         let ranking_state = ranking_state.clone();
+        let app_install_state = app_install_state.clone();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
@@ -263,6 +278,7 @@ fn run_gui(
                     ResultRefreshContext {
                         config: &config_state.borrow(),
                         ranking_state: &ranking_state.borrow(),
+                        app_state: &app_install_state.borrow(),
                         projects: &projects.borrow(),
                         apps: &apps.borrow(),
                         current_results: &current_results,
@@ -302,6 +318,7 @@ fn run_gui(
         let apps = apps.clone();
         let config_state = config_state.clone();
         let ranking_state = ranking_state.clone();
+        let app_install_state = app_install_state.clone();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
@@ -314,6 +331,7 @@ fn run_gui(
                     ResultRefreshContext {
                         config: &config_state.borrow(),
                         ranking_state: &ranking_state.borrow(),
+                        app_state: &app_install_state.borrow(),
                         projects: &projects.borrow(),
                         apps: &apps.borrow(),
                         current_results: &current_results,
@@ -336,18 +354,22 @@ fn run_gui(
 
     register_activation_callback(
         &ui,
-        current_results.clone(),
-        config_state.clone(),
-        ranking_state.clone(),
-        projects.clone(),
-        apps.clone(),
-        is_visible.clone(),
+        ActivationCallbackContext {
+            current_results: current_results.clone(),
+            config_state: config_state.clone(),
+            app_install_state: app_install_state.clone(),
+            ranking_state: ranking_state.clone(),
+            projects: projects.clone(),
+            apps: apps.clone(),
+            is_visible: is_visible.clone(),
+        },
     );
 
     register_settings_callbacks(
         &ui,
         SettingsCallbackContext {
             config_state: config_state.clone(),
+            app_install_state: app_install_state.clone(),
             ranking_state: ranking_state.clone(),
             projects: projects.clone(),
             apps: apps.clone(),

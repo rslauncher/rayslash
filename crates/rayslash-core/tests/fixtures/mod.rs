@@ -83,6 +83,7 @@ pub fn config_with_max_results(max_results: usize) -> config::Config {
     config::Config {
         folder_sources: Vec::new(),
         aliases: Vec::new(),
+        web_searches: Vec::new(),
         providers: config::ProviderConfig::default(),
         actions: config::ActionConfig::default(),
         appearance: config::AppearanceConfig {

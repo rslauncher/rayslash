@@ -339,11 +339,40 @@ export component ResultList inherits Flickable {
             VerticalLayout {
                 spacing: 2px;
 
-                Text {
-                    text: item.title;
-                    color: root.light ? #202020 : #f4f4f4;
-                    font-size: 16px;
-                    font-weight: 700;
+                HorizontalLayout {
+                    height: 22px;
+                    spacing: 8px;
+
+                    Text {
+                        text: item.title;
+                        color: root.light ? #202020 : #f4f4f4;
+                        font-size: 16px;
+                        font-weight: 700;
+                        overflow: elide;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+
+                    Rectangle {
+                        width: item.flair == "" ? 0px : 34px;
+                        height: item.flair == "" ? 0px : 18px;
+                        border-radius: 6px;
+                        background: root.light ? #202020 : #d6d6d6;
+                        visible: item.flair != "";
+                        horizontal-stretch: 0;
+
+                        Text {
+                            width: 100%;
+                            height: 100%;
+                            text: item.flair;
+                            color: root.light ? #ffffff : #181818;
+                            font-size: 10px;
+                            font-weight: 800;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
                 }
 
                 Text {

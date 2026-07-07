@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rayslash_core::{apps, config, projects, ranking, search};
+use rayslash_core::{app_state, apps, config, projects, ranking, search};
 use slint::VecModel;
 
 use crate::{
@@ -40,22 +40,35 @@ pub(crate) fn load_runtime_ranking_state() -> ranking::RankingState {
     }
 }
 
+pub(crate) fn load_runtime_app_state() -> app_state::AppInstallState {
+    match app_state::load_app_state() {
+        Ok(state) => state,
+        Err(error) => {
+            eprintln!("{error}; using empty app state");
+            app_state::AppInstallState::default()
+        }
+    }
+}
+
 pub(crate) fn search_result_set(
     config: &config::Config,
     ranking_state: &ranking::RankingState,
+    app_state: &app_state::AppInstallState,
     projects: &[projects::Project],
     apps: &[apps::DesktopApp],
     query: &str,
 ) -> SearchResultSet {
     let ranking = config.ranking.learn_from_usage.then_some(ranking_state);
-    let mut results = search::mixed_results_with_ranking(
+    let mut results = search::mixed_results_with_ranking_and_web_searches(
         projects,
         apps,
         &config.aliases,
+        &config.web_searches,
         query,
         &config.providers,
         ranking,
     );
+    apply_new_app_flairs(&mut results, app_state);
     let total_results = results.len();
     let max_results = config.appearance.max_results;
     let result_tip = if total_results > max_results {
@@ -73,6 +86,7 @@ pub(crate) fn search_result_set(
 
 pub(crate) fn refresh_desktop_apps(
     apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
+    app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     choices_model: &Rc<VecModel<AppChoiceItem>>,
     icon_cache: &Rc<RefCell<IconImageCache>>,
     profile: bool,
@@ -82,6 +96,7 @@ pub(crate) fn refresh_desktop_apps(
     let discovered_apps = apps::discover_desktop_apps();
     let app_count = discovered_apps.len();
     let icon_count = app_icon_count(&discovered_apps);
+    sync_app_install_state(app_install_state, &discovered_apps);
 
     icon_cache.borrow_mut().clear();
     choices_model.set_vec(to_app_choice_items(
@@ -97,26 +112,39 @@ pub(crate) fn refresh_desktop_apps(
     );
 }
 
+pub(crate) struct DesktopAppRefreshContext<'a> {
+    pub apps_state: &'a Rc<RefCell<Vec<apps::DesktopApp>>>,
+    pub app_install_state: &'a Rc<RefCell<app_state::AppInstallState>>,
+    pub choices_model: &'a Rc<VecModel<AppChoiceItem>>,
+    pub icon_cache: &'a Rc<RefCell<IconImageCache>>,
+    pub last_refresh: &'a Rc<RefCell<Instant>>,
+    pub profile: bool,
+    pub label: &'a str,
+}
+
 pub(crate) fn refresh_desktop_apps_if_stale(
-    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
-    choices_model: &Rc<VecModel<AppChoiceItem>>,
-    icon_cache: &Rc<RefCell<IconImageCache>>,
-    last_refresh: &Rc<RefCell<Instant>>,
+    context: DesktopAppRefreshContext<'_>,
     min_interval: Duration,
-    profile: bool,
-    label: &str,
 ) {
-    if last_refresh.borrow().elapsed() < min_interval {
+    if context.last_refresh.borrow().elapsed() < min_interval {
         return;
     }
 
-    refresh_desktop_apps(apps_state, choices_model, icon_cache, profile, label);
-    *last_refresh.borrow_mut() = Instant::now();
+    refresh_desktop_apps(
+        context.apps_state,
+        context.app_install_state,
+        context.choices_model,
+        context.icon_cache,
+        context.profile,
+        context.label,
+    );
+    *context.last_refresh.borrow_mut() = Instant::now();
 }
 
 pub(crate) struct ResultRefreshContext<'a> {
     pub config: &'a config::Config,
     pub ranking_state: &'a ranking::RankingState,
+    pub app_state: &'a app_state::AppInstallState,
     pub projects: &'a [projects::Project],
     pub apps: &'a [apps::DesktopApp],
     pub current_results: &'a Rc<RefCell<Vec<search::SearchResult>>>,
@@ -141,6 +169,7 @@ pub(crate) fn refresh_result_view(
     let result_set = search_result_set(
         context.config,
         context.ranking_state,
+        context.app_state,
         context.projects,
         context.apps,
         query,
@@ -176,6 +205,33 @@ pub(crate) fn refresh_result_view(
     profile_stage(context.profile, "result refresh total", refresh_started);
 
     count
+}
+
+pub(crate) fn sync_app_install_state(
+    app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
+    apps: &[apps::DesktopApp],
+) {
+    let changed = app_install_state
+        .borrow_mut()
+        .mark_discovered_app_ids(apps.iter().map(|app| app.id.clone()));
+
+    if changed && let Err(error) = app_state::save_app_state(&app_install_state.borrow()) {
+        eprintln!("{error}");
+    }
+}
+
+fn apply_new_app_flairs(
+    results: &mut [search::SearchResult],
+    app_state: &app_state::AppInstallState,
+) {
+    for result in results {
+        if result
+            .app_id()
+            .is_some_and(|app_id| app_state.is_new_app(app_id))
+        {
+            result.flair = "New".to_owned();
+        }
+    }
 }
 
 pub(crate) fn refresh_settings_dependent_ui(
@@ -232,6 +288,7 @@ mod tests {
         let config = config::Config {
             folder_sources: Vec::new(),
             aliases: Vec::new(),
+            web_searches: Vec::new(),
             providers: config::ProviderConfig::default(),
             actions: config::ActionConfig::default(),
             appearance: config::AppearanceConfig {
@@ -241,6 +298,7 @@ mod tests {
             ranking: config::RankingConfig::default(),
         };
         let ranking_state = ranking::RankingState::default();
+        let app_state = app_state::AppInstallState::default();
         let projects = vec![
             projects::Project {
                 name: "alpha".to_owned(),
@@ -252,7 +310,7 @@ mod tests {
             },
         ];
 
-        let result_set = search_result_set(&config, &ranking_state, &projects, &[], "");
+        let result_set = search_result_set(&config, &ranking_state, &app_state, &projects, &[], "");
 
         assert_eq!(result_set.results.len(), 1);
         assert_eq!(result_set.results[0].title, "alpha");
@@ -264,6 +322,7 @@ mod tests {
         let config = config::Config {
             folder_sources: Vec::new(),
             aliases: Vec::new(),
+            web_searches: Vec::new(),
             providers: config::ProviderConfig::default(),
             actions: config::ActionConfig::default(),
             appearance: config::AppearanceConfig::default(),
@@ -271,6 +330,7 @@ mod tests {
                 learn_from_usage: false,
             },
         };
+        let app_state = app_state::AppInstallState::default();
         let mut ranking_state = ranking::RankingState::default();
         ranking_state.record_launch_at(
             "folder:/tmp/alpine",
@@ -288,7 +348,8 @@ mod tests {
             },
         ];
 
-        let results = search_result_set(&config, &ranking_state, &projects, &[], "al").results;
+        let results =
+            search_result_set(&config, &ranking_state, &app_state, &projects, &[], "al").results;
 
         assert_eq!(results[0].title, "Alpha");
     }

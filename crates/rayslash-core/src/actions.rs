@@ -77,6 +77,10 @@ pub fn launch_alias(alias: &AliasConfig) -> io::Result<Child> {
     }
 }
 
+pub fn open_url(url: &str) -> io::Result<Child> {
+    spawn_command(&open_target_command(url))
+}
+
 pub fn open_target_command(target: &str) -> CommandSpec {
     CommandSpec {
         program: OsString::from("xdg-open"),
