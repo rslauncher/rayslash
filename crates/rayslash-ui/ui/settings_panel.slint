@@ -48,6 +48,7 @@ export component SettingsPanel inherits FocusScope {
     in-out property <string> theme;
     in-out property <string> density;
     in-out property <string> max-results;
+    in-out property <bool> show-tooltips;
     in property <string> config-path;
     in property <string> state-path;
     in property <string> socket-path;
@@ -61,7 +62,7 @@ export component SettingsPanel inherits FocusScope {
     callback browse-folder-requested(string);
     callback choose-alternate-opener-requested(string);
     callback clear-ranking-requested();
-    callback save-requested(string, string, bool, bool, bool, bool, bool, bool, string, string, string);
+    callback save-requested(string, string, bool, bool, bool, bool, bool, bool, string, string, string, bool);
 
     private property <color> text-strong: root.light ? #1f1f1f : #f2f2f2;
     private property <color> text-main: root.light ? #2d2d2d : #d8d8d8;
@@ -91,7 +92,8 @@ export component SettingsPanel inherits FocusScope {
             root.ranking-learn-from-usage,
             root.theme,
             root.density,
-            settings-max-results-input.text);
+            settings-max-results-input.text,
+            root.show-tooltips);
     }
 
     min-height: 0px;
@@ -119,7 +121,7 @@ export component SettingsPanel inherits FocusScope {
         width: 100%;
         height: 100%;
         viewport-width: self.width;
-        viewport-height: root.open ? root.alternate-picker-open ? 940px : 790px : 0px;
+        viewport-height: root.open ? root.alternate-picker-open ? 1007px : 857px : 0px;
         interactive: root.open;
 
         VerticalLayout {
@@ -410,6 +412,7 @@ export component SettingsPanel inherits FocusScope {
                     label: "Apps";
                     description: "Desktop applications";
                     light: root.light;
+                    tooltips-enabled: root.show-tooltips;
                     checked <=> root.provider-apps;
                     toggled => {
                         root.save-settings();
@@ -420,6 +423,7 @@ export component SettingsPanel inherits FocusScope {
                     label: "Folders";
                     description: "Folder source results";
                     light: root.light;
+                    tooltips-enabled: root.show-tooltips;
                     checked <=> root.provider-folders;
                     toggled => {
                         root.save-settings();
@@ -435,6 +439,7 @@ export component SettingsPanel inherits FocusScope {
                     label: "Calculator";
                     description: "Local math results";
                     light: root.light;
+                    tooltips-enabled: root.show-tooltips;
                     checked <=> root.provider-calculator;
                     toggled => {
                         root.save-settings();
@@ -445,6 +450,7 @@ export component SettingsPanel inherits FocusScope {
                     label: "Aliases";
                     description: "Manual quick links";
                     light: root.light;
+                    tooltips-enabled: root.show-tooltips;
                     checked <=> root.provider-aliases;
                     toggled => {
                         root.save-settings();
@@ -460,6 +466,7 @@ export component SettingsPanel inherits FocusScope {
                     label: "Learning";
                     description: "Local result ranking";
                     light: root.light;
+                    tooltips-enabled: root.show-tooltips;
                     checked <=> root.ranking-learn-from-usage;
                     toggled => {
                         root.save-settings();
@@ -563,6 +570,7 @@ export component SettingsPanel inherits FocusScope {
                     label: "Alt opener";
                     description: "Ctrl+Enter folders";
                     light: root.light;
+                    tooltips-enabled: root.show-tooltips;
                     checked <=> root.alternate-folder-opener-enabled;
                     toggled => {
                         root.save-settings();
@@ -687,6 +695,27 @@ export component SettingsPanel inherits FocusScope {
                             }
                         }
                     }
+                }
+            }
+
+            HorizontalLayout {
+                height: 58px;
+                spacing: 8px;
+
+                SettingToggle {
+                    label: "Tooltips";
+                    description: "Delayed detail popups";
+                    light: root.light;
+                    tooltips-enabled: root.show-tooltips;
+                    checked <=> root.show-tooltips;
+                    toggled => {
+                        root.save-settings();
+                    }
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                    background: transparent;
                 }
             }
 

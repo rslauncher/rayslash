@@ -135,7 +135,8 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
               learn_from_usage,
               theme,
               density,
-              max_results_text| {
+              max_results_text,
+              show_tooltips| {
             if settings_save_blocked {
                 if let Some(ui) = weak.upgrade() {
                     ui.set_status_text(
@@ -157,6 +158,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 theme.as_str(),
                 density.as_str(),
                 max_results_text.as_str(),
+                show_tooltips,
                 config_state.borrow().aliases.clone(),
             ) {
                 Ok(config) => config,
@@ -216,6 +218,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                         current_results: &current_results,
                         results_model: &results_model,
                         icon_cache: &icon_cache,
+                        profile,
                     },
                     query.as_str(),
                     ResultSelection::QueryDefault,
@@ -272,6 +275,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     ui.get_settings_theme(),
                     ui.get_settings_density(),
                     ui.get_settings_max_results(),
+                    ui.get_settings_show_tooltips(),
                 );
             }
         }
@@ -309,6 +313,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                         current_results: &current_results,
                         results_model: &results_model,
                         icon_cache: &icon_cache,
+                        profile,
                     },
                     query.as_str(),
                     ResultSelection::QueryDefault,

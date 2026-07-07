@@ -13,6 +13,7 @@ export component ResultList inherits Flickable {
     in property <string> density: "comfortable";
     in property <bool> light;
     in property <string> result-tip-text;
+    in property <bool> tooltips-enabled;
     callback activate-result(int, bool);
 
     private property <length> row-height: root.density == "compact" ? 54px : 64px;
@@ -25,6 +26,10 @@ export component ResultList inherits Flickable {
     private property <length> tooltip-x: 0px;
     private property <length> tooltip-y: 0px;
     private property <bool> tooltip-visible: false;
+    private property <bool> pointer-over-list: false;
+    private property <length> pointer-y: 0px;
+    private property <int> hovered-index: -1;
+    private property <int> pressed-index: -1;
 
     public function reset-scroll() {
         root.viewport-y = 0px;
@@ -55,7 +60,7 @@ export component ResultList inherits Flickable {
         root.tooltip-text = text;
         root.tooltip-x = x;
         root.tooltip-y = y;
-        if (text != "") {
+        if (root.tooltips-enabled && text != "") {
             tooltip-delay.running = true;
         }
     }
@@ -64,6 +69,46 @@ export component ResultList inherits Flickable {
         tooltip-delay.running = false;
         root.tooltip-visible = false;
         root.tooltip-text = "";
+    }
+
+    function row-index-at(pointer-y: length) -> int {
+        if root.result-count <= 0 {
+            return -1;
+        }
+
+        let content-y = pointer-y - root.viewport-y;
+        if content-y < 0px {
+            return -1;
+        }
+
+        let index = floor(content-y / root.row-stride);
+        if index < 0 || index >= root.result-count {
+            return -1;
+        }
+
+        let row-y = index * root.row-stride;
+        if content-y > row-y + root.row-height {
+            return -1;
+        }
+
+        return index;
+    }
+
+    function update-hovered-row(pointer-y: length, control: bool) {
+        let index = root.row-index-at(pointer-y);
+        root.hovered-index = index;
+
+        if index >= 0 {
+            root.selected-index = index;
+            root.click-open-in-alternate-opener = control;
+            root.show-tooltip(
+                root.results[index].subtitle_tooltip,
+                76px,
+                max(0px, min(index * root.row-stride + root.row-height + root.viewport-y + 6px, root.height - 34px)),
+            );
+        } else {
+            root.hide-tooltip();
+        }
     }
 
     viewport-width: self.width;
@@ -91,7 +136,17 @@ export component ResultList inherits Flickable {
     }
 
     changed viewport-y => {
-        root.hide-tooltip();
+        if (root.pointer-over-list) {
+            root.update-hovered-row(root.pointer-y, root.control-held);
+        } else {
+            root.hide-tooltip();
+        }
+    }
+
+    changed tooltips-enabled => {
+        if (!root.tooltips-enabled) {
+            root.hide-tooltip();
+        }
     }
 
     for item[i] in root.results: Rectangle {
@@ -99,40 +154,9 @@ export component ResultList inherits Flickable {
         width: root.width;
         height: root.row-height;
         border-radius: 12px;
-        background: root.light ? row-touch.pressed ? #d8d8d8 : i == root.selected-index ? #dedede : row-touch.has-hover ? #e8e8e8 : #ffffff : row-touch.pressed ? #3c3c3c : i == root.selected-index ? #343434 : row-touch.has-hover ? #2a2a2a : #222222;
+        background: root.light ? i == root.pressed-index ? #d8d8d8 : i == root.selected-index ? #dedede : i == root.hovered-index ? #e8e8e8 : #ffffff : i == root.pressed-index ? #3c3c3c : i == root.selected-index ? #343434 : i == root.hovered-index ? #2a2a2a : #222222;
         border-width: 1px;
-        border-color: root.light ? i == root.selected-index ? #9c9c9c : row-touch.has-hover ? #c4c4c4 : #d7d7d7 : i == root.selected-index ? #6a6a6a : row-touch.has-hover ? #474747 : #303030;
-
-        row-touch := TouchArea {
-            mouse-cursor: pointer;
-
-            clicked => {
-                root.selected-index = i;
-                root.activate-result(i, root.click-open-in-alternate-opener);
-            }
-
-            pointer-event(event) => {
-                if (event.kind == PointerEventKind.down || event.kind == PointerEventKind.up) {
-                    root.click-open-in-alternate-opener = event.modifiers.control;
-                    root.selected-index = i;
-                } else if (event.kind == PointerEventKind.move) {
-                    root.selected-index = i;
-                }
-            }
-
-            changed has-hover => {
-                if (self.has-hover) {
-                    root.selected-index = i;
-                    root.show-tooltip(
-                        item.subtitle_tooltip,
-                        76px,
-                        min(parent.y + root.row-height + root.viewport-y + 6px, root.height - 34px),
-                    );
-                } else {
-                    root.hide-tooltip();
-                }
-            }
-        }
+        border-color: root.light ? i == root.selected-index ? #9c9c9c : i == root.hovered-index ? #c4c4c4 : #d7d7d7 : i == root.selected-index ? #6a6a6a : i == root.hovered-index ? #474747 : #303030;
 
         HorizontalLayout {
             padding-left: 14px;
@@ -339,10 +363,52 @@ export component ResultList inherits Flickable {
         }
     }
 
+    list-touch := TouchArea {
+        x: 0px;
+        y: -root.viewport-y;
+        width: root.width;
+        height: root.height;
+        mouse-cursor: pointer;
+
+        clicked => {
+            let index = root.row-index-at(self.mouse-y);
+            if index >= 0 {
+                root.selected-index = index;
+                root.activate-result(index, root.click-open-in-alternate-opener);
+            }
+        }
+
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down || event.kind == PointerEventKind.move || event.kind == PointerEventKind.up {
+                root.pointer-over-list = true;
+                root.pointer-y = self.mouse-y;
+                root.update-hovered-row(self.mouse-y, event.modifiers.control);
+            }
+
+            if event.kind == PointerEventKind.down {
+                root.pressed-index = root.row-index-at(self.mouse-y);
+            } else if event.kind == PointerEventKind.up {
+                root.pressed-index = -1;
+            }
+        }
+
+        changed has-hover => {
+            root.pointer-over-list = self.has-hover;
+            if (self.has-hover) {
+                root.pointer-y = self.mouse-y;
+                root.update-hovered-row(self.mouse-y, root.control-held);
+            } else {
+                root.hovered-index = -1;
+                root.pressed-index = -1;
+                root.hide-tooltip();
+            }
+        }
+    }
+
     LegendTooltipBubble {
         x: root.tooltip-x;
         y: root.tooltip-y - root.viewport-y;
-        width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, root.width - root.tooltip-x - 6px);
+        width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, max(0px, root.width - root.tooltip-x - 6px));
         height: root.tooltip-visible && root.tooltip-text != "" ? 30px : 0px;
         visible: root.tooltip-visible && root.tooltip-text != "";
         text: root.tooltip-text;

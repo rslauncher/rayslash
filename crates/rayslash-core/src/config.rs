@@ -75,6 +75,8 @@ pub struct AppearanceConfig {
     pub density: AppearanceDensity,
     #[serde(default = "default_max_results")]
     pub max_results: usize,
+    #[serde(default = "default_true")]
+    pub show_tooltips: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -213,6 +215,7 @@ impl Default for AppearanceConfig {
             theme: AppearanceTheme::default(),
             density: AppearanceDensity::default(),
             max_results: default_max_results(),
+            show_tooltips: true,
         }
     }
 }

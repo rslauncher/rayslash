@@ -157,6 +157,7 @@ export component AppWindow inherits Window {
     in-out property <string> settings-theme: "dark";
     in-out property <string> settings-density: "comfortable";
     in-out property <string> settings-max-results: "20";
+    in-out property <bool> settings-show-tooltips: true;
     in-out property <string> settings-config-path: "";
     in-out property <string> settings-state-path: "";
     in-out property <string> settings-socket-path: "";
@@ -182,7 +183,7 @@ export component AppWindow inherits Window {
     callback settings-browse-folder-requested(string);
     callback settings-choose-alternate-opener-requested(string);
     callback settings-clear-ranking-requested();
-    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, string, string, string);
+    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, string, string, string, bool);
 
     public function focus-search() {
         search.focus();
@@ -367,6 +368,7 @@ export component AppWindow inherits Window {
                         light: root.light-theme;
                         density <=> root.settings-density;
                         max-results <=> root.settings-max-results;
+                        show-tooltips <=> root.settings-show-tooltips;
                         config-path: root.settings-config-path;
                         state-path: root.settings-state-path;
                         socket-path: root.settings-socket-path;
@@ -388,7 +390,7 @@ export component AppWindow inherits Window {
                         clear-ranking-requested => {
                             root.settings-clear-ranking-requested();
                         }
-                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results) => {
+                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips) => {
                             root.settings-save-requested(
                                 folder-sources,
                                 alternate-opener-command,
@@ -400,7 +402,8 @@ export component AppWindow inherits Window {
                                 ranking-learn-from-usage,
                                 theme,
                                 density,
-                                max-results);
+                                max-results,
+                                show-tooltips);
                         }
                     }
 
@@ -421,6 +424,7 @@ export component AppWindow inherits Window {
                         density: root.settings-density;
                         light: root.light-theme;
                         result-tip-text: root.result-tip-text;
+                        tooltips-enabled: root.settings-show-tooltips;
 
                         activate-result(index, use-alternate-opener) => {
                             root.activate-selected-result(index, use-alternate-opener);

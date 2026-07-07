@@ -106,6 +106,7 @@ alternate_folder_opener_command = "codium"
 max_results = 20
 theme = "dim"
 density = "compact"
+show_tooltips = false
 
 [ranking]
 learn_from_usage = false
@@ -142,6 +143,7 @@ learn_from_usage = false
             theme: AppearanceTheme::Dim,
             density: AppearanceDensity::Compact,
             max_results: 20,
+            show_tooltips: false,
         }
     );
     assert_eq!(
@@ -210,6 +212,7 @@ max_results = 0
     );
     assert!(config.actions.alternate_folder_opener_enabled);
     assert_eq!(config.appearance.max_results, 36);
+    assert!(config.appearance.show_tooltips);
     assert!(config.ranking.learn_from_usage);
 }
 
@@ -301,6 +304,7 @@ fn config_can_be_saved_and_loaded_from_toml() {
             theme: AppearanceTheme::Dim,
             density: AppearanceDensity::Compact,
             max_results: 25,
+            show_tooltips: false,
         },
         ranking: RankingConfig {
             learn_from_usage: false,
@@ -315,6 +319,7 @@ fn config_can_be_saved_and_loaded_from_toml() {
     assert!(saved.contains("folder_sources"));
     assert!(saved.contains("[[aliases]]"));
     assert!(saved.contains("folders = false"));
+    assert!(saved.contains("show_tooltips = false"));
     assert!(saved.contains("alternate_folder_opener_enabled = false"));
     assert!(saved.contains("alternate_folder_opener_command = \"codium\""));
     assert!(saved.contains("theme = \"dim\""));

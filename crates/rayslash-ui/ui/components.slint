@@ -236,25 +236,76 @@ export component SettingToggle inherits Rectangle {
     in property <string> label;
     in property <string> description;
     in property <bool> light;
+    in property <bool> tooltips-enabled;
     in-out property <bool> checked;
     callback toggled();
 
-    private property <bool> description-hover: false;
-
     height: 58px;
     border-radius: 8px;
-    background: root.light ? toggle-touch.has-hover || root.description-hover ? #ffffff : #f6f6f6 : toggle-touch.has-hover || root.description-hover ? #242424 : #202020;
+    background: root.light ? toggle-touch.has-hover ? #ffffff : #f6f6f6 : toggle-touch.has-hover ? #242424 : #202020;
     border-width: 1px;
-    border-color: root.light ? toggle-touch.has-hover || root.description-hover ? #bdbdbd : #d4d4d4 : #363636;
+    border-color: root.light ? toggle-touch.has-hover ? #bdbdbd : #d4d4d4 : #363636;
 
     animate background { duration: 90ms; }
     animate border-color { duration: 90ms; }
+
+    tooltip-measure := Text {
+        width: 0px;
+        height: 0px;
+        text: root.label + ": " + root.description;
+        font-size: 11px;
+        font-weight: 600;
+        visible: false;
+    }
+
+    tooltip-delay := Timer {
+        interval: 800ms;
+        running: false;
+
+        triggered => {
+            self.running = false;
+            if toggle-touch.has-hover && root.tooltips-enabled {
+                tooltip-popup.show();
+            }
+        }
+    }
+
+    tooltip-popup := PopupWindow {
+        x: 0px;
+        y: root.height + 6px;
+        width: root.tooltips-enabled ? min(tooltip-measure.preferred-width + 18px, 560px) : 0px;
+        height: root.tooltips-enabled ? 30px : 0px;
+        close-policy: PopupClosePolicy.no-auto-close;
+
+        LegendTooltipBubble {
+            width: 100%;
+            height: 100%;
+            text: root.label + ": " + root.description;
+            light: root.light;
+        }
+    }
+
+    changed tooltips-enabled => {
+        if (!root.tooltips-enabled) {
+            tooltip-delay.running = false;
+            tooltip-popup.close();
+        }
+    }
 
     toggle-touch := TouchArea {
         mouse-cursor: pointer;
         clicked => {
             root.checked = !root.checked;
             root.toggled();
+        }
+
+        changed has-hover => {
+            if self.has-hover && root.tooltips-enabled {
+                tooltip-delay.running = true;
+            } else {
+                tooltip-delay.running = false;
+                tooltip-popup.close();
+            }
         }
     }
 
@@ -294,20 +345,13 @@ export component SettingToggle inherits Rectangle {
                 overflow: elide;
             }
 
-            TooltipText {
+            Text {
                 horizontal-stretch: 1;
                 text: root.description;
-                tooltip-text: root.label + ": " + root.description;
-                light: root.light;
-                text-color: root.light ? #5f5f5f : #9a9a9a;
-                text-font-size: 11px;
-                hover-changed(hover) => {
-                    root.description-hover = hover;
-                }
-                clicked => {
-                    root.checked = !root.checked;
-                    root.toggled();
-                }
+                color: root.light ? #5f5f5f : #9a9a9a;
+                font-size: 11px;
+                overflow: elide;
+                vertical-alignment: center;
             }
         }
     }

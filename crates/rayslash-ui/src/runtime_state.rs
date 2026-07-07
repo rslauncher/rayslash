@@ -122,6 +122,7 @@ pub(crate) struct ResultRefreshContext<'a> {
     pub current_results: &'a Rc<RefCell<Vec<search::SearchResult>>>,
     pub results_model: &'a Rc<VecModel<ResultItem>>,
     pub icon_cache: &'a Rc<RefCell<IconImageCache>>,
+    pub profile: bool,
 }
 
 pub(crate) enum ResultSelection {
@@ -135,6 +136,8 @@ pub(crate) fn refresh_result_view(
     query: &str,
     selection: ResultSelection,
 ) -> usize {
+    let refresh_started = Instant::now();
+    let search_started = Instant::now();
     let result_set = search_result_set(
         context.config,
         context.ranking_state,
@@ -142,15 +145,26 @@ pub(crate) fn refresh_result_view(
         context.apps,
         query,
     );
+    profile_stage(context.profile, "result refresh search", search_started);
+
     let results = result_set.results;
     let count = results.len();
 
-    context.results_model.set_vec(to_result_items(
-        &results,
-        &mut context.icon_cache.borrow_mut(),
-    ));
+    let item_started = Instant::now();
+    let result_items = to_result_items(&results, &mut context.icon_cache.borrow_mut());
+    profile_stage(
+        context.profile,
+        "result refresh item conversion",
+        item_started,
+    );
+
+    let model_started = Instant::now();
+    context.results_model.set_vec(result_items);
+    profile_stage(context.profile, "result refresh model set", model_started);
+
     *context.current_results.borrow_mut() = results;
 
+    let ui_started = Instant::now();
     ui.set_result_count(count as i32);
     ui.set_result_tip_text(result_set.result_tip.into());
     ui.set_selected_index(match selection {
@@ -158,6 +172,8 @@ pub(crate) fn refresh_result_view(
         ResultSelection::QueryDefault => selected_index_for_query(query, count as i32),
     });
     ui.invoke_reset_result_scroll();
+    profile_stage(context.profile, "result refresh ui properties", ui_started);
+    profile_stage(context.profile, "result refresh total", refresh_started);
 
     count
 }

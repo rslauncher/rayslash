@@ -38,6 +38,7 @@ pub(crate) fn set_settings_properties(
     ui.set_settings_theme(appearance_theme_label(config.appearance.theme).into());
     ui.set_settings_density(appearance_density_label(config.appearance.density).into());
     ui.set_settings_max_results(config.appearance.max_results.to_string().into());
+    ui.set_settings_show_tooltips(config.appearance.show_tooltips);
     ui.set_settings_config_path(path_option_label(config::config_file()).into());
     ui.set_settings_state_path(path_option_label(config::state_dir()).into());
     ui.set_settings_socket_path(socket_path.display().to_string().into());
@@ -60,6 +61,7 @@ pub(crate) fn config_from_settings_fields(
     theme: &str,
     density: &str,
     max_results_text: &str,
+    show_tooltips: bool,
     aliases: Vec<config::AliasConfig>,
 ) -> Result<config::Config, SettingsConfigError> {
     let alternate_folder_opener_command = alternate_folder_opener_command.trim();
@@ -89,6 +91,7 @@ pub(crate) fn config_from_settings_fields(
             theme,
             density,
             max_results,
+            show_tooltips,
         },
         ranking: config::RankingConfig { learn_from_usage },
     })
@@ -235,6 +238,7 @@ mod tests {
             "dim",
             "compact",
             "25",
+            false,
             vec![config::AliasConfig {
                 name: "GitHub".to_owned(),
                 query: "gh".to_owned(),
@@ -265,6 +269,7 @@ mod tests {
                 theme: config::AppearanceTheme::Dim,
                 density: config::AppearanceDensity::Compact,
                 max_results: 25,
+                show_tooltips: false,
             }
         );
     }
@@ -284,6 +289,7 @@ mod tests {
                 "dark",
                 "comfortable",
                 "50",
+                true,
                 Vec::new()
             ),
             Err(SettingsConfigError::EmptyAlternateFolderOpener)
@@ -301,6 +307,7 @@ mod tests {
                 "dark",
                 "comfortable",
                 "0",
+                true,
                 Vec::new()
             ),
             Err(SettingsConfigError::InvalidMaxResults)
