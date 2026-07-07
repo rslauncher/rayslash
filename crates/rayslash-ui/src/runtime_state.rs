@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn search_results_respect_configured_max_results_without_adding_tip_row() {
+    fn search_results_respect_configured_max_results_with_scroll_end_tip() {
         let config = config::Config {
             folder_sources: Vec::new(),
             aliases: Vec::new(),

@@ -1,5 +1,5 @@
 import { ResultItem } from "./models.slint";
-import { TooltipText } from "./components.slint";
+import { LegendTooltipBubble } from "./components.slint";
 
 export component ResultList inherits Flickable {
     in property <[ResultItem]> results;
@@ -12,15 +12,23 @@ export component ResultList inherits Flickable {
     in property <string> alternate-folder-opener-label;
     in property <string> density: "comfortable";
     in property <bool> light;
+    in property <string> result-tip-text;
     callback activate-result(int, bool);
 
     private property <length> row-height: root.density == "compact" ? 54px : 64px;
     private property <length> row-gap: root.density == "compact" ? 6px : 8px;
     private property <length> row-stride: root.row-height + root.row-gap;
+    private property <length> tip-height: root.result-tip-text == "" ? 0px : 18px;
+    private property <length> tip-gap: root.result-tip-text == "" || root.result-count <= 0 ? 0px : root.row-gap;
     private property <bool> click-open-in-alternate-opener: false;
+    private property <string> tooltip-text: "";
+    private property <length> tooltip-x: 0px;
+    private property <length> tooltip-y: 0px;
+    private property <bool> tooltip-visible: false;
 
     public function reset-scroll() {
         root.viewport-y = 0px;
+        root.hide-tooltip();
     }
 
     public function keep-selection-visible() {
@@ -41,8 +49,50 @@ export component ResultList inherits Flickable {
         }
     }
 
+    function show-tooltip(text: string, x: length, y: length) {
+        tooltip-delay.running = false;
+        root.tooltip-visible = false;
+        root.tooltip-text = text;
+        root.tooltip-x = x;
+        root.tooltip-y = y;
+        if (text != "") {
+            tooltip-delay.running = true;
+        }
+    }
+
+    function hide-tooltip() {
+        tooltip-delay.running = false;
+        root.tooltip-visible = false;
+        root.tooltip-text = "";
+    }
+
     viewport-width: self.width;
-    viewport-height: root.result-count <= 0 ? 0px : root.result-count * root.row-stride - root.row-gap;
+    viewport-height: root.result-count <= 0 ? root.tip-height : root.result-count * root.row-stride - root.row-gap + root.tip-gap + root.tip-height;
+
+    tooltip-delay := Timer {
+        interval: 800ms;
+        running: false;
+
+        triggered => {
+            self.running = false;
+            if root.tooltip-text != "" {
+                root.tooltip-visible = true;
+            }
+        }
+    }
+
+    tooltip-measure := Text {
+        width: 0px;
+        height: 0px;
+        text: root.tooltip-text;
+        font-size: 11px;
+        font-weight: 600;
+        visible: false;
+    }
+
+    changed viewport-y => {
+        root.hide-tooltip();
+    }
 
     for item[i] in root.results: Rectangle {
         y: i * root.row-stride;
@@ -52,9 +102,6 @@ export component ResultList inherits Flickable {
         background: root.light ? row-touch.pressed ? #d8d8d8 : i == root.selected-index ? #dedede : row-touch.has-hover ? #e8e8e8 : #ffffff : row-touch.pressed ? #3c3c3c : i == root.selected-index ? #343434 : row-touch.has-hover ? #2a2a2a : #222222;
         border-width: 1px;
         border-color: root.light ? i == root.selected-index ? #9c9c9c : row-touch.has-hover ? #c4c4c4 : #d7d7d7 : i == root.selected-index ? #6a6a6a : row-touch.has-hover ? #474747 : #303030;
-
-        animate background { duration: 90ms; }
-        animate border-color { duration: 90ms; }
 
         row-touch := TouchArea {
             mouse-cursor: pointer;
@@ -76,6 +123,13 @@ export component ResultList inherits Flickable {
             changed has-hover => {
                 if (self.has-hover) {
                     root.selected-index = i;
+                    root.show-tooltip(
+                        item.subtitle_tooltip,
+                        76px,
+                        min(parent.y + root.row-height + root.viewport-y + 6px, root.height - 34px),
+                    );
+                } else {
+                    root.hide-tooltip();
                 }
             }
         }
@@ -111,8 +165,6 @@ export component ResultList inherits Flickable {
                     property <bool> alternate-icon: root.control-held && item.icon_kind == "folder";
                     background: self.alternate-icon ? root.alternate-folder-opener-background : root.light ? i == root.selected-index ? #202020 : #e0e0e0 : i == root.selected-index ? #d6d6d6 : #3a3a3a;
                     visible: !item.has_icon;
-
-                    animate background { duration: 120ms; easing: ease; }
 
                     Text {
                         x: 0px;
@@ -161,7 +213,6 @@ export component ResultList inherits Flickable {
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "folder";
                         opacity: parent.alternate-icon ? 0 : 1;
-                        animate opacity { duration: 120ms; easing: ease; }
                     }
 
                     Rectangle {
@@ -173,7 +224,6 @@ export component ResultList inherits Flickable {
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "folder";
                         opacity: parent.alternate-icon ? 0 : 1;
-                        animate opacity { duration: 120ms; easing: ease; }
                     }
 
                     Rectangle {
@@ -259,35 +309,43 @@ export component ResultList inherits Flickable {
                     font-weight: 700;
                 }
 
-                TooltipText {
+                Text {
                     horizontal-stretch: 1;
                     text: item.subtitle;
-                    tooltip-text: item.subtitle_tooltip;
-                    light: root.light;
-                    text-color: root.light ? i == root.selected-index ? #3f3f3f : #656565 : i == root.selected-index ? #d0d0d0 : #a0a0a0;
-                    text-font-size: 13px;
-
-                    clicked => {
-                        root.selected-index = i;
-                        root.activate-result(i, root.click-open-in-alternate-opener);
-                    }
-
-                    pointer-event(event) => {
-                        if (event.kind == PointerEventKind.down || event.kind == PointerEventKind.up) {
-                            root.click-open-in-alternate-opener = event.modifiers.control;
-                            root.selected-index = i;
-                        } else if (event.kind == PointerEventKind.move) {
-                            root.selected-index = i;
-                        }
-                    }
-
-                    hover-changed(hover) => {
-                        if (hover) {
-                            root.selected-index = i;
-                        }
-                    }
+                    color: root.light ? i == root.selected-index ? #3f3f3f : #656565 : i == root.selected-index ? #d0d0d0 : #a0a0a0;
+                    font-size: 13px;
+                    overflow: elide;
                 }
             }
         }
+
+    }
+
+    Rectangle {
+        x: 0px;
+        y: root.result-count <= 0 ? 0px : root.result-count * root.row-stride - root.row-gap + root.tip-gap;
+        width: root.width;
+        height: root.tip-height;
+        visible: root.result-tip-text != "";
+        background: transparent;
+
+        Text {
+            height: 100%;
+            text: root.result-tip-text;
+            color: root.light ? #555555 : #b8b8b8;
+            font-size: 11px;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+    }
+
+    LegendTooltipBubble {
+        x: root.tooltip-x;
+        y: root.tooltip-y - root.viewport-y;
+        width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, root.width - root.tooltip-x - 6px);
+        height: root.tooltip-visible && root.tooltip-text != "" ? 30px : 0px;
+        visible: root.tooltip-visible && root.tooltip-text != "";
+        text: root.tooltip-text;
+        light: root.light;
     }
 }

@@ -219,7 +219,7 @@ fn app_subtitle(app: &DesktopApp) -> String {
     app.comment
         .as_ref()
         .or(app.generic_name.as_ref())
-        .map(|detail| format!("Application - {detail}"))
+        .cloned()
         .unwrap_or_else(|| "Application".to_owned())
 }
 

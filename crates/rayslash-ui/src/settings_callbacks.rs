@@ -186,6 +186,11 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 }
             };
 
+            let runtime_config = config_to_save.clone().normalized();
+            if runtime_config == *config_state.borrow() {
+                return;
+            }
+
             if let Err(error) = config::save_config_with_backup(&config_to_save) {
                 eprintln!("{error}");
                 if let Some(ui) = weak.upgrade() {
@@ -194,7 +199,6 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 return;
             }
 
-            let runtime_config = config_to_save.normalized();
             *config_state.borrow_mut() = runtime_config;
             let updated_projects =
                 projects::scan_project_roots(&config_state.borrow().folder_sources);

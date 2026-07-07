@@ -137,24 +137,6 @@ component LauncherHint inherits Rectangle {
     }
 }
 
-component ResultTip inherits Rectangle {
-    in property <string> text;
-    in property <bool> light;
-
-    height: root.text == "" ? 0px : 18px;
-    visible: root.text != "";
-    background: transparent;
-
-    Text {
-        height: 100%;
-        text: root.text;
-        color: root.light ? #555555 : #b8b8b8;
-        font-size: 11px;
-        overflow: elide;
-        vertical-alignment: center;
-    }
-}
-
 export component AppWindow inherits Window {
     in property <[ResultItem]> results;
     in property <[AppChoiceItem]> alternate-opener-choices;
@@ -438,17 +420,11 @@ export component AppWindow inherits Window {
                         alternate-folder-opener-label: root.alternate-folder-opener-label;
                         density: root.settings-density;
                         light: root.light-theme;
+                        result-tip-text: root.result-tip-text;
 
                         activate-result(index, use-alternate-opener) => {
                             root.activate-selected-result(index, use-alternate-opener);
                         }
-                    }
-
-                    ResultTip {
-                        height: root.settings-open || root.result-tip-text == "" ? 0px : 18px;
-                        visible: !root.settings-open && root.result-tip-text != "";
-                        text: root.result-tip-text;
-                        light: root.light-theme;
                     }
                 }
             }
