@@ -5,6 +5,7 @@ use rayslash_core::{
     config::{AliasConfig, AliasKind, ProviderConfig, WebSearchConfig},
     ranking::RankingState,
     search,
+    utility_actions::{SystemActionKind, UtilityAction},
 };
 
 #[test]
@@ -35,12 +36,7 @@ fn mixed_search_orders_apps_projects_and_calculator_with_fixture_data() {
             .iter()
             .map(|result| result.title.as_str())
             .collect::<Vec<_>>(),
-        vec![
-            "Rayslash",
-            "rayslash",
-            "x-ray-sidecar",
-            "Search the web for ray"
-        ]
+        vec!["Rayslash", "rayslash", "x-ray-sidecar"]
     );
 
     let calculator_results = search::mixed_results(&projects, &apps, "2 + 2");
@@ -107,10 +103,9 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
 
     let folder_only = search::mixed_results_with_providers(&projects, &apps, "ray", &providers);
 
-    assert_eq!(folder_only.len(), 2);
+    assert_eq!(folder_only.len(), 1);
     assert_eq!(folder_only[0].title, "rayslash");
     assert!(folder_only[0].project_path().is_some());
-    assert_eq!(folder_only[1].default_web_search_query(), Some("ray"));
 
     let disabled_calculator = search::mixed_results_with_providers(
         &[],
@@ -255,7 +250,7 @@ fn mixed_search_supports_configured_web_search_templates() {
 }
 
 #[test]
-fn mixed_search_adds_default_browser_search_after_local_matches() {
+fn mixed_search_default_browser_search_requires_search_command() {
     let apps = vec![app("rayslash.desktop", "Rayslash")];
     let providers = ProviderConfig {
         apps: true,
@@ -273,14 +268,25 @@ fn mixed_search_adds_default_browser_search_after_local_matches() {
         &apps,
         &[],
         &[],
-        "ray",
+        "manhattan",
         &providers,
         None,
     );
 
-    assert_eq!(results[0].title, "Rayslash");
-    assert_eq!(results[1].title, "Search the web for ray");
-    assert_eq!(results[1].default_web_search_query(), Some("ray"));
+    assert_eq!(results[0].title, "No results");
+
+    let results = search::mixed_results_with_ranking_and_web_searches(
+        &[],
+        &apps,
+        &[],
+        &[],
+        "search manhattan",
+        &providers,
+        None,
+    );
+
+    assert_eq!(results[0].title, "Search the web for manhattan");
+    assert_eq!(results[0].default_web_search_query(), Some("manhattan"));
 }
 
 #[test]
@@ -303,7 +309,7 @@ fn mixed_search_supports_local_unit_conversion() {
 }
 
 #[test]
-fn mixed_search_ranks_valid_conversions_before_calculator_errors() {
+fn mixed_search_unit_conversions_suppress_calculator_errors() {
     let providers = ProviderConfig {
         apps: false,
         folders: false,
@@ -318,11 +324,38 @@ fn mixed_search_ranks_valid_conversions_before_calculator_errors() {
     let compact = search::mixed_results_with_providers(&[], &[], "10c to k", &providers);
     let named =
         search::mixed_results_with_providers(&[], &[], "10 celsius to fahrenheit", &providers);
+    let compact_length = search::mixed_results_with_providers(&[], &[], "10mi to km", &providers);
     let reverse = search::mixed_results_with_providers(&[], &[], "10f to celsius", &providers);
 
     assert_eq!(compact[0].title, "283.15 K");
+    assert_eq!(compact.len(), 1);
     assert_eq!(named[0].title, "50 °F");
+    assert_eq!(compact_length[0].title, "16.0934 km");
+    assert_eq!(compact_length.len(), 1);
     assert_eq!(reverse[0].title, "-12.22 °C");
+    assert_eq!(reverse.len(), 1);
+}
+
+#[test]
+fn mixed_search_supports_power_and_timer_actions() {
+    let reboot = search::mixed_results(&[], &[], "reboot in 10");
+    let timer = search::mixed_results(&[], &[], "timer feed the cat 10min");
+    let timer_error = search::mixed_results(&[], &[], "timer feed 2 cats 10min");
+
+    assert_eq!(reboot[0].title, "Reboot in 10 seconds");
+    let action = reboot[0].utility_action().expect("utility action");
+    assert!(matches!(
+        action,
+        UtilityAction::System(action) if action.kind == SystemActionKind::Reboot
+    ));
+
+    assert_eq!(timer[0].title, "Remind in 10 minutes: feed the cat");
+    assert!(timer[0].utility_action().is_some());
+
+    assert_eq!(
+        timer_error[0].utility_action_error_message(),
+        Some("More than one time found. Quote the message if needed.")
+    );
 }
 
 #[test]
@@ -376,7 +409,7 @@ fn mixed_search_distinguishes_calculator_errors_normal_queries_placeholders_and_
     assert!(normal_query[0].app_command().is_some());
     assert!(normal_query[0].calculator_result().is_none());
 
-    let default_web_search = search::mixed_results(&[], &[], "anything");
+    let default_web_search = search::mixed_results(&[], &[], "search anything");
     assert_eq!(default_web_search[0].title, "Search the web for anything");
     assert_eq!(
         default_web_search[0].default_web_search_query(),
@@ -449,6 +482,6 @@ fn learned_ranking_integration_keeps_strong_textual_matches_above_weaker_history
             .iter()
             .map(|result| result.title.as_str())
             .collect::<Vec<_>>(),
-        vec!["Rayslash", "x-ray-sidecar", "Search the web for ray"]
+        vec!["Rayslash", "x-ray-sidecar"]
     );
 }

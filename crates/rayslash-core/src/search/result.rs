@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::{actions::CommandSpec, config::AliasConfig};
+use crate::{actions::CommandSpec, config::AliasConfig, utility_actions::UtilityAction};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchResult {
@@ -18,6 +18,10 @@ pub enum SearchResultIcon {
     UnitConversion,
     CurrencyConversion,
     TimeLookup,
+    SystemReboot,
+    SystemShutdown,
+    SystemLogout,
+    Timer,
     WebSearch { label: String },
     App { path: Option<PathBuf> },
     ProjectFolder,
@@ -26,19 +30,62 @@ pub enum SearchResultIcon {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchResultKind {
     Placeholder,
-    NoResults { query: String },
-    Calculator { expression: String, result: String },
-    CalculatorError { expression: String, message: String },
-    UnitConversion { expression: String, result: String },
-    CurrencyConversion { expression: String, result: String },
-    CurrencyConversionError { expression: String, message: String },
-    TimeLookup { expression: String, result: String },
-    TimeLookupError { expression: String, message: String },
-    WebSearch { name: String, url: String },
-    DefaultWebSearch { query: String },
-    App { id: String, command: CommandSpec },
-    Project { path: PathBuf },
-    Alias { alias: AliasConfig },
+    NoResults {
+        query: String,
+    },
+    Calculator {
+        expression: String,
+        result: String,
+    },
+    CalculatorError {
+        expression: String,
+        message: String,
+    },
+    UnitConversion {
+        expression: String,
+        result: String,
+    },
+    CurrencyConversion {
+        expression: String,
+        result: String,
+    },
+    CurrencyConversionError {
+        expression: String,
+        message: String,
+    },
+    TimeLookup {
+        expression: String,
+        result: String,
+    },
+    TimeLookupError {
+        expression: String,
+        message: String,
+    },
+    UtilityAction {
+        action: UtilityAction,
+    },
+    UtilityActionError {
+        expression: String,
+        message: String,
+    },
+    WebSearch {
+        name: String,
+        url: String,
+    },
+    DefaultWebSearch {
+        query: String,
+    },
+    App {
+        id: String,
+        command: CommandSpec,
+        startup_wm_class: Option<String>,
+    },
+    Project {
+        path: PathBuf,
+    },
+    Alias {
+        alias: AliasConfig,
+    },
 }
 
 impl SearchResult {
@@ -53,6 +100,8 @@ impl SearchResult {
             SearchResultKind::CurrencyConversionError { .. } => None,
             SearchResultKind::TimeLookup { .. } => None,
             SearchResultKind::TimeLookupError { .. } => None,
+            SearchResultKind::UtilityAction { .. } => None,
+            SearchResultKind::UtilityActionError { .. } => None,
             SearchResultKind::WebSearch { .. } => None,
             SearchResultKind::DefaultWebSearch { .. } => None,
             SearchResultKind::App { .. } => None,
@@ -73,6 +122,8 @@ impl SearchResult {
             | SearchResultKind::CurrencyConversionError { .. }
             | SearchResultKind::TimeLookup { .. }
             | SearchResultKind::TimeLookupError { .. }
+            | SearchResultKind::UtilityAction { .. }
+            | SearchResultKind::UtilityActionError { .. }
             | SearchResultKind::WebSearch { .. }
             | SearchResultKind::DefaultWebSearch { .. }
             | SearchResultKind::Project { .. }
@@ -91,6 +142,8 @@ impl SearchResult {
             | SearchResultKind::CurrencyConversionError { .. }
             | SearchResultKind::TimeLookup { .. }
             | SearchResultKind::TimeLookupError { .. }
+            | SearchResultKind::UtilityAction { .. }
+            | SearchResultKind::UtilityActionError { .. }
             | SearchResultKind::WebSearch { .. }
             | SearchResultKind::DefaultWebSearch { .. }
             | SearchResultKind::App { .. }
@@ -110,6 +163,8 @@ impl SearchResult {
             | SearchResultKind::CurrencyConversionError { .. }
             | SearchResultKind::TimeLookup { .. }
             | SearchResultKind::TimeLookupError { .. }
+            | SearchResultKind::UtilityAction { .. }
+            | SearchResultKind::UtilityActionError { .. }
             | SearchResultKind::WebSearch { .. }
             | SearchResultKind::DefaultWebSearch { .. }
             | SearchResultKind::App { .. }
@@ -157,6 +212,20 @@ impl SearchResult {
         }
     }
 
+    pub fn utility_action(&self) -> Option<&UtilityAction> {
+        match &self.kind {
+            SearchResultKind::UtilityAction { action } => Some(action),
+            _ => None,
+        }
+    }
+
+    pub fn utility_action_error_message(&self) -> Option<&str> {
+        match &self.kind {
+            SearchResultKind::UtilityActionError { message, .. } => Some(message),
+            _ => None,
+        }
+    }
+
     pub fn web_search_url(&self) -> Option<&str> {
         match &self.kind {
             SearchResultKind::WebSearch { url, .. } => Some(url),
@@ -174,6 +243,17 @@ impl SearchResult {
     pub fn app_id(&self) -> Option<&str> {
         match &self.kind {
             SearchResultKind::App { id, .. } => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn app_activation(&self) -> Option<(&str, &CommandSpec, Option<&str>)> {
+        match &self.kind {
+            SearchResultKind::App {
+                id,
+                command,
+                startup_wm_class,
+            } => Some((id, command, startup_wm_class.as_deref())),
             _ => None,
         }
     }
@@ -197,6 +277,17 @@ impl SearchResult {
             | SearchResultKind::TimeLookupError { expression, .. } => {
                 Some(format!("time-lookup:{}", expression.trim()))
             }
+            SearchResultKind::UtilityAction { action } => match action {
+                UtilityAction::System(action) => Some(format!(
+                    "system-action:{:?}:{}",
+                    action.kind,
+                    action.expression.trim()
+                )),
+                UtilityAction::Timer(action) => Some(format!("timer:{}", action.expression.trim())),
+            },
+            SearchResultKind::UtilityActionError { expression, .. } => {
+                Some(format!("utility-action-error:{}", expression.trim()))
+            }
             SearchResultKind::WebSearch { name, url } => Some(format!("web-search:{name}:{url}")),
             SearchResultKind::DefaultWebSearch { query } => {
                 Some(format!("default-web-search:{}", query.trim()))
@@ -219,6 +310,8 @@ impl SearchResult {
             | SearchResultKind::CurrencyConversionError { .. }
             | SearchResultKind::TimeLookup { .. }
             | SearchResultKind::TimeLookupError { .. }
+            | SearchResultKind::UtilityAction { .. }
+            | SearchResultKind::UtilityActionError { .. }
             | SearchResultKind::WebSearch { .. }
             | SearchResultKind::DefaultWebSearch { .. }
             | SearchResultKind::Alias { .. } => None,

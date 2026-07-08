@@ -8,7 +8,7 @@ use crate::config::{AliasConfig, ProviderConfig, WebSearchConfig};
 use crate::currency;
 use crate::projects::Project;
 use crate::ranking::RankingState;
-use crate::{time_lookup, units, web_search};
+use crate::{time_lookup, units, utility_actions, web_search};
 
 use matcher::{boosted_score, fuzzy_matcher, fuzzy_pattern, search_result_order};
 use nucleo_matcher::Utf32Str;
@@ -16,7 +16,8 @@ use providers::{
     alias_result, app_result, calculator_result, currency_conversion_result, currency_error_result,
     default_web_search_result, disabled_providers_result, no_results,
     placeholder_results_for_providers, project_result, time_lookup_error_result,
-    time_lookup_result, unit_conversion_result, web_search_result,
+    time_lookup_result, unit_conversion_result, utility_action_error_result, utility_action_result,
+    web_search_result,
 };
 pub use providers::{display_path, placeholder_results, project_results};
 #[cfg(test)]
@@ -82,9 +83,6 @@ pub fn mixed_results_with_ranking_and_web_searches(
 ) -> Vec<SearchResult> {
     let query = query.trim();
     let mut utility_results = utility_results(query, providers, web_searches);
-    let has_custom_web_search = utility_results
-        .iter()
-        .any(|result| matches!(result.kind, SearchResultKind::WebSearch { .. }));
 
     if !providers.apps
         && !providers.folders
@@ -94,6 +92,7 @@ pub fn mixed_results_with_ranking_and_web_searches(
         && !providers.unit_conversion
         && !providers.currency_conversion
         && !providers.time_lookup
+        && utility_results.is_empty()
     {
         return vec![disabled_providers_result()];
     }
@@ -102,20 +101,10 @@ pub fn mixed_results_with_ranking_and_web_searches(
     let enabled_apps = if providers.apps { apps } else { &[] };
     let enabled_aliases = if providers.aliases { aliases } else { &[] };
     if enabled_projects.is_empty() && enabled_apps.is_empty() && enabled_aliases.is_empty() {
-        return if query.is_empty() {
+        return if query.is_empty() || utility_results.is_empty() {
             placeholder_results_for_providers(providers)
         } else {
-            append_default_web_search_if_needed(
-                &mut utility_results,
-                providers,
-                query,
-                has_custom_web_search,
-            );
-            if utility_results.is_empty() {
-                placeholder_results_for_providers(providers)
-            } else {
-                utility_results
-            }
+            utility_results
         };
     }
 
@@ -183,12 +172,6 @@ pub fn mixed_results_with_ranking_and_web_searches(
         .collect::<Vec<_>>();
 
     utility_results.append(&mut results);
-    append_default_web_search_if_needed(
-        &mut utility_results,
-        providers,
-        query,
-        has_custom_web_search,
-    );
     let results = utility_results;
 
     if results.is_empty() {
@@ -208,63 +191,80 @@ fn utility_results(
     }
 
     let mut results = Vec::new();
+    let mut suppress_calculator = false;
+
+    if let Some(action) = utility_actions::parse_query(query) {
+        suppress_calculator = true;
+        match action {
+            Ok(action) => results.push(utility_action_result(action)),
+            Err(error) => results.push(utility_action_error_result(
+                &error.expression,
+                error.message,
+            )),
+        }
+    }
 
     if providers.unit_conversion
         && let Some(conversion) = units::convert_query(query)
     {
+        suppress_calculator = true;
         results.push(unit_conversion_result(conversion));
+    } else if units::looks_like_conversion_query(query) {
+        suppress_calculator = true;
     }
 
-    if providers.currency_conversion
-        && let Some(request) = currency::parse_query(query)
-    {
-        match currency::convert_request(&request) {
-            Ok(conversion) => results.push(currency_conversion_result(conversion)),
-            Err(error) => results.push(currency_error_result(
-                &request.expression,
-                error.to_string(),
-            )),
+    if let Some(request) = currency::parse_query(query) {
+        suppress_calculator = true;
+        if providers.currency_conversion {
+            match currency::convert_request(&request) {
+                Ok(conversion) => results.push(currency_conversion_result(conversion)),
+                Err(error) => results.push(currency_error_result(
+                    &request.expression,
+                    error.to_string(),
+                )),
+            }
         }
     }
 
-    if providers.time_lookup
-        && let Some(request) = time_lookup::parse_query(query)
-    {
-        match time_lookup::lookup_request(&request) {
-            Ok(lookup) => results.push(time_lookup_result(lookup)),
-            Err(error) => results.push(time_lookup_error_result(
-                &request.expression,
-                error.to_string(),
-            )),
+    if let Some(request) = time_lookup::parse_query(query) {
+        suppress_calculator = true;
+        if providers.time_lookup {
+            match time_lookup::lookup_request(&request) {
+                Ok(lookup) => results.push(time_lookup_result(lookup)),
+                Err(error) => results.push(time_lookup_error_result(
+                    &request.expression,
+                    error.to_string(),
+                )),
+            }
+        }
+    }
+
+    if providers.web_search {
+        let web_result_count_before = results.len();
+        let custom_searches = web_search::matching_web_searches(web_searches, query)
+            .into_iter()
+            .map(web_search_result)
+            .collect::<Vec<_>>();
+        let has_custom_search = !custom_searches.is_empty();
+        results.extend(custom_searches);
+
+        if !has_custom_search && let Some(search_terms) = web_search::default_search_terms(query) {
+            results.push(default_web_search_result(search_terms));
+        }
+
+        if results.len() > web_result_count_before {
+            suppress_calculator = true;
         }
     }
 
     if providers.calculator
+        && !suppress_calculator
         && let Some(calculation) = calc::calculate(query)
     {
         results.push(calculator_result(calculation));
     }
 
-    if providers.web_search {
-        results.extend(
-            web_search::matching_web_searches(web_searches, query)
-                .into_iter()
-                .map(web_search_result),
-        );
-    }
-
     results
-}
-
-fn append_default_web_search_if_needed(
-    results: &mut Vec<SearchResult>,
-    providers: &ProviderConfig,
-    query: &str,
-    has_custom_web_search: bool,
-) {
-    if providers.web_search && !query.is_empty() && !has_custom_web_search {
-        results.push(default_web_search_result(query));
-    }
 }
 
 fn app_match_score(

@@ -1,5 +1,7 @@
 use crate::config::WebSearchConfig;
 
+pub const DEFAULT_SEARCH_KEYWORD: &str = "search";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebSearch {
     pub name: String,
@@ -52,6 +54,14 @@ pub fn search_terms_for_trigger<'a>(input: &'a str, trigger: &str) -> Option<&'a
 
     let search_terms = rest.trim();
     (!search_terms.is_empty()).then_some(search_terms)
+}
+
+pub fn default_search_terms(input: &str) -> Option<&str> {
+    search_terms_for_trigger(input, DEFAULT_SEARCH_KEYWORD)
+}
+
+pub fn is_default_search_trigger(input: &str) -> bool {
+    input.trim().eq_ignore_ascii_case(DEFAULT_SEARCH_KEYWORD)
 }
 
 pub fn trigger_from_input<'a>(
@@ -206,5 +216,17 @@ mod tests {
         );
         assert!(trigger_from_input(&templates, "off").is_none());
         assert!(trigger_from_input(&templates, "yt rust").is_none());
+    }
+
+    #[test]
+    fn default_search_requires_builtin_trigger_and_terms() {
+        assert_eq!(default_search_terms("search manhattan"), Some("manhattan"));
+        assert_eq!(
+            default_search_terms("SEARCH rust slint"),
+            Some("rust slint")
+        );
+        assert_eq!(default_search_terms("manhattan"), None);
+        assert_eq!(default_search_terms("search"), None);
+        assert!(is_default_search_trigger("search"));
     }
 }

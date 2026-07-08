@@ -77,6 +77,30 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                         if let Some(ui) = weak.upgrade() {
                             ui.set_status_text(time_lookup_error.into());
                         }
+                    } else if let Some(utility_error) = result.utility_action_error_message() {
+                        if let Some(ui) = weak.upgrade() {
+                            ui.set_status_text(utility_error.into());
+                        }
+                    } else if let Some(action) = result.utility_action() {
+                        match actions::run_utility_action(action) {
+                            Ok(()) => {
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        format!("Scheduled {}", result.title).into(),
+                                    );
+                                    hide_launcher(&ui, is_visible.as_ref());
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!("failed to run utility action {}: {error}", result.title);
+
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        format!("Could not run {}", result.title).into(),
+                                    );
+                                }
+                            }
+                        }
                     } else if result.is_no_results() {
                         if let Some(ui) = weak.upgrade() {
                             hide_launcher(&ui, is_visible.as_ref());
@@ -209,9 +233,16 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                 }
                             }
                         }
-                    } else if let Some(command) = result.app_command().cloned() {
-                        match actions::launch_app(&command) {
-                            Ok(_child) => {
+                    } else if let Some((app_id, command, startup_wm_class)) =
+                        result.app_activation()
+                    {
+                        match actions::activate_app(
+                            app_id,
+                            &result.title,
+                            command,
+                            startup_wm_class,
+                        ) {
+                            Ok(outcome) => {
                                 if let Some(ui) = weak.upgrade() {
                                     let query = ui.get_query_text();
                                     record_learned_launch(
@@ -223,9 +254,15 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                         query.as_str(),
                                     );
                                     mark_app_selected(&app_install_state, &result);
-                                    ui.set_status_text(
-                                        format!("Launching {}", result.title).into(),
-                                    );
+                                    let status = match outcome {
+                                        actions::LaunchOutcome::FocusedExisting => {
+                                            format!("Showing {}", result.title)
+                                        }
+                                        actions::LaunchOutcome::Spawned(_) => {
+                                            format!("Launching {}", result.title)
+                                        }
+                                    };
+                                    ui.set_status_text(status.into());
                                     hide_launcher(&ui, is_visible.as_ref());
                                 }
                             }
@@ -233,7 +270,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                 eprintln!(
                                     "failed to launch app {} with command `{}`: {error}",
                                     result.title,
-                                    command_display(&command)
+                                    command_display(command)
                                 );
 
                                 if let Some(ui) = weak.upgrade() {

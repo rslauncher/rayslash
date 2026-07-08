@@ -270,6 +270,7 @@ mod tests {
             keywords: Vec::new(),
             actions: Vec::new(),
             dbus_activatable: false,
+            startup_wm_class: None,
             icon_path: None,
             command: CommandSpec {
                 program: OsString::from(program),

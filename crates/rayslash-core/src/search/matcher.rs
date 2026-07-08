@@ -79,6 +79,8 @@ fn result_type_order(kind: &SearchResultKind) -> u8 {
         SearchResultKind::CurrencyConversionError { .. } => 0,
         SearchResultKind::TimeLookup { .. } => 0,
         SearchResultKind::TimeLookupError { .. } => 0,
+        SearchResultKind::UtilityAction { .. } => 0,
+        SearchResultKind::UtilityActionError { .. } => 0,
         SearchResultKind::WebSearch { .. } => 0,
         SearchResultKind::DefaultWebSearch { .. } => 3,
         SearchResultKind::App { .. } => 1,

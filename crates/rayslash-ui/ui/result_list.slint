@@ -365,6 +365,110 @@ export component ResultList inherits Flickable {
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "time";
                     }
+
+                    Rectangle {
+                        x: 10px;
+                        y: 11px;
+                        width: 22px;
+                        height: 22px;
+                        border-radius: 11px;
+                        background: transparent;
+                        border-width: 2px;
+                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "power";
+                    }
+
+                    Rectangle {
+                        x: 20px;
+                        y: 7px;
+                        width: 3px;
+                        height: 15px;
+                        border-radius: 2px;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "power";
+                    }
+
+                    Path {
+                        x: 7px;
+                        y: 7px;
+                        width: 28px;
+                        height: 28px;
+                        viewbox-width: 24;
+                        viewbox-height: 24;
+                        commands: "M17 5 A8 8 0 1 0 20 12 M20 12 L20 5 M20 12 L13 12";
+                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        stroke-width: 2.2px;
+                        fill: transparent;
+                        visible: !item.has_icon && item.icon_kind == "reboot";
+                    }
+
+                    Rectangle {
+                        x: 10px;
+                        y: 9px;
+                        width: 13px;
+                        height: 24px;
+                        border-radius: 2px;
+                        background: transparent;
+                        border-width: 2px;
+                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "logout";
+                    }
+
+                    Path {
+                        x: 9px;
+                        y: 8px;
+                        width: 28px;
+                        height: 28px;
+                        viewbox-width: 24;
+                        viewbox-height: 24;
+                        commands: "M10 12 H21 M17 8 L21 12 L17 16";
+                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        stroke-width: 2.4px;
+                        fill: transparent;
+                        visible: !item.has_icon && item.icon_kind == "logout";
+                    }
+
+                    Rectangle {
+                        x: 12px;
+                        y: 12px;
+                        width: 18px;
+                        height: 18px;
+                        border-radius: 9px;
+                        background: transparent;
+                        border-width: 2px;
+                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "stopwatch";
+                    }
+
+                    Rectangle {
+                        x: 18px;
+                        y: 7px;
+                        width: 7px;
+                        height: 4px;
+                        border-radius: 2px;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "stopwatch";
+                    }
+
+                    Rectangle {
+                        x: 20px;
+                        y: 17px;
+                        width: 2px;
+                        height: 7px;
+                        border-radius: 1px;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "stopwatch";
+                    }
+
+                    Rectangle {
+                        x: 21px;
+                        y: 22px;
+                        width: 6px;
+                        height: 2px;
+                        border-radius: 1px;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "stopwatch";
+                    }
                 }
             }
 

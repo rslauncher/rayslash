@@ -3,15 +3,23 @@ use std::{
     io,
     path::Path,
     process::{Child, Command, Stdio},
+    thread,
+    time::Duration,
 };
 
 use crate::apps::DesktopApp;
 use crate::config::{AliasConfig, AliasKind};
+use crate::utility_actions::{SystemActionKind, UtilityAction};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
     pub program: OsString,
     pub args: Vec<OsString>,
+}
+
+pub enum LaunchOutcome {
+    Spawned(Child),
+    FocusedExisting,
 }
 
 pub fn open_project_folder_command(path: &Path) -> CommandSpec {
@@ -61,6 +69,40 @@ pub fn launch_app(command: &CommandSpec) -> io::Result<Child> {
     spawn_command(command)
 }
 
+pub fn activate_app(
+    desktop_id: &str,
+    app_name: &str,
+    command: &CommandSpec,
+    startup_wm_class: Option<&str>,
+) -> io::Result<LaunchOutcome> {
+    if try_focus_existing_app_window(desktop_id, app_name, startup_wm_class) {
+        return Ok(LaunchOutcome::FocusedExisting);
+    }
+
+    let desktop_command = desktop_app_launch_command(desktop_id);
+    match spawn_command(&desktop_command) {
+        Ok(child) => {
+            focus_app_window_after_delay(
+                desktop_id.to_owned(),
+                app_name.to_owned(),
+                startup_wm_class.map(str::to_owned),
+            );
+            Ok(LaunchOutcome::Spawned(child))
+        }
+        Err(_gio_error) => match spawn_command(command) {
+            Ok(child) => {
+                focus_app_window_after_delay(
+                    desktop_id.to_owned(),
+                    app_name.to_owned(),
+                    startup_wm_class.map(str::to_owned),
+                );
+                Ok(LaunchOutcome::Spawned(child))
+            }
+            Err(command_error) => Err(command_error),
+        },
+    }
+}
+
 pub fn launch_alias(alias: &AliasConfig) -> io::Result<Child> {
     match crate::aliases::alias_kind(alias) {
         AliasKind::Url | AliasKind::File | AliasKind::Folder => {
@@ -82,12 +124,35 @@ pub fn open_url(url: &str) -> io::Result<Child> {
     spawn_command(&open_target_command(url))
 }
 
-pub fn open_default_web_search(query: &str, apps: &[DesktopApp]) -> io::Result<Child> {
-    let command = default_web_search_command(query, apps)?;
-    spawn_command(&command)
+pub fn open_default_web_search(query: &str, apps: &[DesktopApp]) -> io::Result<LaunchOutcome> {
+    let desktop_id = default_web_browser_desktop_id()?;
+    let app = apps.iter().find(|app| app.id == desktop_id);
+    let command = default_web_search_command_for_app(query, &desktop_id, app)?;
+    let child = spawn_command(&command)?;
+
+    if let Some(app) = app {
+        focus_app_window_after_delay(
+            app.id.clone(),
+            app.name.clone(),
+            app.startup_wm_class.clone(),
+        );
+    }
+
+    Ok(LaunchOutcome::Spawned(child))
 }
 
 pub fn default_web_search_command(query: &str, apps: &[DesktopApp]) -> io::Result<CommandSpec> {
+    let desktop_id = default_web_browser_desktop_id()?;
+    let app = apps.iter().find(|app| app.id == desktop_id);
+
+    default_web_search_command_for_app(query, &desktop_id, app)
+}
+
+pub fn default_web_search_command_for_app(
+    query: &str,
+    desktop_id: &str,
+    app: Option<&DesktopApp>,
+) -> io::Result<CommandSpec> {
     let query = query.trim();
     if query.is_empty() {
         return Err(io::Error::new(
@@ -96,9 +161,11 @@ pub fn default_web_search_command(query: &str, apps: &[DesktopApp]) -> io::Resul
         ));
     }
 
-    let desktop_id = default_web_browser_desktop_id()?;
-    if let Some(app) = apps.iter().find(|app| app.id == desktop_id) {
+    if let Some(app) = app {
         let mut command = app.command.clone();
+        if is_firefox_like_browser(desktop_id, &command.program) {
+            command.args.push(OsString::from("--search"));
+        }
         command.args.push(OsString::from(query));
         return Ok(command);
     }
@@ -145,6 +212,46 @@ pub fn open_target_command(target: &str) -> CommandSpec {
     }
 }
 
+pub fn run_utility_action(action: &UtilityAction) -> io::Result<()> {
+    match action {
+        UtilityAction::System(action) => {
+            schedule_command(system_action_command(action.kind), action.delay)
+        }
+        UtilityAction::Timer(action) => {
+            schedule_command(timer_notification_command(&action.message), action.delay)
+        }
+    }
+}
+
+pub fn system_action_command(kind: SystemActionKind) -> CommandSpec {
+    crate::utility_actions::system_action_command(kind)
+}
+
+pub fn timer_notification_command(message: &str) -> CommandSpec {
+    crate::utility_actions::timer_notification_command(message)
+}
+
+fn schedule_command(command: CommandSpec, delay: Duration) -> io::Result<()> {
+    if delay.is_zero() {
+        spawn_command(&command).map(|_| ())
+    } else {
+        thread::spawn(move || {
+            thread::sleep(delay);
+            if let Err(error) = spawn_command(&command) {
+                eprintln!("failed to run scheduled rayslash action: {error}");
+            }
+        });
+        Ok(())
+    }
+}
+
+fn desktop_app_launch_command(desktop_id: &str) -> CommandSpec {
+    CommandSpec {
+        program: OsString::from("gio"),
+        args: vec![OsString::from("launch"), OsString::from(desktop_id)],
+    }
+}
+
 fn spawn_command(command: &CommandSpec) -> io::Result<Child> {
     command_builder(command).spawn()
 }
@@ -161,6 +268,80 @@ fn command_builder(command: &CommandSpec) -> Command {
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     builder
+}
+
+fn focus_app_window_after_delay(
+    desktop_id: String,
+    app_name: String,
+    startup_wm_class: Option<String>,
+) {
+    thread::spawn(move || {
+        thread::sleep(Duration::from_millis(250));
+        try_focus_existing_app_window(&desktop_id, &app_name, startup_wm_class.as_deref());
+    });
+}
+
+fn try_focus_existing_app_window(
+    desktop_id: &str,
+    app_name: &str,
+    startup_wm_class: Option<&str>,
+) -> bool {
+    let mut class_targets = Vec::new();
+    if let Some(startup_wm_class) = startup_wm_class
+        && !startup_wm_class.trim().is_empty()
+    {
+        class_targets.push(startup_wm_class.trim().to_owned());
+    }
+
+    let desktop_id = desktop_id.trim();
+    if !desktop_id.is_empty() {
+        class_targets.push(desktop_id.to_owned());
+        if let Some(without_suffix) = desktop_id.strip_suffix(".desktop")
+            && !without_suffix.is_empty()
+        {
+            class_targets.push(without_suffix.to_owned());
+        }
+    }
+
+    for target in dedup_targets(class_targets) {
+        if command_status_success("wmctrl", ["-x", "-a", target.as_str()]) {
+            return true;
+        }
+    }
+
+    let app_name = app_name.trim();
+    !app_name.is_empty() && command_status_success("wmctrl", ["-a", app_name])
+}
+
+fn command_status_success<const N: usize>(program: &str, args: [&str; N]) -> bool {
+    Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|status| status.success())
+}
+
+fn dedup_targets(targets: Vec<String>) -> Vec<String> {
+    let mut deduped = Vec::new();
+    for target in targets {
+        if !deduped
+            .iter()
+            .any(|existing: &String| existing.eq_ignore_ascii_case(&target))
+        {
+            deduped.push(target);
+        }
+    }
+    deduped
+}
+
+fn is_firefox_like_browser(desktop_id: &str, program: &std::ffi::OsStr) -> bool {
+    let id = desktop_id.to_ascii_lowercase();
+    let program = program.to_string_lossy().to_ascii_lowercase();
+    ["firefox", "librewolf", "waterfox", "icecat", "zen"]
+        .iter()
+        .any(|name| id.contains(name) || program.contains(name))
 }
 
 pub fn parse_action_command(command: &str) -> Option<CommandSpec> {

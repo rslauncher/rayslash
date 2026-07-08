@@ -93,7 +93,7 @@ fn current_result_types_have_stable_ids() {
         .into_iter()
         .next()
         .expect("calculator result");
-    let default_web_search = search::mixed_results(&projects, &[], "zzz")
+    let default_web_search = search::mixed_results(&projects, &[], "search zzz")
         .into_iter()
         .next()
         .expect("default web search row");

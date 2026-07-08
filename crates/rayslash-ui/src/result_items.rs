@@ -150,6 +150,10 @@ fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache)
         search::SearchResultIcon::UnitConversion => fallback_icon("text", "U"),
         search::SearchResultIcon::CurrencyConversion => fallback_icon("text", "$"),
         search::SearchResultIcon::TimeLookup => fallback_icon("time", ""),
+        search::SearchResultIcon::SystemReboot => fallback_icon("reboot", ""),
+        search::SearchResultIcon::SystemShutdown => fallback_icon("power", ""),
+        search::SearchResultIcon::SystemLogout => fallback_icon("logout", ""),
+        search::SearchResultIcon::Timer => fallback_icon("stopwatch", ""),
         search::SearchResultIcon::WebSearch { label } => RowIcon {
             image: Image::default(),
             has_image: false,

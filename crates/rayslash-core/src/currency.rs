@@ -169,12 +169,17 @@ fn rate_for(base: &str, quote: &str) -> Result<CachedRate, CurrencyConversionErr
 
 fn fetch_rate(base: &str, quote: &str) -> Result<CachedRate, CurrencyConversionError> {
     let url = format!("{FRANKFURTER_API_BASE}/v2/rate/{base}/{quote}");
-    let agent = ureq::AgentBuilder::new().timeout(REQUEST_TIMEOUT).build();
-    let response: FrankfurterRateResponse = agent
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(REQUEST_TIMEOUT))
+        .build()
+        .into();
+    let mut response = agent
         .get(&url)
         .call()
-        .map_err(|source| CurrencyConversionError::Request(source.to_string()))?
-        .into_json()
+        .map_err(|source| CurrencyConversionError::Request(source.to_string()))?;
+    let response: FrankfurterRateResponse = response
+        .body_mut()
+        .read_json()
         .map_err(|source| CurrencyConversionError::Response(source.to_string()))?;
 
     Ok(CachedRate {

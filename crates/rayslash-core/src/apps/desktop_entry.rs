@@ -29,6 +29,7 @@ struct DesktopEntry {
     only_show_in: Vec<String>,
     not_show_in: Vec<String>,
     dbus_activatable: bool,
+    startup_wm_class: Option<String>,
     action_ids: Vec<String>,
     actions: Vec<DesktopActionEntry>,
 }
@@ -133,6 +134,7 @@ fn desktop_app_from_entry(
         keywords: entry.keywords,
         actions: desktop_actions(entry.actions, &locale_preferences),
         dbus_activatable: entry.dbus_activatable,
+        startup_wm_class: entry.startup_wm_class,
         icon_path: None,
         command,
         desktop_file,
@@ -172,6 +174,7 @@ fn parse_desktop_entry_fields(contents: &str) -> DesktopEntry {
         only_show_in: Vec::new(),
         not_show_in: Vec::new(),
         dbus_activatable: false,
+        startup_wm_class: None,
         action_ids: Vec::new(),
         actions: Vec::new(),
     };
@@ -244,6 +247,9 @@ fn parse_desktop_entry_fields(contents: &str) -> DesktopEntry {
                 "OnlyShowIn" => entry.only_show_in = parse_desktop_list(value),
                 "NotShowIn" => entry.not_show_in = parse_desktop_list(value),
                 "DBusActivatable" => entry.dbus_activatable = parse_desktop_bool(value),
+                "StartupWMClass" => {
+                    entry.startup_wm_class = non_empty(unescape_desktop_value(value))
+                }
                 "Actions" => entry.action_ids = parse_desktop_list(value),
                 _ => {}
             },

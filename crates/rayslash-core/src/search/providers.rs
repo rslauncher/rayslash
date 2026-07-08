@@ -7,6 +7,7 @@ use crate::currency;
 use crate::projects::Project;
 use crate::time_lookup;
 use crate::units;
+use crate::utility_actions::{self, SystemActionKind};
 use crate::web_search;
 use nucleo_matcher::Utf32Str;
 
@@ -64,7 +65,7 @@ pub(super) fn placeholder_results_for_providers(providers: &ProviderConfig) -> V
         results.push(SearchResult {
             title: "Search the web".to_owned(),
             flair: String::new(),
-            subtitle: "Add web search templates in config.toml with [[web_searches]]".to_owned(),
+            subtitle: "Type search and a query, or add [[web_searches]] templates".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
         });
@@ -175,6 +176,7 @@ pub(super) fn app_result(app: &DesktopApp) -> SearchResult {
         kind: SearchResultKind::App {
             id: app.id.clone(),
             command: app.command.clone(),
+            startup_wm_class: app.startup_wm_class.clone(),
         },
     }
 }
@@ -290,6 +292,38 @@ pub(super) fn time_lookup_error_result(expression: &str, message: String) -> Sea
         subtitle: format!("Time: {expression}"),
         icon: SearchResultIcon::TimeLookup,
         kind: SearchResultKind::TimeLookupError {
+            expression: expression.to_owned(),
+            message,
+        },
+    }
+}
+
+pub(super) fn utility_action_result(action: utility_actions::UtilityAction) -> SearchResult {
+    let icon = match &action {
+        utility_actions::UtilityAction::System(action) => match action.kind {
+            SystemActionKind::Reboot => SearchResultIcon::SystemReboot,
+            SystemActionKind::Shutdown => SearchResultIcon::SystemShutdown,
+            SystemActionKind::Logout => SearchResultIcon::SystemLogout,
+        },
+        utility_actions::UtilityAction::Timer(_) => SearchResultIcon::Timer,
+    };
+
+    SearchResult {
+        title: utility_actions::action_title(&action),
+        flair: String::new(),
+        subtitle: utility_actions::action_subtitle(&action),
+        icon,
+        kind: SearchResultKind::UtilityAction { action },
+    }
+}
+
+pub(super) fn utility_action_error_result(expression: &str, message: String) -> SearchResult {
+    SearchResult {
+        title: message.clone(),
+        flair: String::new(),
+        subtitle: format!("Command: {expression}"),
+        icon: SearchResultIcon::Timer,
+        kind: SearchResultKind::UtilityActionError {
             expression: expression.to_owned(),
             message,
         },

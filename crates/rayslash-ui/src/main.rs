@@ -323,6 +323,11 @@ fn run_gui(
                 let config = config_state.borrow();
                 if !config.providers.web_search {
                     None
+                } else if web_search::is_default_search_trigger(keyword.as_str()) {
+                    Some((
+                        web_search::DEFAULT_SEARCH_KEYWORD.to_owned(),
+                        "Search".to_owned(),
+                    ))
                 } else {
                     web_search::trigger_from_input(&config.web_searches, keyword.as_str())
                         .map(|template| (template.keyword.clone(), template.name.clone()))

@@ -181,12 +181,17 @@ fn fetch_location(location: &str) -> Result<GeocodingResult, TimeLookupError> {
         "{GEOCODING_API_BASE}/v1/search?name={}&count=5&language=en&format=json",
         url_encode(location)
     );
-    let agent = ureq::AgentBuilder::new().timeout(REQUEST_TIMEOUT).build();
-    let response: GeocodingResponse = agent
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(REQUEST_TIMEOUT))
+        .build()
+        .into();
+    let mut response = agent
         .get(&url)
         .call()
-        .map_err(|source| TimeLookupError::Request(source.to_string()))?
-        .into_json()
+        .map_err(|source| TimeLookupError::Request(source.to_string()))?;
+    let response: GeocodingResponse = response
+        .body_mut()
+        .read_json()
         .map_err(|source| TimeLookupError::Response(source.to_string()))?;
 
     response
@@ -202,13 +207,19 @@ fn fetch_timezone(
     let url = format!(
         "{FORECAST_API_BASE}/v1/forecast?latitude={latitude}&longitude={longitude}&timezone=auto&forecast_days=1"
     );
-    let agent = ureq::AgentBuilder::new().timeout(REQUEST_TIMEOUT).build();
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(REQUEST_TIMEOUT))
+        .build()
+        .into();
 
-    agent
+    let mut response = agent
         .get(&url)
         .call()
-        .map_err(|source| TimeLookupError::Request(source.to_string()))?
-        .into_json()
+        .map_err(|source| TimeLookupError::Request(source.to_string()))?;
+
+    response
+        .body_mut()
+        .read_json()
         .map_err(|source| TimeLookupError::Response(source.to_string()))
 }
 

@@ -1,3 +1,5 @@
+mod fixtures;
+
 use std::{ffi::OsString, path::PathBuf};
 
 use rayslash_core::{
@@ -21,6 +23,22 @@ fn open_target_command_uses_xdg_open_with_target_argument() {
 
     assert_eq!(command.program, OsString::from("xdg-open"));
     assert_eq!(command.args, vec![OsString::from("https://github.com")]);
+}
+
+#[test]
+fn default_web_search_command_uses_firefox_search_mode_when_supported() {
+    let mut browser = fixtures::app("zen.desktop", "Zen Browser");
+    browser.command.program = OsString::from("zen-browser");
+
+    let command =
+        actions::default_web_search_command_for_app("manhattan", "zen.desktop", Some(&browser))
+            .expect("browser search command");
+
+    assert_eq!(command.program, OsString::from("zen-browser"));
+    assert_eq!(
+        command.args,
+        vec![OsString::from("--search"), OsString::from("manhattan")]
+    );
 }
 
 #[test]

@@ -32,6 +32,7 @@ pub struct DesktopApp {
     pub keywords: Vec<String>,
     pub actions: Vec<DesktopAction>,
     pub dbus_activatable: bool,
+    pub startup_wm_class: Option<String>,
     pub icon_path: Option<PathBuf>,
     pub command: CommandSpec,
     pub desktop_file: PathBuf,

@@ -54,6 +54,15 @@ pub fn convert_query(query: &str) -> Option<UnitConversion> {
     })
 }
 
+pub fn looks_like_conversion_query(query: &str) -> bool {
+    let query = query.trim();
+    let Some((left, target_unit)) = split_conversion_query(query) else {
+        return false;
+    };
+
+    parse_amount_and_unit(left).is_some() && !target_unit.trim().is_empty()
+}
+
 fn split_conversion_query(query: &str) -> Option<(&str, &str)> {
     split_once_word(query, "to").or_else(|| split_once_word(query, "in"))
 }
@@ -295,6 +304,8 @@ mod tests {
         assert!(convert_query("10 km to kg").is_none());
         assert!(convert_query("10 widgets to m").is_none());
         assert!(convert_query("code to m").is_none());
+        assert!(looks_like_conversion_query("10mi to km"));
+        assert!(looks_like_conversion_query("10f to c"));
     }
 
     #[test]

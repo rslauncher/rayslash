@@ -127,6 +127,7 @@ pub fn app(id: &str, name: &str) -> DesktopApp {
         keywords: Vec::new(),
         actions: Vec::new(),
         dbus_activatable: false,
+        startup_wm_class: None,
         icon_path: None,
         command: CommandSpec {
             program: name.to_ascii_lowercase().into(),
