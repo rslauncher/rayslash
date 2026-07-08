@@ -273,7 +273,7 @@ fn mixed_search_default_browser_search_requires_search_command() {
         None,
     );
 
-    assert_eq!(results[0].title, "No results");
+    assert_eq!(results[0].title, "No matches for manhattan");
 
     let results = search::mixed_results_with_ranking_and_web_searches(
         &[],
@@ -287,6 +287,49 @@ fn mixed_search_default_browser_search_requires_search_command() {
 
     assert_eq!(results[0].title, "Search the web for manhattan");
     assert_eq!(results[0].default_web_search_query(), Some("manhattan"));
+
+    let results = search::mixed_results_with_ranking_and_web_searches(
+        &[],
+        &apps,
+        &[],
+        &[],
+        "search",
+        &providers,
+        None,
+    );
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].title, "Search the web");
+    assert_eq!(results[0].default_web_search_query(), Some(""));
+}
+
+#[test]
+fn mixed_search_web_search_rows_suppress_regular_matches() {
+    let apps = vec![app("firefox.desktop", "Firefox")];
+    let providers = ProviderConfig {
+        apps: true,
+        folders: false,
+        calculator: true,
+        aliases: false,
+        web_search: true,
+        unit_conversion: false,
+        currency_conversion: false,
+        time_lookup: false,
+    };
+
+    let results = search::mixed_results_with_ranking_and_web_searches(
+        &[],
+        &apps,
+        &[],
+        &[],
+        "search firefox",
+        &providers,
+        None,
+    );
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].title, "Search the web for firefox");
+    assert_eq!(results[0].default_web_search_query(), Some("firefox"));
 }
 
 #[test]
@@ -347,6 +390,14 @@ fn mixed_search_supports_power_and_timer_actions() {
     assert!(matches!(
         action,
         UtilityAction::System(action) if action.kind == SystemActionKind::Reboot
+    ));
+
+    let lock = search::mixed_results(&[], &[], "lock now");
+    assert_eq!(lock[0].title, "Lock now");
+    let action = lock[0].utility_action().expect("utility action");
+    assert!(matches!(
+        action,
+        UtilityAction::System(action) if action.kind == SystemActionKind::Lock
     ));
 
     assert_eq!(timer[0].title, "Remind in 10 minutes: feed the cat");
@@ -432,7 +483,7 @@ fn mixed_search_distinguishes_calculator_errors_normal_queries_placeholders_and_
         },
     );
 
-    assert_eq!(no_results[0].title, "No results");
+    assert_eq!(no_results[0].title, "No matches for zzz");
     assert_eq!(no_results[0].subtitle, "No matches");
     assert!(no_results[0].is_no_results());
 }
@@ -451,7 +502,7 @@ fn mixed_search_no_results_wording_stays_short() {
 
     let no_results = search::mixed_results_with_providers(&projects, &[], "zzz", &providers);
 
-    assert_eq!(no_results[0].title, "No results");
+    assert_eq!(no_results[0].title, "No matches for zzz");
     assert_eq!(no_results[0].subtitle, "No matches");
 }
 

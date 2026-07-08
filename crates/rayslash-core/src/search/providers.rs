@@ -304,6 +304,7 @@ pub(super) fn utility_action_result(action: utility_actions::UtilityAction) -> S
             SystemActionKind::Reboot => SearchResultIcon::SystemReboot,
             SystemActionKind::Shutdown => SearchResultIcon::SystemShutdown,
             SystemActionKind::Logout => SearchResultIcon::SystemLogout,
+            SystemActionKind::Lock => SearchResultIcon::SystemLock,
         },
         utility_actions::UtilityAction::Timer(_) => SearchResultIcon::Timer,
     };
@@ -352,8 +353,14 @@ pub(super) fn web_search_result(search: web_search::WebSearch) -> SearchResult {
 }
 
 pub(super) fn default_web_search_result(query: &str) -> SearchResult {
+    let title = if query.trim().is_empty() {
+        "Search the web".to_owned()
+    } else {
+        format!("Search the web for {query}")
+    };
+
     SearchResult {
-        title: format!("Search the web for {query}"),
+        title,
         flair: String::new(),
         subtitle: "Default browser search".to_owned(),
         icon: SearchResultIcon::WebSearch {
@@ -367,7 +374,7 @@ pub(super) fn default_web_search_result(query: &str) -> SearchResult {
 
 pub(super) fn no_results(query: &str, _providers: &ProviderConfig) -> SearchResult {
     SearchResult {
-        title: "No results".to_owned(),
+        title: format!("No matches for {query}"),
         flair: String::new(),
         subtitle: "No matches".to_owned(),
         icon: SearchResultIcon::Placeholder,

@@ -368,7 +368,7 @@ export component ResultList inherits Flickable {
 
                     Rectangle {
                         x: 10px;
-                        y: 11px;
+                        y: 10px;
                         width: 22px;
                         height: 22px;
                         border-radius: 11px;
@@ -380,9 +380,9 @@ export component ResultList inherits Flickable {
 
                     Rectangle {
                         x: 20px;
-                        y: 7px;
+                        y: 10px;
                         width: 3px;
-                        height: 15px;
+                        height: 11px;
                         border-radius: 2px;
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "power";
@@ -395,9 +395,51 @@ export component ResultList inherits Flickable {
                         height: 28px;
                         viewbox-width: 24;
                         viewbox-height: 24;
-                        commands: "M17 5 A8 8 0 1 0 20 12 M20 12 L20 5 M20 12 L13 12";
+                        commands: "M21 2v6h-6";
                         stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        stroke-width: 2.2px;
+                        stroke-width: 2px;
+                        fill: transparent;
+                        visible: !item.has_icon && item.icon_kind == "reboot";
+                    }
+
+                    Path {
+                        x: 7px;
+                        y: 7px;
+                        width: 28px;
+                        height: 28px;
+                        viewbox-width: 24;
+                        viewbox-height: 24;
+                        commands: "M3 12a9 9 0 0115-6.7L21 8";
+                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        stroke-width: 2px;
+                        fill: transparent;
+                        visible: !item.has_icon && item.icon_kind == "reboot";
+                    }
+
+                    Path {
+                        x: 7px;
+                        y: 7px;
+                        width: 28px;
+                        height: 28px;
+                        viewbox-width: 24;
+                        viewbox-height: 24;
+                        commands: "M3 22v-6h6";
+                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        stroke-width: 2px;
+                        fill: transparent;
+                        visible: !item.has_icon && item.icon_kind == "reboot";
+                    }
+
+                    Path {
+                        x: 7px;
+                        y: 7px;
+                        width: 28px;
+                        height: 28px;
+                        viewbox-width: 24;
+                        viewbox-height: 24;
+                        commands: "M21 12a9 9 0 01-15 6.7L3 16";
+                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        stroke-width: 2px;
                         fill: transparent;
                         visible: !item.has_icon && item.icon_kind == "reboot";
                     }
@@ -429,45 +471,89 @@ export component ResultList inherits Flickable {
                     }
 
                     Rectangle {
-                        x: 12px;
-                        y: 12px;
-                        width: 18px;
-                        height: 18px;
-                        border-radius: 9px;
+                        x: 10px;
+                        y: 10px;
+                        width: 22px;
+                        height: 22px;
+                        border-radius: 11px;
                         background: transparent;
                         border-width: 2px;
                         border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "stopwatch";
                     }
 
-                    Rectangle {
-                        x: 18px;
+                    Path {
+                        x: 12px;
                         y: 7px;
-                        width: 7px;
-                        height: 4px;
-                        border-radius: 2px;
+                        width: 8px;
+                        height: 8px;
+                        viewbox-width: 8;
+                        viewbox-height: 8;
+                        commands: "M6 2 L2 6";
+                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        stroke-width: 3px;
+                        fill: transparent;
+                        visible: !item.has_icon && item.icon_kind == "stopwatch";
+                    }
+
+                    Path {
+                        x: 23px;
+                        y: 7px;
+                        width: 8px;
+                        height: 8px;
+                        viewbox-width: 8;
+                        viewbox-height: 8;
+                        commands: "M2 2 L6 6";
+                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        stroke-width: 3px;
+                        fill: transparent;
+                        visible: !item.has_icon && item.icon_kind == "stopwatch";
+                    }
+
+                    Rectangle {
+                        x: 20px;
+                        y: 14px;
+                        width: 2px;
+                        height: 9px;
+                        border-radius: 1px;
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "stopwatch";
                     }
 
                     Rectangle {
                         x: 20px;
-                        y: 17px;
-                        width: 2px;
-                        height: 7px;
+                        y: 21px;
+                        width: 7px;
+                        height: 2px;
                         border-radius: 1px;
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "stopwatch";
                     }
 
                     Rectangle {
-                        x: 21px;
-                        y: 22px;
-                        width: 6px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
+                        x: 12px;
+                        y: 17px;
+                        width: 18px;
+                        height: 15px;
+                        border-radius: 3px;
+                        background: transparent;
+                        border-width: 2px;
+                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "lock";
+                    }
+
+                    Path {
+                        x: 10px;
+                        y: 5px;
+                        width: 22px;
+                        height: 22px;
+                        viewbox-width: 22;
+                        viewbox-height: 22;
+                        commands: "M6 12 V8 A5 5 0 0 1 16 8 V12";
+                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        stroke-width: 2.2px;
+                        fill: transparent;
+                        visible: !item.has_icon && item.icon_kind == "lock";
                     }
                 }
             }

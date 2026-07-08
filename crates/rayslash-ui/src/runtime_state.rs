@@ -211,8 +211,10 @@ pub(crate) fn effective_search_query(query: &str, active_search_keyword: &str) -
     let query = query.trim();
     let keyword = active_search_keyword.trim();
 
-    if keyword.is_empty() || query.is_empty() {
+    if keyword.is_empty() {
         query.to_owned()
+    } else if query.is_empty() {
+        keyword.to_owned()
     } else {
         format!("{keyword} {query}")
     }
@@ -297,7 +299,7 @@ mod tests {
     #[test]
     fn effective_search_query_prepends_active_search_keyword() {
         assert_eq!(effective_search_query("rust slint", ""), "rust slint");
-        assert_eq!(effective_search_query("", "yt"), "");
+        assert_eq!(effective_search_query("", "yt"), "yt");
         assert_eq!(effective_search_query("rust slint", "yt"), "yt rust slint");
     }
 

@@ -21,6 +21,7 @@ pub enum SearchResultIcon {
     SystemReboot,
     SystemShutdown,
     SystemLogout,
+    SystemLock,
     Timer,
     WebSearch { label: String },
     App { path: Option<PathBuf> },

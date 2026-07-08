@@ -119,6 +119,10 @@ pub fn mixed_results_with_ranking_and_web_searches(
         return results;
     }
 
+    if utility_results.iter().any(is_web_search_result) {
+        return utility_results;
+    }
+
     let pattern = fuzzy_pattern(query);
     let mut matcher = fuzzy_matcher();
     let mut char_buf = Vec::new();
@@ -179,6 +183,13 @@ pub fn mixed_results_with_ranking_and_web_searches(
     }
 
     results
+}
+
+fn is_web_search_result(result: &SearchResult) -> bool {
+    matches!(
+        result.kind,
+        SearchResultKind::WebSearch { .. } | SearchResultKind::DefaultWebSearch { .. }
+    )
 }
 
 fn utility_results(
@@ -250,6 +261,8 @@ fn utility_results(
 
         if !has_custom_search && let Some(search_terms) = web_search::default_search_terms(query) {
             results.push(default_web_search_result(search_terms));
+        } else if !has_custom_search && web_search::is_default_search_trigger(query) {
+            results.push(default_web_search_result(""));
         }
 
         if results.len() > web_result_count_before {

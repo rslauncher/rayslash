@@ -23,6 +23,7 @@ pub enum SystemActionKind {
     Reboot,
     Shutdown,
     Logout,
+    Lock,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +90,7 @@ pub fn system_action_command(kind: SystemActionKind) -> CommandSpec {
             std::env::var("XDG_SESSION_ID").ok(),
             std::env::var("USER").ok(),
         ),
+        SystemActionKind::Lock => lock_command(std::env::var("XDG_SESSION_ID").ok()),
     }
 }
 
@@ -118,6 +120,7 @@ pub fn action_title(action: &UtilityAction) -> String {
                 SystemActionKind::Reboot => "Reboot",
                 SystemActionKind::Shutdown => "Shut down",
                 SystemActionKind::Logout => "Log out",
+                SystemActionKind::Lock => "Lock",
             };
             if action.delay.is_zero() {
                 format!("{verb} now")
@@ -145,6 +148,7 @@ pub fn action_subtitle(action: &UtilityAction) -> String {
             SystemActionKind::Reboot => "System reboot".to_owned(),
             SystemActionKind::Shutdown => "System shutdown".to_owned(),
             SystemActionKind::Logout => "Log out of the current session".to_owned(),
+            SystemActionKind::Lock => "Lock the current session".to_owned(),
         },
         UtilityAction::Timer(action) => format!("Notification: {}", action.message),
     }
@@ -334,6 +338,8 @@ fn strip_system_action_prefix(query: &str) -> Option<(SystemActionKind, &str)> {
         ("power off", SystemActionKind::Shutdown),
         ("logout", SystemActionKind::Logout),
         ("log out", SystemActionKind::Logout),
+        ("lock screen", SystemActionKind::Lock),
+        ("lock", SystemActionKind::Lock),
     ]
     .into_iter()
     .find_map(|(prefix, kind)| strip_word_prefix(query, prefix).map(|rest| (kind, rest)))
@@ -633,6 +639,20 @@ fn logout_command(session_id: Option<String>, user: Option<String>) -> CommandSp
     }
 }
 
+fn lock_command(session_id: Option<String>) -> CommandSpec {
+    if let Some(session_id) = session_id.filter(|session_id| !session_id.trim().is_empty()) {
+        return CommandSpec {
+            program: "loginctl".into(),
+            args: vec!["lock-session".into(), session_id.into()],
+        };
+    }
+
+    CommandSpec {
+        program: "loginctl".into(),
+        args: vec!["lock-sessions".into()],
+    }
+}
+
 fn plural(value: u64, unit: &str) -> String {
     if value == 1 {
         format!("1 {unit}")
@@ -679,6 +699,18 @@ mod tests {
 
         let action = parse_query("logout now").expect("query").expect("action");
         assert_eq!(action_delay(&action), Duration::ZERO);
+
+        let action = parse_query("lock screen now")
+            .expect("query")
+            .expect("action");
+        assert_eq!(
+            action,
+            UtilityAction::System(SystemAction {
+                kind: SystemActionKind::Lock,
+                delay: Duration::ZERO,
+                expression: "lock screen now".to_owned(),
+            })
+        );
     }
 
     #[test]
@@ -762,6 +794,13 @@ mod tests {
             CommandSpec {
                 program: "systemctl".into(),
                 args: vec!["reboot".into()],
+            }
+        );
+        assert_eq!(
+            lock_command(None),
+            CommandSpec {
+                program: "loginctl".into(),
+                args: vec!["lock-sessions".into()],
             }
         );
         assert_eq!(
