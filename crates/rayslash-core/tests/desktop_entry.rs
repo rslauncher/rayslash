@@ -83,7 +83,7 @@ DBusActivatable=true
             program: OsString::from("gio"),
             args: vec![
                 OsString::from("launch"),
-                OsString::from("org.example.DBusApp.desktop")
+                OsString::from("/tmp/org.example.DBusApp.desktop")
             ],
         }
     );

@@ -2,9 +2,9 @@ use std::{
     ffi::OsString,
     io,
     path::Path,
-    process::{Child, Command, Stdio},
+    process::{Child, Command, ExitStatus, Stdio},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::apps::DesktopApp;
@@ -19,6 +19,7 @@ pub struct CommandSpec {
 
 pub enum LaunchOutcome {
     Spawned(Child),
+    Completed,
     FocusedExisting,
 }
 
@@ -73,33 +74,36 @@ pub fn activate_app(
     desktop_id: &str,
     app_name: &str,
     command: &CommandSpec,
+    desktop_file: &Path,
+    dbus_activatable: bool,
     startup_wm_class: Option<&str>,
 ) -> io::Result<LaunchOutcome> {
     if try_focus_existing_app_window(desktop_id, app_name, startup_wm_class) {
         return Ok(LaunchOutcome::FocusedExisting);
     }
 
-    let desktop_command = desktop_app_launch_command(desktop_id);
-    match spawn_command(&desktop_command) {
-        Ok(child) => {
-            focus_app_window_after_delay(
-                desktop_id.to_owned(),
-                app_name.to_owned(),
-                startup_wm_class.map(str::to_owned),
-            );
-            Ok(LaunchOutcome::Spawned(child))
+    let outcome = if dbus_activatable {
+        launch_desktop_file(desktop_file)
+    } else {
+        match spawn_command(command) {
+            Ok(child) => Ok(LaunchOutcome::Spawned(child)),
+            Err(_command_error) => launch_desktop_file(desktop_file),
         }
-        Err(_gio_error) => match spawn_command(command) {
-            Ok(child) => {
-                focus_app_window_after_delay(
-                    desktop_id.to_owned(),
-                    app_name.to_owned(),
-                    startup_wm_class.map(str::to_owned),
-                );
-                Ok(LaunchOutcome::Spawned(child))
-            }
-            Err(command_error) => Err(command_error),
-        },
+    }?;
+
+    focus_app_window_after_delay(
+        desktop_id.to_owned(),
+        app_name.to_owned(),
+        startup_wm_class.map(str::to_owned),
+    );
+    Ok(outcome)
+}
+
+fn launch_desktop_file(desktop_file: &Path) -> io::Result<LaunchOutcome> {
+    let desktop_command = desktop_app_launch_command(desktop_file);
+    match spawn_command_checked(&desktop_command)? {
+        LaunchProcess::Running(child) => Ok(LaunchOutcome::Spawned(child)),
+        LaunchProcess::Completed => Ok(LaunchOutcome::Completed),
     }
 }
 
@@ -233,11 +237,11 @@ pub fn timer_notification_command(message: &str) -> CommandSpec {
 
 fn schedule_command(command: CommandSpec, delay: Duration) -> io::Result<()> {
     if delay.is_zero() {
-        spawn_command(&command).map(|_| ())
+        spawn_command_checked(&command).map(|_| ())
     } else {
         thread::spawn(move || {
             thread::sleep(delay);
-            if let Err(error) = spawn_command(&command) {
+            if let Err(error) = spawn_command_checked(&command) {
                 eprintln!("failed to run scheduled rayslash action: {error}");
             }
         });
@@ -245,15 +249,44 @@ fn schedule_command(command: CommandSpec, delay: Duration) -> io::Result<()> {
     }
 }
 
-fn desktop_app_launch_command(desktop_id: &str) -> CommandSpec {
+fn desktop_app_launch_command(desktop_file: &Path) -> CommandSpec {
     CommandSpec {
         program: OsString::from("gio"),
-        args: vec![OsString::from("launch"), OsString::from(desktop_id)],
+        args: vec![
+            OsString::from("launch"),
+            desktop_file.as_os_str().to_owned(),
+        ],
     }
 }
 
 fn spawn_command(command: &CommandSpec) -> io::Result<Child> {
     command_builder(command).spawn()
+}
+
+enum LaunchProcess {
+    Running(Child),
+    Completed,
+}
+
+fn spawn_command_checked(command: &CommandSpec) -> io::Result<LaunchProcess> {
+    let mut child = spawn_command(command)?;
+    let deadline = Instant::now() + Duration::from_millis(150);
+
+    loop {
+        match child.try_wait()? {
+            Some(status) if status.success() => return Ok(LaunchProcess::Completed),
+            Some(status) => return Err(exit_status_error(command, status)),
+            None if Instant::now() >= deadline => return Ok(LaunchProcess::Running(child)),
+            None => thread::sleep(Duration::from_millis(10)),
+        }
+    }
+}
+
+fn exit_status_error(command: &CommandSpec, status: ExitStatus) -> io::Error {
+    io::Error::other(format!(
+        "`{}` exited with status {status}",
+        command_display(command)
+    ))
 }
 
 fn spawn_command_in_dir(command: &CommandSpec, dir: &Path) -> io::Result<Child> {
@@ -334,6 +367,18 @@ fn dedup_targets(targets: Vec<String>) -> Vec<String> {
         }
     }
     deduped
+}
+
+fn command_display(command: &CommandSpec) -> String {
+    std::iter::once(command.program.to_string_lossy().into_owned())
+        .chain(
+            command
+                .args
+                .iter()
+                .map(|arg| arg.to_string_lossy().into_owned()),
+        )
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn is_firefox_like_browser(desktop_id: &str, program: &std::ffi::OsStr) -> bool {

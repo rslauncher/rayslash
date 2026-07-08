@@ -176,6 +176,8 @@ pub(super) fn app_result(app: &DesktopApp) -> SearchResult {
         kind: SearchResultKind::App {
             id: app.id.clone(),
             command: app.command.clone(),
+            desktop_file: app.desktop_file.clone(),
+            dbus_activatable: app.dbus_activatable,
             startup_wm_class: app.startup_wm_class.clone(),
         },
     }

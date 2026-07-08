@@ -233,14 +233,14 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                 }
                             }
                         }
-                    } else if let Some((app_id, command, startup_wm_class)) =
-                        result.app_activation()
-                    {
+                    } else if let Some(app_activation) = result.app_activation() {
                         match actions::activate_app(
-                            app_id,
+                            app_activation.id,
                             &result.title,
-                            command,
-                            startup_wm_class,
+                            app_activation.command,
+                            app_activation.desktop_file,
+                            app_activation.dbus_activatable,
+                            app_activation.startup_wm_class,
                         ) {
                             Ok(outcome) => {
                                 if let Some(ui) = weak.upgrade() {
@@ -258,6 +258,9 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                         actions::LaunchOutcome::FocusedExisting => {
                                             format!("Showing {}", result.title)
                                         }
+                                        actions::LaunchOutcome::Completed => {
+                                            format!("Launching {}", result.title)
+                                        }
                                         actions::LaunchOutcome::Spawned(_) => {
                                             format!("Launching {}", result.title)
                                         }
@@ -270,7 +273,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                 eprintln!(
                                     "failed to launch app {} with command `{}`: {error}",
                                     result.title,
-                                    command_display(command)
+                                    command_display(app_activation.command)
                                 );
 
                                 if let Some(ui) = weak.upgrade() {
@@ -278,7 +281,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                         format!(
                                             "Could not launch {}. Is `{}` on PATH?",
                                             result.title,
-                                            command.program.to_string_lossy()
+                                            app_activation.command.program.to_string_lossy()
                                         )
                                         .into(),
                                     );

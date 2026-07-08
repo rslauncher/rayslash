@@ -116,7 +116,7 @@ fn desktop_app_from_entry(
     );
     let exec = entry.exec.clone().unwrap_or_default();
     let command = if entry.dbus_activatable {
-        dbus_activation_command(&id)
+        desktop_file_launch_command(&desktop_file)
     } else {
         parse_exec_command(&exec)?
     };
@@ -430,10 +430,10 @@ fn desktop_entry_is_available(entry: &DesktopEntry, command: &CommandSpec) -> bo
         .unwrap_or_else(|| command_is_available(&command.program.to_string_lossy()))
 }
 
-fn dbus_activation_command(id: &str) -> CommandSpec {
+fn desktop_file_launch_command(path: &Path) -> CommandSpec {
     CommandSpec {
         program: OsString::from("gio"),
-        args: vec![OsString::from("launch"), OsString::from(id)],
+        args: vec![OsString::from("launch"), path.as_os_str().to_owned()],
     }
 }
 

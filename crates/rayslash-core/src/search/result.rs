@@ -79,6 +79,8 @@ pub enum SearchResultKind {
     App {
         id: String,
         command: CommandSpec,
+        desktop_file: PathBuf,
+        dbus_activatable: bool,
         startup_wm_class: Option<String>,
     },
     Project {
@@ -248,13 +250,21 @@ impl SearchResult {
         }
     }
 
-    pub fn app_activation(&self) -> Option<(&str, &CommandSpec, Option<&str>)> {
+    pub fn app_activation(&self) -> Option<AppActivation<'_>> {
         match &self.kind {
             SearchResultKind::App {
                 id,
                 command,
+                desktop_file,
+                dbus_activatable,
                 startup_wm_class,
-            } => Some((id, command, startup_wm_class.as_deref())),
+            } => Some(AppActivation {
+                id,
+                command,
+                desktop_file,
+                dbus_activatable: *dbus_activatable,
+                startup_wm_class: startup_wm_class.as_deref(),
+            }),
             _ => None,
         }
     }
@@ -325,4 +335,13 @@ impl SearchResult {
             _ => None,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AppActivation<'a> {
+    pub id: &'a str,
+    pub command: &'a CommandSpec,
+    pub desktop_file: &'a Path,
+    pub dbus_activatable: bool,
+    pub startup_wm_class: Option<&'a str>,
 }
