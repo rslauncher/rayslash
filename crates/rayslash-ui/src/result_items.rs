@@ -147,7 +147,7 @@ fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache)
         }
         search::SearchResultIcon::App { path: None } => fallback_icon("app", ""),
         search::SearchResultIcon::Calculator => fallback_icon("calculator", ""),
-        search::SearchResultIcon::UnitConversion => fallback_icon("text", "°"),
+        search::SearchResultIcon::UnitConversion => fallback_icon("text", "U"),
         search::SearchResultIcon::CurrencyConversion => fallback_icon("text", "$"),
         search::SearchResultIcon::TimeLookup => fallback_icon("time", ""),
         search::SearchResultIcon::WebSearch { label } => RowIcon {

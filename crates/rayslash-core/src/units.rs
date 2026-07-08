@@ -46,7 +46,11 @@ pub fn convert_query(query: &str) -> Option<UnitConversion> {
             source.symbol(),
             target.symbol()
         ),
-        result: format!("{} {}", format_number(converted, 4), target.symbol()),
+        result: format!(
+            "{} {}",
+            format_number(converted, target.result_decimals()),
+            target.symbol()
+        ),
     })
 }
 
@@ -125,6 +129,13 @@ impl UnitKind {
     fn symbol(self) -> &'static str {
         match self {
             UnitKind::Linear { symbol, .. } | UnitKind::Temperature { symbol, .. } => symbol,
+        }
+    }
+
+    fn result_decimals(self) -> usize {
+        match self {
+            UnitKind::Linear { .. } => 4,
+            UnitKind::Temperature { .. } => 2,
         }
     }
 }
@@ -260,6 +271,10 @@ mod tests {
         assert_eq!(
             convert_query("32 f to c").expect("temperature").result,
             "0 °C"
+        );
+        assert_eq!(
+            convert_query("10 f to c").expect("temperature").result,
+            "-12.22 °C"
         );
         assert_eq!(
             convert_query("10c to k")

@@ -322,7 +322,7 @@ fn mixed_search_ranks_valid_conversions_before_calculator_errors() {
 
     assert_eq!(compact[0].title, "283.15 K");
     assert_eq!(named[0].title, "50 °F");
-    assert_eq!(reverse[0].title, "-12.2222 °C");
+    assert_eq!(reverse[0].title, "-12.22 °C");
 }
 
 #[test]

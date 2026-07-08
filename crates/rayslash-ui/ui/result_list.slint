@@ -386,7 +386,8 @@ export component ResultList inherits Flickable {
                     }
 
                     title-text := Text {
-                        width: item.flair == "" ? parent.width : min(title-measure.preferred-width, max(0px, parent.width - 42px));
+                        x: 0px;
+                        width: item.flair == "" ? parent.width : max(0px, parent.width - 42px);
                         height: 100%;
                         text: item.title;
                         color: root.light ? #202020 : #f4f4f4;
@@ -397,7 +398,7 @@ export component ResultList inherits Flickable {
                     }
 
                     Rectangle {
-                        x: title-text.width + 8px;
+                        x: item.flair == "" ? 0px : min(title-measure.preferred-width + 8px, max(0px, parent.width - 34px));
                         y: 2px;
                         width: item.flair == "" ? 0px : 34px;
                         height: item.flair == "" ? 0px : 18px;
