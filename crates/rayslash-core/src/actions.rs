@@ -5,6 +5,7 @@ use std::{
     process::{Child, Command, Stdio},
 };
 
+use crate::apps::DesktopApp;
 use crate::config::{AliasConfig, AliasKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +80,62 @@ pub fn launch_alias(alias: &AliasConfig) -> io::Result<Child> {
 
 pub fn open_url(url: &str) -> io::Result<Child> {
     spawn_command(&open_target_command(url))
+}
+
+pub fn open_default_web_search(query: &str, apps: &[DesktopApp]) -> io::Result<Child> {
+    let command = default_web_search_command(query, apps)?;
+    spawn_command(&command)
+}
+
+pub fn default_web_search_command(query: &str, apps: &[DesktopApp]) -> io::Result<CommandSpec> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "web search query is empty",
+        ));
+    }
+
+    let desktop_id = default_web_browser_desktop_id()?;
+    if let Some(app) = apps.iter().find(|app| app.id == desktop_id) {
+        let mut command = app.command.clone();
+        command.args.push(OsString::from(query));
+        return Ok(command);
+    }
+
+    Ok(CommandSpec {
+        program: OsString::from("gio"),
+        args: vec![
+            OsString::from("launch"),
+            OsString::from(desktop_id),
+            OsString::from(query),
+        ],
+    })
+}
+
+pub fn default_web_browser_desktop_id() -> io::Result<String> {
+    let output = Command::new("xdg-settings")
+        .args(["get", "default-web-browser"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()?;
+
+    if !output.status.success() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "default web browser is not configured",
+        ));
+    }
+
+    let desktop_id = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    if desktop_id.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "default web browser is not configured",
+        ));
+    }
+
+    Ok(desktop_id)
 }
 
 pub fn open_target_command(target: &str) -> CommandSpec {

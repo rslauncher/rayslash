@@ -80,6 +80,7 @@ fn result_type_order(kind: &SearchResultKind) -> u8 {
         SearchResultKind::TimeLookup { .. } => 0,
         SearchResultKind::TimeLookupError { .. } => 0,
         SearchResultKind::WebSearch { .. } => 0,
+        SearchResultKind::DefaultWebSearch { .. } => 3,
         SearchResultKind::App { .. } => 1,
         SearchResultKind::Project { .. } => 2,
         SearchResultKind::Alias { .. } => 3,

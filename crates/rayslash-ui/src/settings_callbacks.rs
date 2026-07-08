@@ -7,7 +7,7 @@ use crate::{
     AppChoiceItem, AppWindow, DEFAULT_STATUS_TEXT, DESKTOP_APP_REFRESH_INTERVAL, ResultItem,
     result_items::IconImageCache,
     runtime_state::{
-        DesktopAppRefreshContext, ResultRefreshContext, ResultSelection,
+        DesktopAppRefreshContext, ResultRefreshContext, ResultSelection, effective_search_query,
         refresh_desktop_apps_if_stale, refresh_result_view, refresh_settings_dependent_ui,
     },
     settings::{SettingsConfigError, config_from_settings_fields, first_existing_folder_source},
@@ -147,7 +147,9 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
               theme,
               density,
               max_results_text,
-              show_tooltips| {
+              show_tooltips,
+              aliases_text,
+              web_searches_text| {
             if settings_save_blocked {
                 if let Some(ui) = weak.upgrade() {
                     ui.set_status_text(
@@ -174,8 +176,8 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 density.as_str(),
                 max_results_text.as_str(),
                 show_tooltips,
-                config_state.borrow().aliases.clone(),
-                config_state.borrow().web_searches.clone(),
+                aliases_text.as_str(),
+                web_searches_text.as_str(),
             ) {
                 Ok(config) => config,
                 Err(SettingsConfigError::EmptyAlternateFolderOpener) => {
@@ -202,6 +204,20 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     }
                     return;
                 }
+                Err(SettingsConfigError::InvalidAliases(message)) => {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_status_text(format!("Could not save aliases: {message}").into());
+                    }
+                    return;
+                }
+                Err(SettingsConfigError::InvalidWebSearches(message)) => {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_status_text(
+                            format!("Could not save search engines: {message}").into(),
+                        );
+                    }
+                    return;
+                }
             };
 
             let runtime_config = config_to_save.clone().normalized();
@@ -224,6 +240,8 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
 
             if let Some(ui) = weak.upgrade() {
                 let query = ui.get_query_text();
+                let effective_query =
+                    effective_search_query(query.as_str(), ui.get_active_search_keyword().as_str());
                 refresh_result_view(
                     &ui,
                     ResultRefreshContext {
@@ -237,7 +255,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                         icon_cache: &icon_cache,
                         profile,
                     },
-                    query.as_str(),
+                    effective_query.as_str(),
                     ResultSelection::QueryDefault,
                 );
                 refresh_settings_dependent_ui(
@@ -297,6 +315,8 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     ui.get_settings_density(),
                     ui.get_settings_max_results(),
                     ui.get_settings_show_tooltips(),
+                    ui.get_settings_aliases_text(),
+                    ui.get_settings_web_searches_text(),
                 );
             }
         }
@@ -325,6 +345,8 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
 
             if let Some(ui) = weak.upgrade() {
                 let query = ui.get_query_text();
+                let effective_query =
+                    effective_search_query(query.as_str(), ui.get_active_search_keyword().as_str());
                 refresh_result_view(
                     &ui,
                     ResultRefreshContext {
@@ -338,7 +360,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                         icon_cache: &icon_cache,
                         profile,
                     },
-                    query.as_str(),
+                    effective_query.as_str(),
                     ResultSelection::QueryDefault,
                 );
                 refresh_settings_dependent_ui(

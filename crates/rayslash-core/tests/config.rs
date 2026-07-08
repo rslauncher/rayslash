@@ -96,6 +96,7 @@ kind = "url"
 name = "DuckDuckGo"
 query = "ddg"
 url_template = "https://duckduckgo.com/?q={query}"
+enabled = false
 
 [providers]
 apps = false
@@ -138,8 +139,9 @@ learn_from_usage = false
         config.web_searches,
         vec![WebSearchConfig {
             name: "DuckDuckGo".to_owned(),
-            query: "ddg".to_owned(),
-            url_template: "https://duckduckgo.com/?q={query}".to_owned(),
+            keyword: "ddg".to_owned(),
+            url: "https://duckduckgo.com/?q=%s".to_owned(),
+            enabled: false,
         }]
     );
     assert_eq!(
@@ -316,8 +318,9 @@ fn config_can_be_saved_and_loaded_from_toml() {
         }],
         web_searches: vec![WebSearchConfig {
             name: "DuckDuckGo".to_owned(),
-            query: "ddg".to_owned(),
-            url_template: "https://duckduckgo.com/?q={query}".to_owned(),
+            keyword: "ddg".to_owned(),
+            url: "https://duckduckgo.com/?q=%s".to_owned(),
+            enabled: true,
         }],
         providers: ProviderConfig {
             apps: true,
@@ -352,6 +355,9 @@ fn config_can_be_saved_and_loaded_from_toml() {
     assert!(saved.contains("folder_sources"));
     assert!(saved.contains("[[aliases]]"));
     assert!(saved.contains("[[web_searches]]"));
+    assert!(saved.contains("keyword = \"ddg\""));
+    assert!(saved.contains("url = \"https://duckduckgo.com/?q=%s\""));
+    assert!(saved.contains("enabled = true"));
     assert!(saved.contains("folders = false"));
     assert!(saved.contains("web_search = true"));
     assert!(saved.contains("currency_conversion = false"));

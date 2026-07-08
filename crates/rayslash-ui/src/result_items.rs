@@ -128,7 +128,7 @@ struct RowIcon {
     image: Image,
     has_image: bool,
     kind: &'static str,
-    text: &'static str,
+    text: String,
 }
 
 fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache) -> RowIcon {
@@ -139,7 +139,7 @@ fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache)
                     image,
                     has_image: true,
                     kind: "app",
-                    text: "",
+                    text: String::new(),
                 }
             } else {
                 fallback_icon("app", "")
@@ -150,7 +150,12 @@ fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache)
         search::SearchResultIcon::UnitConversion => fallback_icon("text", "°"),
         search::SearchResultIcon::CurrencyConversion => fallback_icon("text", "$"),
         search::SearchResultIcon::TimeLookup => fallback_icon("time", ""),
-        search::SearchResultIcon::WebSearch => fallback_icon("text", "W"),
+        search::SearchResultIcon::WebSearch { label } => RowIcon {
+            image: Image::default(),
+            has_image: false,
+            kind: "text",
+            text: label.clone(),
+        },
         search::SearchResultIcon::ProjectFolder => fallback_icon("folder", ""),
         search::SearchResultIcon::Placeholder => fallback_icon("placeholder", ""),
     }
@@ -161,7 +166,7 @@ fn fallback_icon(kind: &'static str, text: &'static str) -> RowIcon {
         image: Image::default(),
         has_image: false,
         kind,
-        text,
+        text: text.to_owned(),
     }
 }
 

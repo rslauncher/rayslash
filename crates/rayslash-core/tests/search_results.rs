@@ -3,7 +3,7 @@ mod fixtures;
 use std::path::{Path, PathBuf};
 
 use fixtures::{app, project};
-use rayslash_core::search;
+use rayslash_core::{config::ProviderConfig, search};
 
 #[test]
 fn placeholder_results_are_available() {
@@ -93,10 +93,22 @@ fn current_result_types_have_stable_ids() {
         .into_iter()
         .next()
         .expect("calculator result");
-    let no_results = search::mixed_results(&projects, &[], "zzz")
+    let default_web_search = search::mixed_results(&projects, &[], "zzz")
         .into_iter()
         .next()
-        .expect("no results row");
+        .expect("default web search row");
+    let no_results = search::mixed_results_with_providers(
+        &projects,
+        &[],
+        "zzz",
+        &ProviderConfig {
+            web_search: false,
+            ..ProviderConfig::default()
+        },
+    )
+    .into_iter()
+    .next()
+    .expect("no results row");
 
     assert_eq!(
         app_result.stable_id(),
@@ -119,6 +131,11 @@ fn current_result_types_have_stable_ids() {
         Some("calculator:2 + 2".to_owned())
     );
     assert_eq!(calculator_result.learning_id(), None);
+    assert_eq!(
+        default_web_search.stable_id(),
+        Some("default-web-search:zzz".to_owned())
+    );
+    assert_eq!(default_web_search.learning_id(), None);
     assert_eq!(no_results.stable_id(), Some("no-results:zzz".to_owned()));
     assert_eq!(no_results.learning_id(), None);
 }

@@ -297,14 +297,36 @@ pub(super) fn time_lookup_error_result(expression: &str, message: String) -> Sea
 }
 
 pub(super) fn web_search_result(search: web_search::WebSearch) -> SearchResult {
+    let subtitle = if search.host.is_empty() {
+        format!("Custom search - {}", search.keyword)
+    } else {
+        format!("{} - {}", search.host, search.keyword)
+    };
+
     SearchResult {
         title: format!("Search {} for {}", search.name, search.query),
         flair: String::new(),
-        subtitle: "Web search".to_owned(),
-        icon: SearchResultIcon::WebSearch,
+        subtitle,
+        icon: SearchResultIcon::WebSearch {
+            label: search.icon_label,
+        },
         kind: SearchResultKind::WebSearch {
             name: search.name,
             url: search.url,
+        },
+    }
+}
+
+pub(super) fn default_web_search_result(query: &str) -> SearchResult {
+    SearchResult {
+        title: format!("Search the web for {query}"),
+        flair: String::new(),
+        subtitle: "Default browser search".to_owned(),
+        icon: SearchResultIcon::WebSearch {
+            label: "W".to_owned(),
+        },
+        kind: SearchResultKind::DefaultWebSearch {
+            query: query.to_owned(),
         },
     }
 }

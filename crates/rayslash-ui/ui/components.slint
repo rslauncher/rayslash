@@ -1,6 +1,12 @@
 export component SearchBox inherits Rectangle {
     in-out property <string> query-text;
     in property <bool> light;
+    in property <string> active-search-keyword;
+    in property <string> active-search-name;
+
+    private property <bool> has-active-search: root.active-search-keyword != "";
+    private property <length> search-pill-width: root.has-active-search ? min(active-pill-measure.preferred-width + 28px, 150px) : 0px;
+    private property <length> search-input-x: root.has-active-search ? 18px + root.search-pill-width + 8px : 18px;
 
     callback close-requested();
     callback select-previous();
@@ -8,6 +14,8 @@ export component SearchBox inherits Rectangle {
     callback activate-selected(bool);
     callback query-changed(string);
     callback control-modifier-changed(bool);
+    callback search-keyword-trigger-requested(string) -> bool;
+    callback search-keyword-cleared();
 
     height: 62px;
     border-radius: 12px;
@@ -21,20 +29,54 @@ export component SearchBox inherits Rectangle {
     animate border-color { duration: 90ms; }
 
     Text {
-        x: 18px;
+        x: root.search-input-x;
         y: 0px;
         height: parent.height;
+        width: parent.width - root.search-input-x - 18px;
         vertical-alignment: center;
         text: "Search apps, folders, or calculations";
         color: root.light ? #6b6b6b : #9a9a9a;
         font-size: 18px;
         visible: search-input.text == "";
+        overflow: elide;
+    }
+
+    active-pill-measure := Text {
+        width: 0px;
+        height: 0px;
+        text: root.active-search-name == "" ? root.active-search-keyword : root.active-search-name;
+        font-size: 12px;
+        font-weight: 800;
+        visible: false;
+    }
+
+    if root.has-active-search: Rectangle {
+        x: 13px;
+        y: 14px;
+        width: root.search-pill-width;
+        height: 34px;
+        border-radius: 17px;
+        background: root.light ? #202020 : #d6d6d6;
+
+        Text {
+            x: 12px;
+            y: 0px;
+            width: parent.width - 24px;
+            height: 100%;
+            text: root.active-search-name == "" ? root.active-search-keyword : root.active-search-name;
+            color: root.light ? #ffffff : #181818;
+            font-size: 12px;
+            font-weight: 800;
+            overflow: elide;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
     }
 
     search-input := TextInput {
-        x: 18px;
+        x: root.search-input-x;
         y: 0px;
-        width: parent.width - 36px;
+        width: parent.width - root.search-input-x - 18px;
         height: parent.height;
         vertical-alignment: center;
         color: root.light ? #1f1f1f : #f2f2f2;
@@ -58,7 +100,20 @@ export component SearchBox inherits Rectangle {
                 root.select-previous();
                 accept
             } else if (event.text == Key.Tab) {
-                root.select-next();
+                if (root.search-keyword-trigger-requested(search-input.text)) {
+                    accept
+                } else {
+                    root.select-next();
+                    accept
+                }
+            } else if (event.text == " ") {
+                if (root.search-keyword-trigger-requested(search-input.text)) {
+                    accept
+                } else {
+                    reject
+                }
+            } else if (event.text == Key.Backspace && root.has-active-search && search-input.text == "") {
+                root.search-keyword-cleared();
                 accept
             } else if (event.text == Key.UpArrow) {
                 root.select-previous();

@@ -19,12 +19,12 @@ use std::{
 
 use activation::{ActivationCallbackContext, register_activation_callback};
 use opener_visual::to_app_choice_items;
-use rayslash_core::{apps, config, projects};
+use rayslash_core::{apps, config, projects, web_search};
 use result_items::{IconImageCache, to_result_items};
 use runtime_state::{
-    ResultRefreshContext, ResultSelection, load_runtime_app_state, load_runtime_ranking_state,
-    profile_enabled, profile_stage, refresh_result_view, refresh_settings_dependent_ui,
-    search_result_set, sync_app_install_state,
+    ResultRefreshContext, ResultSelection, effective_search_query, load_runtime_app_state,
+    load_runtime_ranking_state, profile_enabled, profile_stage, refresh_result_view,
+    refresh_settings_dependent_ui, search_result_set, sync_app_install_state,
 };
 use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
@@ -271,6 +271,8 @@ fn run_gui(
         move || {
             if let Some(ui) = weak.upgrade() {
                 ui.set_query_text("".into());
+                ui.set_active_search_keyword("".into());
+                ui.set_active_search_name("".into());
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(false);
                 refresh_result_view(
@@ -302,6 +304,95 @@ fn run_gui(
         }
     });
 
+    ui.on_search_keyword_trigger_requested({
+        let weak = ui.as_weak();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let config_state = config_state.clone();
+        let ranking_state = ranking_state.clone();
+        let app_install_state = app_install_state.clone();
+        let current_results = current_results.clone();
+        let results_model = results_model.clone();
+        let icon_cache = icon_cache.clone();
+        move |keyword| {
+            let Some(ui) = weak.upgrade() else {
+                return false;
+            };
+
+            let trigger = {
+                let config = config_state.borrow();
+                if !config.providers.web_search {
+                    None
+                } else {
+                    web_search::trigger_from_input(&config.web_searches, keyword.as_str())
+                        .map(|template| (template.keyword.clone(), template.name.clone()))
+                }
+            };
+
+            let Some((keyword, name)) = trigger else {
+                return false;
+            };
+
+            ui.set_active_search_keyword(keyword.into());
+            ui.set_active_search_name(name.into());
+            ui.set_query_text("".into());
+            ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+            refresh_result_view(
+                &ui,
+                ResultRefreshContext {
+                    config: &config_state.borrow(),
+                    ranking_state: &ranking_state.borrow(),
+                    app_state: &app_install_state.borrow(),
+                    projects: &projects.borrow(),
+                    apps: &apps.borrow(),
+                    current_results: &current_results,
+                    results_model: &results_model,
+                    icon_cache: &icon_cache,
+                    profile,
+                },
+                "",
+                ResultSelection::Exact(-1),
+            );
+
+            true
+        }
+    });
+
+    ui.on_search_keyword_cleared({
+        let weak = ui.as_weak();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let config_state = config_state.clone();
+        let ranking_state = ranking_state.clone();
+        let app_install_state = app_install_state.clone();
+        let current_results = current_results.clone();
+        let results_model = results_model.clone();
+        let icon_cache = icon_cache.clone();
+        move || {
+            if let Some(ui) = weak.upgrade() {
+                ui.set_active_search_keyword("".into());
+                ui.set_active_search_name("".into());
+                let query = ui.get_query_text();
+                refresh_result_view(
+                    &ui,
+                    ResultRefreshContext {
+                        config: &config_state.borrow(),
+                        ranking_state: &ranking_state.borrow(),
+                        app_state: &app_install_state.borrow(),
+                        projects: &projects.borrow(),
+                        apps: &apps.borrow(),
+                        current_results: &current_results,
+                        results_model: &results_model,
+                        icon_cache: &icon_cache,
+                        profile,
+                    },
+                    query.as_str(),
+                    ResultSelection::QueryDefault,
+                );
+            }
+        }
+    });
+
     ui.on_close_requested({
         let weak = ui.as_weak();
         let is_visible = is_visible.clone();
@@ -326,6 +417,8 @@ fn run_gui(
             let stage_started = Instant::now();
 
             if let Some(ui) = weak.upgrade() {
+                let effective_query =
+                    effective_search_query(query.as_str(), ui.get_active_search_keyword().as_str());
                 let count = refresh_result_view(
                     &ui,
                     ResultRefreshContext {
@@ -339,7 +432,7 @@ fn run_gui(
                         icon_cache: &icon_cache,
                         profile,
                     },
-                    query.as_str(),
+                    effective_query.as_str(),
                     ResultSelection::QueryDefault,
                 );
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());

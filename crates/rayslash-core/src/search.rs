@@ -14,8 +14,9 @@ use matcher::{boosted_score, fuzzy_matcher, fuzzy_pattern, search_result_order};
 use nucleo_matcher::Utf32Str;
 use providers::{
     alias_result, app_result, calculator_result, currency_conversion_result, currency_error_result,
-    disabled_providers_result, no_results, placeholder_results_for_providers, project_result,
-    time_lookup_error_result, time_lookup_result, unit_conversion_result, web_search_result,
+    default_web_search_result, disabled_providers_result, no_results,
+    placeholder_results_for_providers, project_result, time_lookup_error_result,
+    time_lookup_result, unit_conversion_result, web_search_result,
 };
 pub use providers::{display_path, placeholder_results, project_results};
 #[cfg(test)]
@@ -81,6 +82,9 @@ pub fn mixed_results_with_ranking_and_web_searches(
 ) -> Vec<SearchResult> {
     let query = query.trim();
     let mut utility_results = utility_results(query, providers, web_searches);
+    let has_custom_web_search = utility_results
+        .iter()
+        .any(|result| matches!(result.kind, SearchResultKind::WebSearch { .. }));
 
     if !providers.apps
         && !providers.folders
@@ -97,21 +101,21 @@ pub fn mixed_results_with_ranking_and_web_searches(
     let enabled_projects = if providers.folders { projects } else { &[] };
     let enabled_apps = if providers.apps { apps } else { &[] };
     let enabled_aliases = if providers.aliases { aliases } else { &[] };
-    let enabled_web_searches = if providers.web_search {
-        web_searches
-    } else {
-        &[]
-    };
-
-    if enabled_projects.is_empty()
-        && enabled_apps.is_empty()
-        && enabled_aliases.is_empty()
-        && enabled_web_searches.is_empty()
-    {
-        return if utility_results.is_empty() {
+    if enabled_projects.is_empty() && enabled_apps.is_empty() && enabled_aliases.is_empty() {
+        return if query.is_empty() {
             placeholder_results_for_providers(providers)
         } else {
-            utility_results
+            append_default_web_search_if_needed(
+                &mut utility_results,
+                providers,
+                query,
+                has_custom_web_search,
+            );
+            if utility_results.is_empty() {
+                placeholder_results_for_providers(providers)
+            } else {
+                utility_results
+            }
         };
     }
 
@@ -179,6 +183,12 @@ pub fn mixed_results_with_ranking_and_web_searches(
         .collect::<Vec<_>>();
 
     utility_results.append(&mut results);
+    append_default_web_search_if_needed(
+        &mut utility_results,
+        providers,
+        query,
+        has_custom_web_search,
+    );
     let results = utility_results;
 
     if results.is_empty() {
@@ -244,6 +254,17 @@ fn utility_results(
     }
 
     results
+}
+
+fn append_default_web_search_if_needed(
+    results: &mut Vec<SearchResult>,
+    providers: &ProviderConfig,
+    query: &str,
+    has_custom_web_search: bool,
+) {
+    if providers.web_search && !query.is_empty() && !has_custom_web_search {
+        results.push(default_web_search_result(query));
+    }
 }
 
 fn app_match_score(

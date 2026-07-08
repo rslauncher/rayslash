@@ -207,6 +207,17 @@ pub(crate) fn refresh_result_view(
     count
 }
 
+pub(crate) fn effective_search_query(query: &str, active_search_keyword: &str) -> String {
+    let query = query.trim();
+    let keyword = active_search_keyword.trim();
+
+    if keyword.is_empty() || query.is_empty() {
+        query.to_owned()
+    } else {
+        format!("{keyword} {query}")
+    }
+}
+
 pub(crate) fn sync_app_install_state(
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     apps: &[apps::DesktopApp],
@@ -281,6 +292,13 @@ mod tests {
         assert_eq!(selected_index_for_query("   ", 3), -1);
         assert_eq!(selected_index_for_query("code", 0), -1);
         assert_eq!(selected_index_for_query("code", 3), 0);
+    }
+
+    #[test]
+    fn effective_search_query_prepends_active_search_keyword() {
+        assert_eq!(effective_search_query("rust slint", ""), "rust slint");
+        assert_eq!(effective_search_query("", "yt"), "");
+        assert_eq!(effective_search_query("rust slint", "yt"), "yt rust slint");
     }
 
     #[test]

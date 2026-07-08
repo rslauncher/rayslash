@@ -147,6 +147,8 @@ export component AppWindow inherits Window {
     in-out property <string> result-tip-text: "";
     in-out property <bool> settings-open: false;
     in-out property <string> settings-folder-sources: "";
+    in-out property <string> settings-aliases-text: "";
+    in-out property <string> settings-web-searches-text: "";
     in-out property <string> settings-alternate-folder-opener-command: "xdg-terminal-exec";
     in-out property <bool> settings-provider-apps: true;
     in-out property <bool> settings-provider-folders: true;
@@ -176,18 +178,22 @@ export component AppWindow inherits Window {
     in property <string> alternate-folder-opener-label: "TM";
     in-out property <bool> control-held: false;
     in-out property <bool> settings-alternate-picker-open: false;
+    in-out property <string> active-search-keyword: "";
+    in-out property <string> active-search-name: "";
     private property <bool> light-theme: root.settings-theme == "light";
 
     callback close-requested();
     callback query-changed(string);
     callback activate-selected-result(int, bool);
     callback reset-requested();
+    callback search-keyword-trigger-requested(string) -> bool;
+    callback search-keyword-cleared();
     callback settings-requested();
     callback settings-cancel-requested();
     callback settings-browse-folder-requested(string);
     callback settings-choose-alternate-opener-requested(string);
     callback settings-clear-ranking-requested();
-    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool);
+    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     public function focus-search() {
         search.focus();
@@ -318,6 +324,8 @@ export component AppWindow inherits Window {
                         visible: !root.settings-open;
                         light: root.light-theme;
                         query-text <=> root.query-text;
+                        active-search-keyword: root.active-search-keyword;
+                        active-search-name: root.active-search-name;
 
                         close-requested => {
                             root.close-requested();
@@ -336,6 +344,12 @@ export component AppWindow inherits Window {
                         }
                         control-modifier-changed(control) => {
                             root.control-held = control;
+                        }
+                        search-keyword-trigger-requested(keyword) => {
+                            return root.search-keyword-trigger-requested(keyword);
+                        }
+                        search-keyword-cleared => {
+                            root.search-keyword-cleared();
                         }
                     }
 
@@ -361,6 +375,8 @@ export component AppWindow inherits Window {
                         open <=> root.settings-open;
                         alternate-opener-choices: root.alternate-opener-choices;
                         folder-sources <=> root.settings-folder-sources;
+                        aliases-text <=> root.settings-aliases-text;
+                        web-searches-text <=> root.settings-web-searches-text;
                         alternate-folder-opener-command <=> root.settings-alternate-folder-opener-command;
                         provider-apps <=> root.settings-provider-apps;
                         provider-folders <=> root.settings-provider-folders;
@@ -398,7 +414,7 @@ export component AppWindow inherits Window {
                         clear-ranking-requested => {
                             root.settings-clear-ranking-requested();
                         }
-                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips) => {
+                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {
                             root.settings-save-requested(
                                 folder-sources,
                                 alternate-opener-command,
@@ -415,7 +431,9 @@ export component AppWindow inherits Window {
                                 theme,
                                 density,
                                 max-results,
-                                show-tooltips);
+                                show-tooltips,
+                                aliases-text,
+                                web-searches-text);
                         }
                     }
 

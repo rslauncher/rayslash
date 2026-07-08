@@ -99,6 +99,25 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                 }
                             }
                         }
+                    } else if let Some(query) = result.default_web_search_query() {
+                        match actions::open_default_web_search(query, &apps.borrow()) {
+                            Ok(_child) => {
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(format!("Opening {}", result.title).into());
+                                    hide_launcher(&ui, is_visible.as_ref());
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!("failed to open default web search {query}: {error}");
+
+                                if let Some(ui) = weak.upgrade() {
+                                    ui.set_status_text(
+                                        "Could not open browser search. Is a default browser set?"
+                                            .into(),
+                                    );
+                                }
+                            }
+                        }
                     } else if let Some(path) = result.project_path() {
                         let display_path = search::display_path(path);
 

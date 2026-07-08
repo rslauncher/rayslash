@@ -35,7 +35,12 @@ fn mixed_search_orders_apps_projects_and_calculator_with_fixture_data() {
             .iter()
             .map(|result| result.title.as_str())
             .collect::<Vec<_>>(),
-        vec!["Rayslash", "rayslash", "x-ray-sidecar"]
+        vec![
+            "Rayslash",
+            "rayslash",
+            "x-ray-sidecar",
+            "Search the web for ray"
+        ]
     );
 
     let calculator_results = search::mixed_results(&projects, &apps, "2 + 2");
@@ -102,9 +107,10 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
 
     let folder_only = search::mixed_results_with_providers(&projects, &apps, "ray", &providers);
 
-    assert_eq!(folder_only.len(), 1);
+    assert_eq!(folder_only.len(), 2);
     assert_eq!(folder_only[0].title, "rayslash");
     assert!(folder_only[0].project_path().is_some());
+    assert_eq!(folder_only[1].default_web_search_query(), Some("ray"));
 
     let disabled_calculator = search::mixed_results_with_providers(
         &[],
@@ -216,8 +222,9 @@ fn mixed_search_matches_alias_names_and_queries_when_provider_enabled() {
 fn mixed_search_supports_configured_web_search_templates() {
     let templates = vec![WebSearchConfig {
         name: "DuckDuckGo".to_owned(),
-        query: "ddg".to_owned(),
-        url_template: "https://duckduckgo.com/?q={query}".to_owned(),
+        keyword: "ddg".to_owned(),
+        url: "https://duckduckgo.com/?q=%s".to_owned(),
+        enabled: true,
     }];
     let providers = ProviderConfig {
         apps: false,
@@ -245,6 +252,35 @@ fn mixed_search_supports_configured_web_search_templates() {
         results[0].web_search_url(),
         Some("https://duckduckgo.com/?q=rust%20slint")
     );
+}
+
+#[test]
+fn mixed_search_adds_default_browser_search_after_local_matches() {
+    let apps = vec![app("rayslash.desktop", "Rayslash")];
+    let providers = ProviderConfig {
+        apps: true,
+        folders: false,
+        calculator: false,
+        aliases: false,
+        web_search: true,
+        unit_conversion: false,
+        currency_conversion: false,
+        time_lookup: false,
+    };
+
+    let results = search::mixed_results_with_ranking_and_web_searches(
+        &[],
+        &apps,
+        &[],
+        &[],
+        "ray",
+        &providers,
+        None,
+    );
+
+    assert_eq!(results[0].title, "Rayslash");
+    assert_eq!(results[1].title, "Search the web for ray");
+    assert_eq!(results[1].default_web_search_query(), Some("ray"));
 }
 
 #[test]
@@ -340,12 +376,28 @@ fn mixed_search_distinguishes_calculator_errors_normal_queries_placeholders_and_
     assert!(normal_query[0].app_command().is_some());
     assert!(normal_query[0].calculator_result().is_none());
 
+    let default_web_search = search::mixed_results(&[], &[], "anything");
+    assert_eq!(default_web_search[0].title, "Search the web for anything");
     assert_eq!(
-        search::mixed_results(&[], &[], "anything"),
-        search::placeholder_results()
+        default_web_search[0].default_web_search_query(),
+        Some("anything")
     );
 
-    let no_results = search::mixed_results(&[project("/tmp/rayslash", "rayslash")], &[], "zzz");
+    let no_results = search::mixed_results_with_providers(
+        &[project("/tmp/rayslash", "rayslash")],
+        &[],
+        "zzz",
+        &ProviderConfig {
+            apps: true,
+            folders: true,
+            calculator: true,
+            aliases: true,
+            web_search: false,
+            unit_conversion: true,
+            currency_conversion: true,
+            time_lookup: true,
+        },
+    );
 
     assert_eq!(no_results[0].title, "No results");
     assert_eq!(no_results[0].subtitle, "No matches");
@@ -359,6 +411,7 @@ fn mixed_search_no_results_wording_stays_short() {
         folders: true,
         calculator: false,
         aliases: false,
+        web_search: false,
         ..ProviderConfig::default()
     };
     let projects = vec![project("/tmp/rayslash", "rayslash")];
@@ -396,6 +449,6 @@ fn learned_ranking_integration_keeps_strong_textual_matches_above_weaker_history
             .iter()
             .map(|result| result.title.as_str())
             .collect::<Vec<_>>(),
-        vec!["Rayslash", "x-ray-sidecar"]
+        vec!["Rayslash", "x-ray-sidecar", "Search the web for ray"]
     );
 }

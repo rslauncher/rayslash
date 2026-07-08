@@ -18,7 +18,7 @@ pub enum SearchResultIcon {
     UnitConversion,
     CurrencyConversion,
     TimeLookup,
-    WebSearch,
+    WebSearch { label: String },
     App { path: Option<PathBuf> },
     ProjectFolder,
 }
@@ -35,6 +35,7 @@ pub enum SearchResultKind {
     TimeLookup { expression: String, result: String },
     TimeLookupError { expression: String, message: String },
     WebSearch { name: String, url: String },
+    DefaultWebSearch { query: String },
     App { id: String, command: CommandSpec },
     Project { path: PathBuf },
     Alias { alias: AliasConfig },
@@ -53,6 +54,7 @@ impl SearchResult {
             SearchResultKind::TimeLookup { .. } => None,
             SearchResultKind::TimeLookupError { .. } => None,
             SearchResultKind::WebSearch { .. } => None,
+            SearchResultKind::DefaultWebSearch { .. } => None,
             SearchResultKind::App { .. } => None,
             SearchResultKind::Project { path } => Some(path),
             SearchResultKind::Alias { .. } => None,
@@ -72,6 +74,7 @@ impl SearchResult {
             | SearchResultKind::TimeLookup { .. }
             | SearchResultKind::TimeLookupError { .. }
             | SearchResultKind::WebSearch { .. }
+            | SearchResultKind::DefaultWebSearch { .. }
             | SearchResultKind::Project { .. }
             | SearchResultKind::Alias { .. } => None,
         }
@@ -89,6 +92,7 @@ impl SearchResult {
             | SearchResultKind::TimeLookup { .. }
             | SearchResultKind::TimeLookupError { .. }
             | SearchResultKind::WebSearch { .. }
+            | SearchResultKind::DefaultWebSearch { .. }
             | SearchResultKind::App { .. }
             | SearchResultKind::Project { .. }
             | SearchResultKind::Alias { .. } => None,
@@ -107,6 +111,7 @@ impl SearchResult {
             | SearchResultKind::TimeLookup { .. }
             | SearchResultKind::TimeLookupError { .. }
             | SearchResultKind::WebSearch { .. }
+            | SearchResultKind::DefaultWebSearch { .. }
             | SearchResultKind::App { .. }
             | SearchResultKind::Project { .. }
             | SearchResultKind::Alias { .. } => None,
@@ -159,6 +164,13 @@ impl SearchResult {
         }
     }
 
+    pub fn default_web_search_query(&self) -> Option<&str> {
+        match &self.kind {
+            SearchResultKind::DefaultWebSearch { query } => Some(query),
+            _ => None,
+        }
+    }
+
     pub fn app_id(&self) -> Option<&str> {
         match &self.kind {
             SearchResultKind::App { id, .. } => Some(id),
@@ -186,6 +198,9 @@ impl SearchResult {
                 Some(format!("time-lookup:{}", expression.trim()))
             }
             SearchResultKind::WebSearch { name, url } => Some(format!("web-search:{name}:{url}")),
+            SearchResultKind::DefaultWebSearch { query } => {
+                Some(format!("default-web-search:{}", query.trim()))
+            }
             SearchResultKind::Alias { alias } => Some(format!("alias:{}", alias.query.trim())),
             SearchResultKind::NoResults { query } => Some(format!("no-results:{}", query.trim())),
             SearchResultKind::Placeholder => None,
@@ -205,6 +220,7 @@ impl SearchResult {
             | SearchResultKind::TimeLookup { .. }
             | SearchResultKind::TimeLookupError { .. }
             | SearchResultKind::WebSearch { .. }
+            | SearchResultKind::DefaultWebSearch { .. }
             | SearchResultKind::Alias { .. } => None,
         }
     }

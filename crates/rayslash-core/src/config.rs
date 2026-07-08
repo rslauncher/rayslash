@@ -60,8 +60,12 @@ pub struct AliasConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WebSearchConfig {
     pub name: String,
-    pub query: String,
-    pub url_template: String,
+    #[serde(alias = "query")]
+    pub keyword: String,
+    #[serde(alias = "url_template")]
+    pub url: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -381,13 +385,13 @@ fn normalize_web_searches(searches: Vec<WebSearchConfig>) -> Vec<WebSearchConfig
         .into_iter()
         .filter_map(|mut search| {
             search.name = search.name.trim().to_owned();
-            search.query = search.query.trim().to_owned();
-            search.url_template = search.url_template.trim().to_owned();
+            search.keyword = search.keyword.trim().to_owned();
+            search.url = search.url.trim().replace("{query}", "%s");
 
             if search.name.is_empty()
-                || search.query.is_empty()
-                || search.url_template.is_empty()
-                || !search.url_template.contains("{query}")
+                || search.keyword.is_empty()
+                || search.url.is_empty()
+                || !search.url.contains("%s")
             {
                 return None;
             }

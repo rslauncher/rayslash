@@ -10,6 +10,8 @@ pub(crate) enum SettingsConfigError {
     InvalidMaxResults,
     InvalidTheme,
     InvalidDensity,
+    InvalidAliases(String),
+    InvalidWebSearches(String),
 }
 
 pub(crate) fn set_settings_properties(
@@ -22,6 +24,8 @@ pub(crate) fn set_settings_properties(
     ranking_entry_count: usize,
 ) {
     ui.set_settings_folder_sources(folder_sources_text(&config.folder_sources).into());
+    ui.set_settings_aliases_text(aliases_text(&config.aliases).into());
+    ui.set_settings_web_searches_text(web_searches_text(&config.web_searches).into());
     ui.set_settings_alternate_folder_opener_command(
         config
             .actions
@@ -70,8 +74,8 @@ pub(crate) fn config_from_settings_fields(
     density: &str,
     max_results_text: &str,
     show_tooltips: bool,
-    aliases: Vec<config::AliasConfig>,
-    web_searches: Vec<config::WebSearchConfig>,
+    aliases_text: &str,
+    web_searches_text: &str,
 ) -> Result<config::Config, SettingsConfigError> {
     let alternate_folder_opener_command = alternate_folder_opener_command.trim();
     if alternate_folder_opener_enabled && alternate_folder_opener_command.is_empty() {
@@ -82,6 +86,9 @@ pub(crate) fn config_from_settings_fields(
         parse_max_results(max_results_text).ok_or(SettingsConfigError::InvalidMaxResults)?;
     let theme = parse_theme(theme).ok_or(SettingsConfigError::InvalidTheme)?;
     let density = parse_density(density).ok_or(SettingsConfigError::InvalidDensity)?;
+    let aliases = parse_aliases_text(aliases_text).map_err(SettingsConfigError::InvalidAliases)?;
+    let web_searches = parse_web_searches_text(web_searches_text)
+        .map_err(SettingsConfigError::InvalidWebSearches)?;
 
     Ok(config::Config {
         folder_sources: parse_folder_sources_text(folder_sources_text),
@@ -131,6 +138,94 @@ pub(crate) fn parse_max_results(text: &str) -> Option<usize> {
     (max_results > 0).then_some(max_results)
 }
 
+pub(crate) fn parse_aliases_text(text: &str) -> Result<Vec<config::AliasConfig>, String> {
+    let mut aliases = Vec::new();
+
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let parts = line.splitn(4, '|').map(str::trim).collect::<Vec<_>>();
+        let (name, query, kind, target) = match parts.as_slice() {
+            [name, query, target] => (*name, *query, None, *target),
+            [name, query, kind, target] => (
+                *name,
+                *query,
+                Some(
+                    parse_alias_kind(kind)
+                        .ok_or_else(|| format!("alias line {} has an unknown kind", index + 1))?,
+                ),
+                *target,
+            ),
+            _ => {
+                return Err(format!(
+                    "alias line {} must be name | keyword | target or name | keyword | kind | target",
+                    index + 1
+                ));
+            }
+        };
+
+        if name.is_empty() || query.is_empty() || target.is_empty() {
+            return Err(format!(
+                "alias line {} has an empty required field",
+                index + 1
+            ));
+        }
+
+        aliases.push(config::AliasConfig {
+            name: name.to_owned(),
+            query: query.to_owned(),
+            target: target.to_owned(),
+            kind,
+        });
+    }
+
+    Ok(aliases)
+}
+
+pub(crate) fn parse_web_searches_text(text: &str) -> Result<Vec<config::WebSearchConfig>, String> {
+    let mut searches = Vec::new();
+
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        let parts = line.splitn(4, '|').map(str::trim).collect::<Vec<_>>();
+        let [enabled, name, keyword, url] = parts.as_slice() else {
+            return Err(format!(
+                "search line {} must be on/off | name | keyword | url",
+                index + 1
+            ));
+        };
+
+        let enabled = parse_enabled_flag(enabled)
+            .ok_or_else(|| format!("search line {} must start with on or off", index + 1))?;
+        let url = url.replace("{query}", "%s");
+        if name.is_empty() || keyword.is_empty() || url.is_empty() {
+            return Err(format!(
+                "search line {} has an empty required field",
+                index + 1
+            ));
+        }
+        if !url.contains("%s") {
+            return Err(format!("search line {} URL must contain %s", index + 1));
+        }
+
+        searches.push(config::WebSearchConfig {
+            name: (*name).to_owned(),
+            keyword: (*keyword).to_owned(),
+            url,
+            enabled,
+        });
+    }
+
+    Ok(searches)
+}
+
 pub(crate) fn parse_theme(text: &str) -> Option<config::AppearanceTheme> {
     match text.trim().to_ascii_lowercase().as_str() {
         "dark" => Some(config::AppearanceTheme::Dark),
@@ -163,12 +258,76 @@ fn appearance_density_label(density: config::AppearanceDensity) -> &'static str 
     }
 }
 
+fn parse_alias_kind(text: &str) -> Option<config::AliasKind> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "" => None,
+        "url" => Some(config::AliasKind::Url),
+        "file" => Some(config::AliasKind::File),
+        "folder" => Some(config::AliasKind::Folder),
+        "command" => Some(config::AliasKind::Command),
+        _ => None,
+    }
+}
+
+fn parse_enabled_flag(text: &str) -> Option<bool> {
+    match text.trim().to_ascii_lowercase().as_str() {
+        "on" | "enabled" | "true" | "yes" => Some(true),
+        "off" | "disabled" | "false" | "no" => Some(false),
+        _ => None,
+    }
+}
+
 fn folder_sources_text(sources: &[PathBuf]) -> String {
     sources
         .iter()
         .map(|path| search::display_path(path))
         .collect::<Vec<_>>()
         .join("; ")
+}
+
+fn aliases_text(aliases: &[config::AliasConfig]) -> String {
+    aliases
+        .iter()
+        .map(|alias| {
+            if let Some(kind) = alias.kind {
+                format!(
+                    "{} | {} | {} | {}",
+                    alias.name,
+                    alias.query,
+                    alias_kind_label(kind),
+                    alias.target
+                )
+            } else {
+                format!("{} | {} | {}", alias.name, alias.query, alias.target)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn web_searches_text(searches: &[config::WebSearchConfig]) -> String {
+    searches
+        .iter()
+        .map(|search| {
+            format!(
+                "{} | {} | {} | {}",
+                if search.enabled { "on" } else { "off" },
+                search.name,
+                search.keyword,
+                search.url
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn alias_kind_label(kind: config::AliasKind) -> &'static str {
+    match kind {
+        config::AliasKind::Url => "url",
+        config::AliasKind::File => "file",
+        config::AliasKind::Folder => "folder",
+        config::AliasKind::Command => "command",
+    }
 }
 
 fn expand_home_for_ui(path: PathBuf) -> PathBuf {
@@ -257,17 +416,8 @@ mod tests {
             "compact",
             "25",
             false,
-            vec![config::AliasConfig {
-                name: "GitHub".to_owned(),
-                query: "gh".to_owned(),
-                target: "https://github.com".to_owned(),
-                kind: Some(config::AliasKind::Url),
-            }],
-            vec![config::WebSearchConfig {
-                name: "DuckDuckGo".to_owned(),
-                query: "ddg".to_owned(),
-                url_template: "https://duckduckgo.com/?q={query}".to_owned(),
-            }],
+            "GitHub | gh | url | https://github.com",
+            "on | DuckDuckGo | ddg | https://duckduckgo.com/?q=%s",
         )
         .expect("settings config");
 
@@ -322,8 +472,8 @@ mod tests {
                 "comfortable",
                 "50",
                 true,
-                Vec::new(),
-                Vec::new()
+                "",
+                ""
             ),
             Err(SettingsConfigError::EmptyAlternateFolderOpener)
         );
@@ -345,10 +495,60 @@ mod tests {
                 "comfortable",
                 "0",
                 true,
-                Vec::new(),
-                Vec::new()
+                "",
+                ""
             ),
             Err(SettingsConfigError::InvalidMaxResults)
+        );
+    }
+
+    #[test]
+    fn aliases_text_round_trips_alias_rows() {
+        let aliases = vec![
+            config::AliasConfig {
+                name: "GitHub".to_owned(),
+                query: "gh".to_owned(),
+                target: "https://github.com".to_owned(),
+                kind: Some(config::AliasKind::Url),
+            },
+            config::AliasConfig {
+                name: "Timer".to_owned(),
+                query: "timer".to_owned(),
+                target: "gnome-clocks --timer".to_owned(),
+                kind: Some(config::AliasKind::Command),
+            },
+        ];
+        let text = aliases_text(&aliases);
+
+        assert_eq!(parse_aliases_text(&text), Ok(aliases));
+    }
+
+    #[test]
+    fn web_searches_text_round_trips_enabled_rows() {
+        let searches = vec![
+            config::WebSearchConfig {
+                name: "YouTube".to_owned(),
+                keyword: "yt".to_owned(),
+                url: "https://www.youtube.com/results?search_query=%s".to_owned(),
+                enabled: true,
+            },
+            config::WebSearchConfig {
+                name: "Docs".to_owned(),
+                keyword: "docs".to_owned(),
+                url: "https://example.com/search?q=%s".to_owned(),
+                enabled: false,
+            },
+        ];
+        let text = web_searches_text(&searches);
+
+        assert_eq!(parse_web_searches_text(&text), Ok(searches));
+    }
+
+    #[test]
+    fn web_searches_text_requires_percent_placeholder() {
+        assert_eq!(
+            parse_web_searches_text("on | Broken | br | https://example.com/search"),
+            Err("search line 1 URL must contain %s".to_owned())
         );
     }
 }
