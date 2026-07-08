@@ -17,6 +17,7 @@ pub enum SearchResultIcon {
     Calculator,
     UnitConversion,
     CurrencyConversion,
+    TimeLookup,
     WebSearch,
     App { path: Option<PathBuf> },
     ProjectFolder,
@@ -31,6 +32,8 @@ pub enum SearchResultKind {
     UnitConversion { expression: String, result: String },
     CurrencyConversion { expression: String, result: String },
     CurrencyConversionError { expression: String, message: String },
+    TimeLookup { expression: String, result: String },
+    TimeLookupError { expression: String, message: String },
     WebSearch { name: String, url: String },
     App { id: String, command: CommandSpec },
     Project { path: PathBuf },
@@ -47,6 +50,8 @@ impl SearchResult {
             SearchResultKind::UnitConversion { .. } => None,
             SearchResultKind::CurrencyConversion { .. } => None,
             SearchResultKind::CurrencyConversionError { .. } => None,
+            SearchResultKind::TimeLookup { .. } => None,
+            SearchResultKind::TimeLookupError { .. } => None,
             SearchResultKind::WebSearch { .. } => None,
             SearchResultKind::App { .. } => None,
             SearchResultKind::Project { path } => Some(path),
@@ -64,6 +69,8 @@ impl SearchResult {
             | SearchResultKind::UnitConversion { .. }
             | SearchResultKind::CurrencyConversion { .. }
             | SearchResultKind::CurrencyConversionError { .. }
+            | SearchResultKind::TimeLookup { .. }
+            | SearchResultKind::TimeLookupError { .. }
             | SearchResultKind::WebSearch { .. }
             | SearchResultKind::Project { .. }
             | SearchResultKind::Alias { .. } => None,
@@ -79,6 +86,8 @@ impl SearchResult {
             | SearchResultKind::UnitConversion { .. }
             | SearchResultKind::CurrencyConversion { .. }
             | SearchResultKind::CurrencyConversionError { .. }
+            | SearchResultKind::TimeLookup { .. }
+            | SearchResultKind::TimeLookupError { .. }
             | SearchResultKind::WebSearch { .. }
             | SearchResultKind::App { .. }
             | SearchResultKind::Project { .. }
@@ -95,6 +104,8 @@ impl SearchResult {
             | SearchResultKind::UnitConversion { .. }
             | SearchResultKind::CurrencyConversion { .. }
             | SearchResultKind::CurrencyConversionError { .. }
+            | SearchResultKind::TimeLookup { .. }
+            | SearchResultKind::TimeLookupError { .. }
             | SearchResultKind::WebSearch { .. }
             | SearchResultKind::App { .. }
             | SearchResultKind::Project { .. }
@@ -123,6 +134,20 @@ impl SearchResult {
     pub fn currency_error_message(&self) -> Option<&str> {
         match &self.kind {
             SearchResultKind::CurrencyConversionError { message, .. } => Some(message),
+            _ => None,
+        }
+    }
+
+    pub fn time_lookup_result(&self) -> Option<&str> {
+        match &self.kind {
+            SearchResultKind::TimeLookup { result, .. } => Some(result),
+            _ => None,
+        }
+    }
+
+    pub fn time_lookup_error_message(&self) -> Option<&str> {
+        match &self.kind {
+            SearchResultKind::TimeLookupError { message, .. } => Some(message),
             _ => None,
         }
     }
@@ -156,6 +181,10 @@ impl SearchResult {
             | SearchResultKind::CurrencyConversionError { expression, .. } => {
                 Some(format!("currency-conversion:{}", expression.trim()))
             }
+            SearchResultKind::TimeLookup { expression, .. }
+            | SearchResultKind::TimeLookupError { expression, .. } => {
+                Some(format!("time-lookup:{}", expression.trim()))
+            }
             SearchResultKind::WebSearch { name, url } => Some(format!("web-search:{name}:{url}")),
             SearchResultKind::Alias { alias } => Some(format!("alias:{}", alias.query.trim())),
             SearchResultKind::NoResults { query } => Some(format!("no-results:{}", query.trim())),
@@ -173,6 +202,8 @@ impl SearchResult {
             | SearchResultKind::UnitConversion { .. }
             | SearchResultKind::CurrencyConversion { .. }
             | SearchResultKind::CurrencyConversionError { .. }
+            | SearchResultKind::TimeLookup { .. }
+            | SearchResultKind::TimeLookupError { .. }
             | SearchResultKind::WebSearch { .. }
             | SearchResultKind::Alias { .. } => None,
         }

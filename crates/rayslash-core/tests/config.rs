@@ -152,6 +152,7 @@ learn_from_usage = false
             web_search: true,
             unit_conversion: false,
             currency_conversion: true,
+            time_lookup: true,
         }
     );
     assert!(!config.actions.alternate_folder_opener_enabled);
@@ -223,9 +224,10 @@ max_results = 0
             folders: true,
             calculator: true,
             aliases: true,
-            web_search: false,
-            unit_conversion: false,
-            currency_conversion: false,
+            web_search: true,
+            unit_conversion: true,
+            currency_conversion: true,
+            time_lookup: true,
         }
     );
     assert_eq!(
@@ -325,6 +327,7 @@ fn config_can_be_saved_and_loaded_from_toml() {
             web_search: true,
             unit_conversion: true,
             currency_conversion: false,
+            time_lookup: true,
         },
         actions: ActionConfig {
             alternate_folder_opener_enabled: false,

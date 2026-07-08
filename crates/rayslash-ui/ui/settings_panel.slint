@@ -46,6 +46,7 @@ export component SettingsPanel inherits FocusScope {
     in-out property <bool> provider-web-search;
     in-out property <bool> provider-unit-conversion;
     in-out property <bool> provider-currency-conversion;
+    in-out property <bool> provider-time-lookup;
     in-out property <bool> alternate-folder-opener-enabled;
     in-out property <bool> ranking-learn-from-usage;
     in-out property <string> theme;
@@ -65,7 +66,7 @@ export component SettingsPanel inherits FocusScope {
     callback browse-folder-requested(string);
     callback choose-alternate-opener-requested(string);
     callback clear-ranking-requested();
-    callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool);
+    callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool);
 
     private property <color> text-strong: root.light ? #1f1f1f : #f2f2f2;
     private property <color> text-main: root.light ? #2d2d2d : #d8d8d8;
@@ -94,6 +95,7 @@ export component SettingsPanel inherits FocusScope {
             root.provider-web-search,
             root.provider-unit-conversion,
             root.provider-currency-conversion,
+            root.provider-time-lookup,
             root.alternate-folder-opener-enabled,
             root.ranking-learn-from-usage,
             root.theme,
@@ -127,7 +129,7 @@ export component SettingsPanel inherits FocusScope {
         width: 100%;
         height: 100%;
         viewport-width: self.width;
-        viewport-height: root.open ? root.alternate-picker-open ? 1074px : 924px : 0px;
+        viewport-height: root.open ? root.alternate-picker-open ? 1141px : 991px : 0px;
         interactive: root.open;
 
         VerticalLayout {
@@ -462,6 +464,11 @@ export component SettingsPanel inherits FocusScope {
                         root.save-settings();
                     }
                 }
+            }
+
+            HorizontalLayout {
+                height: 58px;
+                spacing: 8px;
 
                 SettingToggle {
                     label: "Currency";
@@ -469,6 +476,17 @@ export component SettingsPanel inherits FocusScope {
                     light: root.light;
                     tooltips-enabled: root.show-tooltips;
                     checked <=> root.provider-currency-conversion;
+                    toggled => {
+                        root.save-settings();
+                    }
+                }
+
+                SettingToggle {
+                    label: "Time";
+                    description: "Place time lookup";
+                    light: root.light;
+                    tooltips-enabled: root.show-tooltips;
+                    checked <=> root.provider-time-lookup;
                     toggled => {
                         root.save-settings();
                     }

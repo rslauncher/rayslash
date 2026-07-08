@@ -8,14 +8,14 @@ use crate::config::{AliasConfig, ProviderConfig, WebSearchConfig};
 use crate::currency;
 use crate::projects::Project;
 use crate::ranking::RankingState;
-use crate::{units, web_search};
+use crate::{time_lookup, units, web_search};
 
 use matcher::{boosted_score, fuzzy_matcher, fuzzy_pattern, search_result_order};
 use nucleo_matcher::Utf32Str;
 use providers::{
     alias_result, app_result, calculator_result, currency_conversion_result, currency_error_result,
     disabled_providers_result, no_results, placeholder_results_for_providers, project_result,
-    unit_conversion_result, web_search_result,
+    time_lookup_error_result, time_lookup_result, unit_conversion_result, web_search_result,
 };
 pub use providers::{display_path, placeholder_results, project_results};
 #[cfg(test)]
@@ -89,6 +89,7 @@ pub fn mixed_results_with_ranking_and_web_searches(
         && !providers.web_search
         && !providers.unit_conversion
         && !providers.currency_conversion
+        && !providers.time_lookup
     {
         return vec![disabled_providers_result()];
     }
@@ -198,12 +199,6 @@ fn utility_results(
 
     let mut results = Vec::new();
 
-    if providers.calculator
-        && let Some(calculation) = calc::calculate(query)
-    {
-        results.push(calculator_result(calculation));
-    }
-
     if providers.unit_conversion
         && let Some(conversion) = units::convert_query(query)
     {
@@ -220,6 +215,24 @@ fn utility_results(
                 error.to_string(),
             )),
         }
+    }
+
+    if providers.time_lookup
+        && let Some(request) = time_lookup::parse_query(query)
+    {
+        match time_lookup::lookup_request(&request) {
+            Ok(lookup) => results.push(time_lookup_result(lookup)),
+            Err(error) => results.push(time_lookup_error_result(
+                &request.expression,
+                error.to_string(),
+            )),
+        }
+    }
+
+    if providers.calculator
+        && let Some(calculation) = calc::calculate(query)
+    {
+        results.push(calculator_result(calculation));
     }
 
     if providers.web_search {

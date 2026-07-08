@@ -9,10 +9,12 @@ use rayslash_core::search;
 fn placeholder_results_are_available() {
     let results = search::placeholder_results();
 
-    assert_eq!(results.len(), 4);
+    assert_eq!(results.len(), 8);
     assert_eq!(results[1].title, "Find folders");
     assert!(results[1].subtitle.contains("folders"));
     assert_eq!(results[3].title, "Use aliases");
+    assert_eq!(results[4].title, "Search the web");
+    assert_eq!(results[7].title, "Check time");
 }
 
 #[test]

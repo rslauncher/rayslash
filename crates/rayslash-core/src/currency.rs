@@ -67,12 +67,13 @@ pub fn parse_query(query: &str) -> Option<CurrencyConversionRequest> {
     let (amount, base) = parse_amount_and_currency(left)?;
     let base = normalize_currency_code(base)?;
     let quote = normalize_currency_code(quote)?;
+    let expression = format!("{} {} to {}", format_number(amount), base, quote);
 
     Some(CurrencyConversionRequest {
         amount,
         base,
         quote,
-        expression: query.to_owned(),
+        expression,
     })
 }
 
@@ -187,7 +188,7 @@ fn format_number(value: f64) -> String {
         return format!("{:.0}", value.round());
     }
 
-    let mut text = format!("{value:.6}");
+    let mut text = format!("{value:.1}");
     while text.contains('.') && text.ends_with('0') {
         text.pop();
     }
@@ -221,5 +222,11 @@ mod tests {
 
         assert_eq!(conversion.result, "10 USD");
         assert_eq!(conversion.provider, "Frankfurter");
+    }
+
+    #[test]
+    fn currency_numbers_stay_compact() {
+        assert_eq!(format_number(51.525), "51.5");
+        assert_eq!(format_number(10.0), "10");
     }
 }

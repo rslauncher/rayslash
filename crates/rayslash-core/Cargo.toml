@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+chrono.workspace = true
 dirs.workspace = true
 nucleo-matcher.workspace = true
 serde.workspace = true

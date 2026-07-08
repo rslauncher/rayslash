@@ -40,8 +40,13 @@ pub fn convert_query(query: &str) -> Option<UnitConversion> {
     let converted = convert(amount, source, target)?;
 
     Some(UnitConversion {
-        expression: query.to_owned(),
-        result: format!("{} {}", format_number(converted), target.symbol()),
+        expression: format!(
+            "{} {} to {}",
+            format_number(amount, 4),
+            source.symbol(),
+            target.symbol()
+        ),
+        result: format!("{} {}", format_number(converted, 4), target.symbol()),
     })
 }
 
@@ -165,8 +170,12 @@ fn unit_for(unit: &str) -> Option<UnitKind> {
         }
         "tsp" | "teaspoon" | "teaspoons" => linear(Dimension::Volume, 0.00492892159375, "tsp"),
 
-        "c" | "celsius" => temperature(TemperatureScale::Celsius, "C"),
-        "f" | "fahrenheit" => temperature(TemperatureScale::Fahrenheit, "F"),
+        "c" | "celsius" | "degree celsius" | "degrees celsius" => {
+            temperature(TemperatureScale::Celsius, "°C")
+        }
+        "f" | "fahrenheit" | "degree fahrenheit" | "degrees fahrenheit" => {
+            temperature(TemperatureScale::Fahrenheit, "°F")
+        }
         "k" | "kelvin" => temperature(TemperatureScale::Kelvin, "K"),
         _ => None,
     }
@@ -187,6 +196,7 @@ fn temperature(scale: TemperatureScale, symbol: &'static str) -> Option<UnitKind
 fn normalize_unit_name(unit: &str) -> String {
     unit.trim()
         .to_ascii_lowercase()
+        .replace('°', "")
         .replace(['_', '-'], " ")
         .split_whitespace()
         .collect::<Vec<_>>()
@@ -209,12 +219,12 @@ fn from_celsius(value: f64, scale: TemperatureScale) -> f64 {
     }
 }
 
-fn format_number(value: f64) -> String {
+fn format_number(value: f64, max_decimals: usize) -> String {
     if (value - value.round()).abs() < 0.000000001 {
         return format!("{:.0}", value.round());
     }
 
-    let mut text = format!("{value:.6}");
+    let mut text = format!("{value:.max_decimals$}");
     while text.contains('.') && text.ends_with('0') {
         text.pop();
     }
@@ -233,19 +243,35 @@ mod tests {
     fn converts_common_length_mass_volume_and_temperature_units() {
         assert_eq!(
             convert_query("10 km to mi").expect("length").result,
-            "6.213712 mi"
+            "6.2137 mi"
+        );
+        assert_eq!(
+            convert_query("10 miles to km").expect("length").result,
+            "16.0934 km"
         );
         assert_eq!(
             convert_query("2 lb to kg").expect("mass").result,
-            "0.907185 kg"
+            "0.9072 kg"
         );
         assert_eq!(
             convert_query("1 cup to ml").expect("volume").result,
-            "236.588236 mL"
+            "236.5882 mL"
         );
         assert_eq!(
             convert_query("32 f to c").expect("temperature").result,
-            "0 C"
+            "0 °C"
+        );
+        assert_eq!(
+            convert_query("10c to k")
+                .expect("temperature shorthand")
+                .result,
+            "283.15 K"
+        );
+        assert_eq!(
+            convert_query("10 celsius to fahrenheit")
+                .expect("temperature names")
+                .expression,
+            "10 °C to °F"
         );
     }
 

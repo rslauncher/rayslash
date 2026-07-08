@@ -36,6 +36,7 @@ pub(crate) fn set_settings_properties(
     ui.set_settings_provider_web_search(config.providers.web_search);
     ui.set_settings_provider_unit_conversion(config.providers.unit_conversion);
     ui.set_settings_provider_currency_conversion(config.providers.currency_conversion);
+    ui.set_settings_provider_time_lookup(config.providers.time_lookup);
     ui.set_settings_alternate_folder_opener_enabled(config.actions.alternate_folder_opener_enabled);
     ui.set_settings_ranking_learn_from_usage(config.ranking.learn_from_usage);
     ui.set_settings_theme(appearance_theme_label(config.appearance.theme).into());
@@ -62,6 +63,7 @@ pub(crate) fn config_from_settings_fields(
     web_search_enabled: bool,
     unit_conversion_enabled: bool,
     currency_conversion_enabled: bool,
+    time_lookup_enabled: bool,
     alternate_folder_opener_enabled: bool,
     learn_from_usage: bool,
     theme: &str,
@@ -93,6 +95,7 @@ pub(crate) fn config_from_settings_fields(
             web_search: web_search_enabled,
             unit_conversion: unit_conversion_enabled,
             currency_conversion: currency_conversion_enabled,
+            time_lookup: time_lookup_enabled,
         },
         actions: config::ActionConfig {
             alternate_folder_opener_enabled,
@@ -248,6 +251,7 @@ mod tests {
             true,
             false,
             true,
+            true,
             false,
             "dim",
             "compact",
@@ -278,6 +282,7 @@ mod tests {
         assert!(config.providers.web_search);
         assert!(config.providers.unit_conversion);
         assert!(!config.providers.currency_conversion);
+        assert!(config.providers.time_lookup);
         assert_eq!(config.aliases.len(), 1);
         assert_eq!(config.web_searches.len(), 1);
         assert!(config.actions.alternate_folder_opener_enabled);
@@ -312,6 +317,7 @@ mod tests {
                 true,
                 true,
                 true,
+                true,
                 "dark",
                 "comfortable",
                 "50",
@@ -325,6 +331,7 @@ mod tests {
             config_from_settings_fields(
                 "",
                 "code",
+                true,
                 true,
                 true,
                 true,

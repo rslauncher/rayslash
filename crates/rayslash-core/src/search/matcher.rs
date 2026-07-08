@@ -77,6 +77,8 @@ fn result_type_order(kind: &SearchResultKind) -> u8 {
         SearchResultKind::UnitConversion { .. } => 0,
         SearchResultKind::CurrencyConversion { .. } => 0,
         SearchResultKind::CurrencyConversionError { .. } => 0,
+        SearchResultKind::TimeLookup { .. } => 0,
+        SearchResultKind::TimeLookupError { .. } => 0,
         SearchResultKind::WebSearch { .. } => 0,
         SearchResultKind::App { .. } => 1,
         SearchResultKind::Project { .. } => 2,

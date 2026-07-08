@@ -5,6 +5,7 @@ use crate::calc;
 use crate::config::{AliasConfig, ProviderConfig};
 use crate::currency;
 use crate::projects::Project;
+use crate::time_lookup;
 use crate::units;
 use crate::web_search;
 use nucleo_matcher::Utf32Str;
@@ -84,6 +85,16 @@ pub(super) fn placeholder_results_for_providers(providers: &ProviderConfig) -> V
             title: "Convert currency".to_owned(),
             flair: String::new(),
             subtitle: "Type a conversion such as 10 USD to EUR".to_owned(),
+            icon: SearchResultIcon::Placeholder,
+            kind: SearchResultKind::Placeholder,
+        });
+    }
+
+    if providers.time_lookup {
+        results.push(SearchResult {
+            title: "Check time".to_owned(),
+            flair: String::new(),
+            subtitle: "Type a lookup such as time in Argentina".to_owned(),
             icon: SearchResultIcon::Placeholder,
             kind: SearchResultKind::Placeholder,
         });
@@ -256,6 +267,35 @@ pub(super) fn currency_error_result(expression: &str, message: String) -> Search
     }
 }
 
+pub(super) fn time_lookup_result(lookup: time_lookup::TimeLookup) -> SearchResult {
+    SearchResult {
+        title: lookup.result.clone(),
+        flair: String::new(),
+        subtitle: format!(
+            "Time in {} ({}, {})",
+            lookup.location, lookup.offset, lookup.timezone
+        ),
+        icon: SearchResultIcon::TimeLookup,
+        kind: SearchResultKind::TimeLookup {
+            expression: lookup.expression,
+            result: lookup.result,
+        },
+    }
+}
+
+pub(super) fn time_lookup_error_result(expression: &str, message: String) -> SearchResult {
+    SearchResult {
+        title: "Time lookup unavailable.".to_owned(),
+        flair: String::new(),
+        subtitle: format!("Time: {expression}"),
+        icon: SearchResultIcon::TimeLookup,
+        kind: SearchResultKind::TimeLookupError {
+            expression: expression.to_owned(),
+            message,
+        },
+    }
+}
+
 pub(super) fn web_search_result(search: web_search::WebSearch) -> SearchResult {
     SearchResult {
         title: format!("Search {} for {}", search.name, search.query),
@@ -269,59 +309,15 @@ pub(super) fn web_search_result(search: web_search::WebSearch) -> SearchResult {
     }
 }
 
-pub(super) fn no_results(query: &str, providers: &ProviderConfig) -> SearchResult {
+pub(super) fn no_results(query: &str, _providers: &ProviderConfig) -> SearchResult {
     SearchResult {
         title: "No results".to_owned(),
         flair: String::new(),
-        subtitle: format!("No {} match \"{query}\"", provider_match_phrase(providers)),
+        subtitle: "No matches".to_owned(),
         icon: SearchResultIcon::Placeholder,
         kind: SearchResultKind::NoResults {
             query: query.to_owned(),
         },
-    }
-}
-
-fn provider_match_phrase(providers: &ProviderConfig) -> String {
-    let mut labels = Vec::new();
-
-    if providers.apps {
-        labels.push("apps");
-    }
-    if providers.folders {
-        labels.push("folders");
-    }
-    if providers.calculator {
-        labels.push("calculations");
-    }
-    if providers.aliases {
-        labels.push("aliases");
-    }
-    if providers.web_search {
-        labels.push("web searches");
-    }
-    if providers.unit_conversion {
-        labels.push("unit conversions");
-    }
-    if providers.currency_conversion {
-        labels.push("currency conversions");
-    }
-
-    match labels.as_slice() {
-        [] => "enabled providers".to_owned(),
-        [only] => (*only).to_owned(),
-        [first, second] => format!("{first} or {second}"),
-        [first, second, third] => format!("{first}, {second}, or {third}"),
-        [first, second, third, fourth] => format!("{first}, {second}, {third}, or {fourth}"),
-        [first, second, third, fourth, fifth] => {
-            format!("{first}, {second}, {third}, {fourth}, or {fifth}")
-        }
-        [first, second, third, fourth, fifth, sixth] => {
-            format!("{first}, {second}, {third}, {fourth}, {fifth}, or {sixth}")
-        }
-        [first, second, third, fourth, fifth, sixth, seventh] => {
-            format!("{first}, {second}, {third}, {fourth}, {fifth}, {sixth}, or {seventh}")
-        }
-        _ => labels.join(", "),
     }
 }
 

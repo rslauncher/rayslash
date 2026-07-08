@@ -43,6 +43,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                         .calculator_result()
                         .or_else(|| result.unit_conversion_result())
                         .or_else(|| result.currency_conversion_result())
+                        .or_else(|| result.time_lookup_result())
                     {
                         match copy_to_clipboard(copyable_result) {
                             Ok(()) => {
@@ -71,6 +72,10 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                     } else if let Some(currency_error) = result.currency_error_message() {
                         if let Some(ui) = weak.upgrade() {
                             ui.set_status_text(currency_error.into());
+                        }
+                    } else if let Some(time_lookup_error) = result.time_lookup_error_message() {
+                        if let Some(ui) = weak.upgrade() {
+                            ui.set_status_text(time_lookup_error.into());
                         }
                     } else if result.is_no_results() {
                         if let Some(ui) = weak.upgrade() {

@@ -38,12 +38,14 @@ pub struct ProviderConfig {
     pub calculator: bool,
     #[serde(default = "default_true")]
     pub aliases: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub web_search: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub unit_conversion: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     pub currency_conversion: bool,
+    #[serde(default = "default_true")]
+    pub time_lookup: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,9 +214,10 @@ impl Default for ProviderConfig {
             folders: true,
             calculator: true,
             aliases: true,
-            web_search: false,
-            unit_conversion: false,
-            currency_conversion: false,
+            web_search: true,
+            unit_conversion: true,
+            currency_conversion: true,
+            time_lookup: true,
         }
     }
 }

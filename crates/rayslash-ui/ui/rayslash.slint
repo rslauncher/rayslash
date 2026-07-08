@@ -152,9 +152,10 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-provider-folders: true;
     in-out property <bool> settings-provider-calculator: true;
     in-out property <bool> settings-provider-aliases: true;
-    in-out property <bool> settings-provider-web-search: false;
-    in-out property <bool> settings-provider-unit-conversion: false;
-    in-out property <bool> settings-provider-currency-conversion: false;
+    in-out property <bool> settings-provider-web-search: true;
+    in-out property <bool> settings-provider-unit-conversion: true;
+    in-out property <bool> settings-provider-currency-conversion: true;
+    in-out property <bool> settings-provider-time-lookup: true;
     in-out property <bool> settings-alternate-folder-opener-enabled: true;
     in-out property <bool> settings-ranking-learn-from-usage: true;
     in-out property <string> settings-theme: "dark";
@@ -186,7 +187,7 @@ export component AppWindow inherits Window {
     callback settings-browse-folder-requested(string);
     callback settings-choose-alternate-opener-requested(string);
     callback settings-clear-ranking-requested();
-    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool);
+    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool);
 
     public function focus-search() {
         search.focus();
@@ -368,6 +369,7 @@ export component AppWindow inherits Window {
                         provider-web-search <=> root.settings-provider-web-search;
                         provider-unit-conversion <=> root.settings-provider-unit-conversion;
                         provider-currency-conversion <=> root.settings-provider-currency-conversion;
+                        provider-time-lookup <=> root.settings-provider-time-lookup;
                         alternate-folder-opener-enabled <=> root.settings-alternate-folder-opener-enabled;
                         ranking-learn-from-usage <=> root.settings-ranking-learn-from-usage;
                         theme <=> root.settings-theme;
@@ -396,7 +398,7 @@ export component AppWindow inherits Window {
                         clear-ranking-requested => {
                             root.settings-clear-ranking-requested();
                         }
-                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips) => {
+                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips) => {
                             root.settings-save-requested(
                                 folder-sources,
                                 alternate-opener-command,
@@ -407,6 +409,7 @@ export component AppWindow inherits Window {
                                 provider-web-search,
                                 provider-unit-conversion,
                                 provider-currency-conversion,
+                                provider-time-lookup,
                                 alternate-opener-enabled,
                                 ranking-learn-from-usage,
                                 theme,

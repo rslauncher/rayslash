@@ -10,6 +10,7 @@ pub mod currency;
 pub mod projects;
 pub mod ranking;
 pub mod search;
+pub mod time_lookup;
 pub mod units;
 pub mod web_search;
 

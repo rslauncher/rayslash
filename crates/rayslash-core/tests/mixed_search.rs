@@ -115,7 +115,10 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             folders: true,
             calculator: false,
             aliases: true,
-            ..ProviderConfig::default()
+            web_search: false,
+            unit_conversion: false,
+            currency_conversion: false,
+            time_lookup: false,
         },
     );
 
@@ -136,7 +139,10 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             folders: false,
             calculator: true,
             aliases: false,
-            ..ProviderConfig::default()
+            web_search: false,
+            unit_conversion: false,
+            currency_conversion: false,
+            time_lookup: false,
         },
     );
 
@@ -155,6 +161,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             web_search: false,
             unit_conversion: false,
             currency_conversion: false,
+            time_lookup: false,
         },
     );
 
@@ -197,6 +204,7 @@ fn mixed_search_matches_alias_names_and_queries_when_provider_enabled() {
             web_search: false,
             unit_conversion: false,
             currency_conversion: false,
+            time_lookup: false,
         },
         None,
     );
@@ -219,6 +227,7 @@ fn mixed_search_supports_configured_web_search_templates() {
         web_search: true,
         unit_conversion: false,
         currency_conversion: false,
+        time_lookup: false,
     };
 
     let results = search::mixed_results_with_ranking_and_web_searches(
@@ -248,12 +257,36 @@ fn mixed_search_supports_local_unit_conversion() {
         web_search: false,
         unit_conversion: true,
         currency_conversion: false,
+        time_lookup: false,
     };
 
     let results = search::mixed_results_with_providers(&[], &[], "10 km to mi", &providers);
 
-    assert_eq!(results[0].title, "6.213712 mi");
-    assert_eq!(results[0].unit_conversion_result(), Some("6.213712 mi"));
+    assert_eq!(results[0].title, "6.2137 mi");
+    assert_eq!(results[0].unit_conversion_result(), Some("6.2137 mi"));
+}
+
+#[test]
+fn mixed_search_ranks_valid_conversions_before_calculator_errors() {
+    let providers = ProviderConfig {
+        apps: false,
+        folders: false,
+        calculator: true,
+        aliases: false,
+        web_search: false,
+        unit_conversion: true,
+        currency_conversion: false,
+        time_lookup: false,
+    };
+
+    let compact = search::mixed_results_with_providers(&[], &[], "10c to k", &providers);
+    let named =
+        search::mixed_results_with_providers(&[], &[], "10 celsius to fahrenheit", &providers);
+    let reverse = search::mixed_results_with_providers(&[], &[], "10f to celsius", &providers);
+
+    assert_eq!(compact[0].title, "283.15 K");
+    assert_eq!(named[0].title, "50 °F");
+    assert_eq!(reverse[0].title, "-12.2222 °C");
 }
 
 #[test]
@@ -266,6 +299,7 @@ fn mixed_search_supports_currency_conversion_rows_without_network_for_same_curre
         web_search: false,
         unit_conversion: false,
         currency_conversion: true,
+        time_lookup: false,
     };
 
     let results = search::mixed_results_with_providers(&[], &[], "10 usd to usd", &providers);
@@ -314,15 +348,12 @@ fn mixed_search_distinguishes_calculator_errors_normal_queries_placeholders_and_
     let no_results = search::mixed_results(&[project("/tmp/rayslash", "rayslash")], &[], "zzz");
 
     assert_eq!(no_results[0].title, "No results");
-    assert_eq!(
-        no_results[0].subtitle,
-        "No apps, folders, calculations, or aliases match \"zzz\""
-    );
+    assert_eq!(no_results[0].subtitle, "No matches");
     assert!(no_results[0].is_no_results());
 }
 
 #[test]
-fn mixed_search_no_results_wording_uses_enabled_provider_names() {
+fn mixed_search_no_results_wording_stays_short() {
     let providers = ProviderConfig {
         apps: false,
         folders: true,
@@ -335,7 +366,7 @@ fn mixed_search_no_results_wording_uses_enabled_provider_names() {
     let no_results = search::mixed_results_with_providers(&projects, &[], "zzz", &providers);
 
     assert_eq!(no_results[0].title, "No results");
-    assert_eq!(no_results[0].subtitle, "No folders match \"zzz\"");
+    assert_eq!(no_results[0].subtitle, "No matches");
 }
 
 #[test]

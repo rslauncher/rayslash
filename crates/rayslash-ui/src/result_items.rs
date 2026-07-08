@@ -42,6 +42,9 @@ fn subtitle_tooltip(result: &search::SearchResult) -> String {
         search::SearchResultKind::App { .. } if result.subtitle != "Application" => {
             result.subtitle.clone()
         }
+        search::SearchResultKind::NoResults { query } => {
+            format!("No enabled provider matched \"{query}\"")
+        }
         _ => String::new(),
     }
 }
@@ -144,8 +147,9 @@ fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache)
         }
         search::SearchResultIcon::App { path: None } => fallback_icon("app", ""),
         search::SearchResultIcon::Calculator => fallback_icon("calculator", ""),
-        search::SearchResultIcon::UnitConversion => fallback_icon("text", "U"),
+        search::SearchResultIcon::UnitConversion => fallback_icon("text", "°"),
         search::SearchResultIcon::CurrencyConversion => fallback_icon("text", "$"),
+        search::SearchResultIcon::TimeLookup => fallback_icon("time", ""),
         search::SearchResultIcon::WebSearch => fallback_icon("text", "W"),
         search::SearchResultIcon::ProjectFolder => fallback_icon("folder", ""),
         search::SearchResultIcon::Placeholder => fallback_icon("placeholder", ""),

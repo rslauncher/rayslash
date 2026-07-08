@@ -333,27 +333,72 @@ export component ResultList inherits Flickable {
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "placeholder";
                     }
+
+                    Rectangle {
+                        x: 10px;
+                        y: 10px;
+                        width: 22px;
+                        height: 22px;
+                        border-radius: 11px;
+                        background: transparent;
+                        border-width: 2px;
+                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "time";
+                    }
+
+                    Rectangle {
+                        x: 20px;
+                        y: 14px;
+                        width: 2px;
+                        height: 9px;
+                        border-radius: 1px;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "time";
+                    }
+
+                    Rectangle {
+                        x: 20px;
+                        y: 21px;
+                        width: 7px;
+                        height: 2px;
+                        border-radius: 1px;
+                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_kind == "time";
+                    }
                 }
             }
 
             VerticalLayout {
                 spacing: 2px;
 
-                HorizontalLayout {
+                Rectangle {
                     height: 22px;
-                    spacing: 8px;
+                    horizontal-stretch: 1;
+                    background: transparent;
 
-                    Text {
+                    title-measure := Text {
+                        width: 0px;
+                        height: 0px;
+                        text: item.title;
+                        font-size: 16px;
+                        font-weight: 700;
+                        visible: false;
+                    }
+
+                    title-text := Text {
+                        width: item.flair == "" ? parent.width : min(title-measure.preferred-width, max(0px, parent.width - 42px));
+                        height: 100%;
                         text: item.title;
                         color: root.light ? #202020 : #f4f4f4;
                         font-size: 16px;
                         font-weight: 700;
                         overflow: elide;
                         vertical-alignment: center;
-                        horizontal-stretch: 1;
                     }
 
                     Rectangle {
+                        x: title-text.width + 8px;
+                        y: 2px;
                         width: item.flair == "" ? 0px : 34px;
                         height: item.flair == "" ? 0px : 18px;
                         border-radius: 6px;
