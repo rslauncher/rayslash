@@ -182,6 +182,8 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-alternate-picker-open: false;
     in-out property <string> active-search-keyword: "";
     in-out property <string> active-search-name: "";
+    in-out property <bool> active-search-has-accent: false;
+    in-out property <color> active-search-accent: #3a3a3a;
     private property <bool> light-theme: root.settings-theme == "light";
 
     callback close-requested();
@@ -334,6 +336,8 @@ export component AppWindow inherits Window {
                         query-text <=> root.query-text;
                         active-search-keyword: root.active-search-keyword;
                         active-search-name: root.active-search-name;
+                        active-search-has-accent: root.active-search-has-accent;
+                        active-search-accent: root.active-search-accent;
 
                         close-requested => {
                             root.close-requested();

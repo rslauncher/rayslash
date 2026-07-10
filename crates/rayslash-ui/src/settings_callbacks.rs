@@ -601,6 +601,12 @@ fn save_collection_change(
         return;
     }
     *state.borrow_mut() = config_to_save.normalized();
+    let favicon_searches = state.borrow().web_searches.clone();
+    std::thread::spawn(move || {
+        for search in &favicon_searches {
+            let _ = rayslash_core::web_search::fetch_and_cache_favicon(search);
+        }
+    });
     refresh_settings_dependent_ui(
         ui,
         &state.borrow(),

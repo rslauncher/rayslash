@@ -163,7 +163,7 @@ export component SettingsPanel inherits FocusScope {
         width: 100%;
         height: 100%;
         viewport-width: self.width;
-        viewport-height: root.open ? (root.alternate-picker-open ? 1371px : 1221px) + (root.aliases.length + root.web-searches.length) * 160px : 0px;
+        viewport-height: root.open ? (root.alternate-picker-open ? 1371px : 1221px) + root.aliases.length * 134px + root.web-searches.length * 134px : 0px;
         interactive: root.open;
 
         VerticalLayout {
@@ -452,21 +452,26 @@ export component SettingsPanel inherits FocusScope {
             }
 
             for alias[index] in root.aliases: Rectangle {
-                height: 152px; border-radius: 8px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
+                height: 126px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
                 VerticalLayout { padding: 8px; spacing: 6px;
-                    HorizontalLayout { height: 14px; Text { text: "Name"; color: root.text-muted; font-size: 10px; } Text { text: "Keyword"; color: root.text-muted; font-size: 10px; } }
-                    HorizontalLayout { height: 28px; spacing: 6px;
-                        TextInput { text <=> alias.name; color: root.text-strong; font-size: 12px; single-line: true; }
-                        TextInput { text <=> alias.keyword; color: root.text-strong; font-size: 12px; single-line: true; }
+                    HorizontalLayout { height: 34px; spacing: 9px;
+                        Rectangle { width: 34px; border-radius: 8px; background: root.field-bg-hover;
+                            Path { x: 8px; y: 8px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M10 13a5 5 0 0 0 7.1.1l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7 M14 11a5 5 0 0 0-7.1-.1l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7"; }
+                        }
+                        VerticalLayout { spacing: 1px; Text { text: alias.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; } Text { text: alias.keyword; color: root.text-muted; font-size: 10px; overflow: elide; } }
                     }
-                    HorizontalLayout { height: 14px; Text { text: "Kind (url, file, folder, or command)"; color: root.text-muted; font-size: 10px; } Text { text: "Target"; color: root.text-muted; font-size: 10px; } }
-                    HorizontalLayout { height: 28px; spacing: 6px;
-                        TextInput { text <=> alias.kind; color: root.text-strong; font-size: 12px; single-line: true; }
-                        TextInput { text <=> alias.target; color: root.text-strong; font-size: 12px; single-line: true; }
+                    HorizontalLayout { height: 26px; spacing: 6px;
+                        EngineField { value <=> alias.name; light: root.light; hint: "Alias name"; }
+                        EngineField { width: 145px; value <=> alias.keyword; light: root.light; hint: "Keyword"; }
                     }
-                    HorizontalLayout { height: 28px; spacing: 6px;
-                        Rectangle { background: root.field-bg-hover; border-radius: 6px; Text { text: "Save"; color: root.text-main; horizontal-alignment: center; vertical-alignment: center; font-size: 11px; } TouchArea { mouse-cursor: pointer; clicked => { root.alias-save-requested(index, alias.name, alias.keyword, alias.kind, alias.target); } } }
-                        Rectangle { width: 66px; background: root.field-bg-hover; border-radius: 6px; Text { text: "Remove"; color: root.text-main; horizontal-alignment: center; vertical-alignment: center; font-size: 11px; } TouchArea { mouse-cursor: pointer; clicked => { root.alias-remove-requested(index); } } }
+                    HorizontalLayout { height: 26px; spacing: 6px;
+                        EngineField { width: 112px; value <=> alias.kind; light: root.light; hint: "Kind"; }
+                        EngineField { value <=> alias.target; light: root.light; hint: "Target URL, path, or command"; }
+                        Rectangle { width: 28px; border-radius: 6px; background: save-alias.pressed ? root.field-bg-pressed : save-alias.has-hover ? root.field-bg-hover : transparent; Text { text: "✓"; color: root.text-main; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; } save-alias := TouchArea { mouse-cursor: pointer; clicked => { root.alias-save-requested(index, alias.name, alias.keyword, alias.kind, alias.target); } } }
+                        Rectangle { width: 28px; border-radius: 6px; background: remove-alias.pressed ? #6f2020 : remove-alias.has-hover ? #4c2424 : transparent;
+                            Path { x: 6px; y: 5px; width: 16px; height: 16px; viewbox-width: 24; viewbox-height: 24; stroke: #ef7777; stroke-width: 2px; fill: transparent; commands: "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 10v6 M14 10v6"; }
+                            remove-alias := TouchArea { mouse-cursor: pointer; clicked => { root.alias-remove-requested(index); } }
+                        }
                     }
                 }
             }
@@ -484,23 +489,25 @@ export component SettingsPanel inherits FocusScope {
             }
 
             for engine[index] in root.web-searches: Rectangle {
-                height: 138px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
-                VerticalLayout { padding: 10px; spacing: 7px;
-                    HorizontalLayout { height: 38px; spacing: 10px;
-                        Rectangle { width: 38px; border-radius: 9px; background: root.field-bg-hover; Text { text: engine.keyword == "" ? "?" : engine.keyword; color: root.text-strong; horizontal-alignment: center; vertical-alignment: center; font-size: 12px; font-weight: 800; overflow: elide; } }
+                height: 126px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
+                VerticalLayout { padding: 8px; spacing: 6px;
+                    HorizontalLayout { height: 34px; spacing: 9px;
+                        Rectangle { width: 34px; border-radius: 8px; background: root.field-bg-hover;
+                            Path { x: 8px; y: 7px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M11 4 A7 7 0 1 0 11 18 A7 7 0 1 0 11 4 M16.2 16.2 L21 21"; }
+                        }
                         VerticalLayout { spacing: 1px; Text { text: engine.name == "" ? "New search engine" : engine.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; } Text { text: engine.keyword == "" ? "Choose a keyword" : engine.keyword; color: root.text-muted; font-size: 10px; overflow: elide; } }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
-                        MiniToggle { checked: engine.enabled; light: root.light; toggled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, self.checked); } }
+                        Rectangle { width: 34px; background: transparent; MiniToggle { y: 7px; checked: engine.enabled; light: root.light; toggled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, self.checked); } } }
                     }
-                    HorizontalLayout { height: 28px; spacing: 7px;
+                    HorizontalLayout { height: 26px; spacing: 6px;
                         EngineField { value <=> engine.name; light: root.light; editable: index != 0; hint: "Search engine name"; }
-                        EngineField { width: 112px; value <=> engine.keyword; light: root.light; editable: index != 0; hint: "Keyword"; }
+                        EngineField { width: 145px; value <=> engine.keyword; light: root.light; editable: index != 0; hint: "Keyword"; }
                     }
-                    HorizontalLayout { height: 28px; spacing: 7px;
+                    HorizontalLayout { height: 26px; spacing: 6px;
                         EngineField { value <=> engine.url; light: root.light; hint: "URL with %s in place of the search term"; }
-                        Rectangle { width: 30px; border-radius: 6px; background: save-engine.pressed ? root.field-bg-pressed : save-engine.has-hover ? root.field-bg-hover : transparent; Text { text: "✓"; color: root.text-main; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; } save-engine := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } } }
-                        Rectangle { width: index == 0 ? 0px : 30px; visible: index != 0; border-radius: 6px; background: remove-engine.pressed ? #6f2020 : remove-engine.has-hover ? #4c2424 : transparent;
-                            Path { x: 7px; y: 6px; width: 16px; height: 16px; viewbox-width: 24; viewbox-height: 24; stroke: #ef7777; stroke-width: 2px; fill: transparent; commands: "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 10v6 M14 10v6"; }
+                        Rectangle { width: 28px; border-radius: 6px; background: save-engine.pressed ? root.field-bg-pressed : save-engine.has-hover ? root.field-bg-hover : transparent; Text { text: "✓"; color: root.text-main; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; } save-engine := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } } }
+                        Rectangle { width: index == 0 ? 0px : 28px; visible: index != 0; border-radius: 6px; background: remove-engine.pressed ? #6f2020 : remove-engine.has-hover ? #4c2424 : transparent;
+                            Path { x: 6px; y: 5px; width: 16px; height: 16px; viewbox-width: 24; viewbox-height: 24; stroke: #ef7777; stroke-width: 2px; fill: transparent; commands: "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 10v6 M14 10v6"; }
                             remove-engine := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-remove-requested(index); } }
                         }
                     }

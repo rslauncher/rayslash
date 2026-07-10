@@ -121,9 +121,13 @@ fn opener_label(command: &str) -> String {
 }
 
 fn accent_color_for_opener(command: &str, icon_path: Option<&PathBuf>) -> Color {
+    accent_color_for_icon(command, icon_path.map(PathBuf::as_path))
+}
+
+pub(crate) fn accent_color_for_icon(seed: &str, icon_path: Option<&Path>) -> Color {
     icon_path
-        .and_then(|path| svg_accent_color(path))
-        .unwrap_or_else(|| fallback_accent_color(command))
+        .and_then(|path| svg_accent_color(path).or_else(|| raster_accent_color(path)))
+        .unwrap_or_else(|| fallback_accent_color(seed))
 }
 
 fn svg_accent_color(path: &Path) -> Option<Color> {
@@ -162,6 +166,40 @@ fn svg_accent_color(path: &Path) -> Option<Color> {
     }
 
     best.map(|(red, green, blue)| muted_background_color(red, green, blue))
+}
+
+fn raster_accent_color(path: &Path) -> Option<Color> {
+    let image = image::open(path).ok()?.thumbnail(32, 32).to_rgb8();
+    let mut colors = image
+        .pixels()
+        .map(|pixel| (pixel[0], pixel[1], pixel[2]))
+        .filter_map(|(red, green, blue)| {
+            let score = color_score(red, green, blue);
+            (score > 0).then_some((score, red, green, blue))
+        })
+        .collect::<Vec<_>>();
+    colors.sort_by_key(|(score, _, _, _)| std::cmp::Reverse(*score));
+    let selected = colors.iter().take(24).collect::<Vec<_>>();
+    if selected.is_empty() {
+        return None;
+    }
+    let count = selected.len() as u32;
+    let red = selected
+        .iter()
+        .map(|(_, red, _, _)| u32::from(*red))
+        .sum::<u32>()
+        / count;
+    let green = selected
+        .iter()
+        .map(|(_, _, green, _)| u32::from(*green))
+        .sum::<u32>()
+        / count;
+    let blue = selected
+        .iter()
+        .map(|(_, _, _, blue)| u32::from(*blue))
+        .sum::<u32>()
+        / count;
+    Some(muted_background_color(red as u8, green as u8, blue as u8))
 }
 
 fn color_score(red: u8, green: u8, blue: u8) -> u16 {

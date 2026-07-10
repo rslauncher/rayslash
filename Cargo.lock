@@ -4080,6 +4080,7 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "dirs",
+ "image",
  "rayslash-core",
  "rfd",
  "slint",
@@ -4093,6 +4094,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "dirs",
+ "image",
  "nucleo-matcher",
  "serde",
  "toml",

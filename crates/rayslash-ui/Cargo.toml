@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 arboard.workspace = true
 dirs.workspace = true
+image.workspace = true
 rayslash-core = { path = "../rayslash-core" }
 rfd.workspace = true
 slint.workspace = true

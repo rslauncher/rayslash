@@ -28,7 +28,7 @@ export component ResultList inherits Flickable {
     private property <bool> tooltip-visible: false;
     private property <length> tooltip-max-width: max(0px, root.width - root.tooltip-x - 6px);
     private property <length> tooltip-width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, root.tooltip-max-width);
-    private property <length> tooltip-height: root.tooltip-text == "" ? 0px : min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 54px);
+    private property <length> tooltip-height: root.tooltip-text == "" ? 0px : min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 66px);
     private property <bool> pointer-over-list: false;
     private property <length> pointer-y: 0px;
     private property <int> hovered-index: -1;
@@ -107,7 +107,7 @@ export component ResultList inherits Flickable {
             root.show-tooltip(
                 root.results[index].subtitle_tooltip,
                 76px,
-                max(0px, min(index * root.row-stride + root.row-height + root.viewport-y + 6px, root.height - 34px)),
+                max(0px, min(index * root.row-stride + root.row-height + root.viewport-y + 6px, root.height - root.tooltip-height)),
             );
         } else {
             root.hide-tooltip();

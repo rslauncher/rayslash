@@ -3,6 +3,8 @@ export component SearchBox inherits Rectangle {
     in property <bool> light;
     in property <string> active-search-keyword;
     in property <string> active-search-name;
+    in property <bool> active-search-has-accent;
+    in property <color> active-search-accent;
 
     private property <bool> has-active-search: root.active-search-keyword != "";
     private property <length> search-pill-width: root.has-active-search ? min(active-pill-measure.preferred-width + 26px, 150px) : 0px;
@@ -56,7 +58,7 @@ export component SearchBox inherits Rectangle {
         width: root.search-pill-width;
         height: 28px;
         border-radius: 7px;
-        background: root.light ? #242424 : #d8d8d8;
+        background: root.active-search-has-accent ? root.active-search-accent : root.light ? #242424 : #d8d8d8;
 
         Text {
             x: 10px;
@@ -64,7 +66,7 @@ export component SearchBox inherits Rectangle {
             width: parent.width - 20px;
             height: 100%;
             text: root.active-search-name == "" ? root.active-search-keyword : root.active-search-name;
-            color: root.light ? #ffffff : #181818;
+            color: root.active-search-has-accent ? #ffffff : root.light ? #ffffff : #181818;
             font-size: 12px;
             font-weight: 800;
             overflow: elide;
@@ -179,7 +181,7 @@ export component LegendTooltipBubble inherits Rectangle {
 
     private property <length> max-tooltip-width: 560px;
     private property <length> text-width: root.text == "" ? 0px : min(single-line-measure.preferred-width, root.max-tooltip-width - 18px);
-    private property <length> tooltip-height: root.text == "" ? 0px : min(max(30px, wrapped-measure.preferred-height + 12px), 54px);
+    private property <length> tooltip-height: root.text == "" ? 0px : min(max(30px, wrapped-measure.preferred-height + 12px), 66px);
 
     width: root.text == "" ? 0px : root.text-width + 18px;
     height: root.tooltip-height;
@@ -283,7 +285,7 @@ export component TooltipText inherits Rectangle {
         x: 0px;
         y: root.height + 6px;
         width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, 560px);
-        height: root.tooltip-text == "" ? 0px : min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 54px);
+        height: root.tooltip-text == "" ? 0px : min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 66px);
         close-policy: PopupClosePolicy.no-auto-close;
 
         LegendTooltipBubble {
@@ -374,7 +376,7 @@ export component SettingToggle inherits Rectangle {
         x: 0px;
         y: root.height + 6px;
         width: root.tooltips-enabled ? min(tooltip-measure.preferred-width + 18px, 560px) : 0px;
-        height: root.tooltips-enabled ? min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 54px) : 0px;
+        height: root.tooltips-enabled ? min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 66px) : 0px;
         close-policy: PopupClosePolicy.no-auto-close;
 
         LegendTooltipBubble {

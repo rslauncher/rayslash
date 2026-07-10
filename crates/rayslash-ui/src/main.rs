@@ -24,7 +24,7 @@ use std::{
 };
 
 use activation::{ActivationCallbackContext, register_activation_callback};
-use opener_visual::to_app_choice_items;
+use opener_visual::{accent_color_for_icon, to_app_choice_items};
 use rayslash_core::{apps, config, projects, web_search};
 use result_items::{IconImageCache, to_result_items};
 use runtime_state::{
@@ -147,6 +147,12 @@ fn run_gui(
         }
     };
     let config_state = Rc::new(RefCell::new(config));
+    let favicon_searches = config_state.borrow().web_searches.clone();
+    thread::spawn(move || {
+        for search in &favicon_searches {
+            let _ = web_search::fetch_and_cache_favicon(search);
+        }
+    });
     profile_stage(profile, "config load", stage_started);
 
     let stage_started = Instant::now();
@@ -318,6 +324,7 @@ fn run_gui(
                 ui.set_query_text("".into());
                 ui.set_active_search_keyword("".into());
                 ui.set_active_search_name("".into());
+                ui.set_active_search_has_accent(false);
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(false);
                 refresh_result_view(
@@ -369,17 +376,31 @@ fn run_gui(
                 if !config.providers.web_search {
                     None
                 } else {
-                    web_search::trigger_from_input(&config.web_searches, keyword.as_str())
-                        .map(|template| (template.keyword.clone(), template.name.clone()))
+                    web_search::trigger_from_input(&config.web_searches, keyword.as_str()).map(
+                        |template| {
+                            let favicon = web_search::cached_favicon_path(template);
+                            (
+                                template.keyword.clone(),
+                                template.name.clone(),
+                                !template
+                                    .keyword
+                                    .eq_ignore_ascii_case(web_search::DEFAULT_SEARCH_KEYWORD)
+                                    && favicon.is_some(),
+                                accent_color_for_icon(&template.keyword, favicon.as_deref()),
+                            )
+                        },
+                    )
                 }
             };
 
-            let Some((keyword, name)) = trigger else {
+            let Some((keyword, name, has_accent, accent)) = trigger else {
                 return false;
             };
 
             ui.set_active_search_keyword(keyword.into());
             ui.set_active_search_name(name.into());
+            ui.set_active_search_has_accent(has_accent);
+            ui.set_active_search_accent(accent);
             ui.set_query_text("".into());
             ui.set_status_text(DEFAULT_STATUS_TEXT.into());
             refresh_result_view(
@@ -417,6 +438,7 @@ fn run_gui(
             if let Some(ui) = weak.upgrade() {
                 ui.set_active_search_keyword("".into());
                 ui.set_active_search_name("".into());
+                ui.set_active_search_has_accent(false);
                 let query = ui.get_query_text();
                 refresh_result_view(
                     &ui,
