@@ -137,12 +137,20 @@ learn_from_usage = false
     );
     assert_eq!(
         config.web_searches,
-        vec![WebSearchConfig {
-            name: "DuckDuckGo".to_owned(),
-            keyword: "ddg".to_owned(),
-            url: "https://duckduckgo.com/?q=%s".to_owned(),
-            enabled: false,
-        }]
+        vec![
+            WebSearchConfig {
+                name: "Web Search".to_owned(),
+                keyword: "search".to_owned(),
+                url: "https://www.google.com/search?q=%s".to_owned(),
+                enabled: true,
+            },
+            WebSearchConfig {
+                name: "DuckDuckGo".to_owned(),
+                keyword: "ddg".to_owned(),
+                url: "https://duckduckgo.com/?q=%s".to_owned(),
+                enabled: false,
+            },
+        ]
     );
     assert_eq!(
         config.providers,

@@ -1,16 +1,17 @@
 use std::{
     collections::BTreeMap,
-    fmt,
+    fmt, fs,
+    str::FromStr,
     sync::{Mutex, OnceLock},
     time::{Duration, Instant},
 };
 
-use chrono::{Duration as ChronoDuration, Utc};
+use chrono::{Duration as ChronoDuration, Offset, Utc};
+use chrono_tz::Tz;
 use serde::Deserialize;
 
 const GEOCODING_API_BASE: &str = "https://geocoding-api.open-meteo.com";
 const FORECAST_API_BASE: &str = "https://api.open-meteo.com";
-const WORLD_BANK_API_BASE: &str = "https://api.worldbank.org";
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(1200);
 const CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 
@@ -39,7 +40,7 @@ pub enum TimeLookupError {
 
 #[derive(Debug, Clone)]
 struct CachedPlace {
-    place: PlaceTimeZone,
+    places: Vec<PlaceTimeZone>,
     fetched_at: Instant,
 }
 
@@ -74,12 +75,6 @@ struct ForecastTimeZoneResponse {
     utc_offset_seconds: i32,
 }
 
-#[derive(Debug, Deserialize)]
-struct WorldBankCountry {
-    #[serde(rename = "capitalCity")]
-    capital_city: String,
-}
-
 static PLACE_CACHE: OnceLock<Mutex<BTreeMap<String, CachedPlace>>> = OnceLock::new();
 
 impl fmt::Display for TimeLookupError {
@@ -92,7 +87,7 @@ impl fmt::Display for TimeLookupError {
 
 impl std::error::Error for TimeLookupError {}
 
-pub fn lookup_query(query: &str) -> Option<Result<TimeLookup, TimeLookupError>> {
+pub fn lookup_query(query: &str) -> Option<Result<Vec<TimeLookup>, TimeLookupError>> {
     let request = parse_query(query)?;
     Some(lookup_request(&request))
 }
@@ -111,19 +106,23 @@ pub fn parse_query(query: &str) -> Option<TimeLookupRequest> {
     })
 }
 
-pub fn lookup_request(request: &TimeLookupRequest) -> Result<TimeLookup, TimeLookupError> {
-    let place = place_timezone_for(&request.location)?;
-    let now = Utc::now() + ChronoDuration::seconds(i64::from(place.offset_seconds));
-    let offset = format_offset(place.offset_seconds);
-
-    Ok(TimeLookup {
-        expression: request.expression.clone(),
-        location: place.display_location,
-        result: now.format("%H:%M").to_string(),
-        date: now.format("%Y-%m-%d").to_string(),
-        timezone: place.timezone,
-        offset,
-        provider: "Open-Meteo",
+pub fn lookup_request(request: &TimeLookupRequest) -> Result<Vec<TimeLookup>, TimeLookupError> {
+    place_timezones_for(&request.location).map(|places| {
+        places
+            .into_iter()
+            .map(|place| {
+                let now = Utc::now() + ChronoDuration::seconds(i64::from(place.offset_seconds));
+                TimeLookup {
+                    expression: request.expression.clone(),
+                    location: place.display_location,
+                    result: now.format("%H:%M").to_string(),
+                    date: now.format("%Y-%m-%d").to_string(),
+                    timezone: place.timezone,
+                    offset: format_offset(place.offset_seconds),
+                    provider: "Open-Meteo / IANA tzdb",
+                }
+            })
+            .collect()
     })
 }
 
@@ -142,7 +141,7 @@ fn strip_time_prefix(query: &str) -> Option<&str> {
         .then_some(rest)
 }
 
-fn place_timezone_for(location: &str) -> Result<PlaceTimeZone, TimeLookupError> {
+fn place_timezones_for(location: &str) -> Result<Vec<PlaceTimeZone>, TimeLookupError> {
     let key = normalize_cache_key(location);
     let cache = PLACE_CACHE.get_or_init(|| Mutex::new(BTreeMap::new()));
 
@@ -153,77 +152,81 @@ fn place_timezone_for(location: &str) -> Result<PlaceTimeZone, TimeLookupError> 
         .filter(|cached| cached.fetched_at.elapsed() < CACHE_TTL)
         .cloned()
     {
-        return Ok(cached.place);
+        return Ok(cached.places);
     }
 
-    let place = fetch_place_timezone(location)?;
+    let places = fetch_place_timezones(location)?;
     cache
         .lock()
         .map_err(|error| TimeLookupError::Response(error.to_string()))?
         .insert(
             key,
             CachedPlace {
-                place: place.clone(),
+                places: places.clone(),
                 fetched_at: Instant::now(),
             },
         );
 
-    Ok(place)
+    Ok(places)
 }
 
-fn fetch_place_timezone(location: &str) -> Result<PlaceTimeZone, TimeLookupError> {
-    let requested = canonical_location_query(location);
-    let mut location = fetch_location(&requested)?;
-    if location.feature_code.as_deref() == Some("PCLI")
-        && let Some(capital) = location
-            .country_code
-            .as_deref()
-            .and_then(|code| fetch_country_capital(code).ok())
-            .or_else(|| {
-                capital_for_country(
-                    location.country_code.as_deref(),
-                    location.country.as_deref(),
-                )
-                .map(str::to_owned)
-            })
+fn fetch_place_timezones(location: &str) -> Result<Vec<PlaceTimeZone>, TimeLookupError> {
+    if let Some((country_code, country_name)) = known_country(location)
+        && let Some(places) = country_timezones(country_code, country_name)
     {
-        location = fetch_location_in_country(&capital, location.country_code.as_deref())?;
+        return Ok(places);
+    }
+    let requested = canonical_location_query(location);
+    let location = fetch_location(&requested)?;
+    if location.feature_code.as_deref() == Some("PCLI")
+        && let Some(country_code) = location.country_code.as_deref()
+        && let Some(country_name) = location.country.as_deref().or(Some(location.name.as_str()))
+        && let Some(places) = country_timezones(country_code, country_name)
+    {
+        return Ok(places);
     }
     let timezone = fetch_timezone(location.latitude, location.longitude)?;
     let display_location = display_location(&location);
 
-    Ok(PlaceTimeZone {
+    Ok(vec![PlaceTimeZone {
         display_location,
         timezone: timezone
             .timezone
             .or(location.timezone)
             .unwrap_or_else(|| "Local time".to_owned()),
         offset_seconds: timezone.utc_offset_seconds,
-    })
+    }])
 }
 
-fn fetch_country_capital(country_code: &str) -> Result<String, TimeLookupError> {
-    let url = format!(
-        "{WORLD_BANK_API_BASE}/v2/country/{}?format=json",
-        url_encode(country_code)
-    );
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(REQUEST_TIMEOUT))
-        .build()
-        .into();
-    let mut response = agent
-        .get(&url)
-        .call()
-        .map_err(|source| TimeLookupError::Request(source.to_string()))?;
-    let (_, countries): (serde::de::IgnoredAny, Vec<WorldBankCountry>) = response
-        .body_mut()
-        .read_json()
-        .map_err(|source| TimeLookupError::Response(source.to_string()))?;
-    countries
-        .into_iter()
-        .map(|country| country.capital_city)
-        .find(|capital| !capital.trim().is_empty())
-        .ok_or_else(|| TimeLookupError::Response("Country capital was unavailable.".to_owned()))
+fn known_country(location: &str) -> Option<(&'static str, &'static str)> {
+    match comparable_place_name(location).as_str() {
+        "america" | "usa" | "us" | "unitedstates" | "unitedstatesofamerica" => {
+            Some(("US", "United States"))
+        }
+        "argentina" => Some(("AR", "Argentina")),
+        "australia" => Some(("AU", "Australia")),
+        "brazil" | "brasil" => Some(("BR", "Brazil")),
+        "canada" => Some(("CA", "Canada")),
+        "chile" => Some(("CL", "Chile")),
+        "china" => Some(("CN", "China")),
+        "france" => Some(("FR", "France")),
+        "germany" => Some(("DE", "Germany")),
+        "india" => Some(("IN", "India")),
+        "indonesia" => Some(("ID", "Indonesia")),
+        "italy" => Some(("IT", "Italy")),
+        "japan" => Some(("JP", "Japan")),
+        "mexico" => Some(("MX", "Mexico")),
+        "newzealand" => Some(("NZ", "New Zealand")),
+        "portugal" => Some(("PT", "Portugal")),
+        "russia" => Some(("RU", "Russia")),
+        "southafrica" => Some(("ZA", "South Africa")),
+        "southkorea" => Some(("KR", "South Korea")),
+        "spain" => Some(("ES", "Spain")),
+        "turkey" | "turkiye" => Some(("TR", "Türkiye")),
+        "uk" | "greatbritain" | "unitedkingdom" => Some(("GB", "United Kingdom")),
+        "ukraine" => Some(("UA", "Ukraine")),
+        _ => None,
+    }
 }
 
 fn fetch_location(location: &str) -> Result<GeocodingResult, TimeLookupError> {
@@ -247,33 +250,6 @@ fn fetch_location(location: &str) -> Result<GeocodingResult, TimeLookupError> {
     response
         .results
         .and_then(|results| best_location_result(results, location, None))
-        .ok_or_else(|| TimeLookupError::Response(format!("No place found for {location}.")))
-}
-
-fn fetch_location_in_country(
-    location: &str,
-    country_code: Option<&str>,
-) -> Result<GeocodingResult, TimeLookupError> {
-    let url = format!(
-        "{GEOCODING_API_BASE}/v1/search?name={}&count=10&language=en&format=json",
-        url_encode(location)
-    );
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(REQUEST_TIMEOUT))
-        .build()
-        .into();
-    let mut response = agent
-        .get(&url)
-        .call()
-        .map_err(|source| TimeLookupError::Request(source.to_string()))?;
-    let response: GeocodingResponse = response
-        .body_mut()
-        .read_json()
-        .map_err(|source| TimeLookupError::Response(source.to_string()))?;
-
-    response
-        .results
-        .and_then(|results| best_location_result(results, location, country_code))
         .ok_or_else(|| TimeLookupError::Response(format!("No place found for {location}.")))
 }
 
@@ -320,38 +296,63 @@ fn canonical_location_query(location: &str) -> String {
     }
 }
 
-fn capital_for_country(code: Option<&str>, _country: Option<&str>) -> Option<&'static str> {
-    let code = code.unwrap_or_default().to_ascii_uppercase();
-    let capital = match code.as_str() {
-        "AR" => "Buenos Aires",
-        "AU" => "Canberra",
-        "BR" => "Brasília",
-        "CA" => "Ottawa",
-        "CL" => "Santiago",
-        "CN" => "Beijing",
-        "DE" => "Berlin",
-        "EG" => "Cairo",
-        "ES" => "Madrid",
-        "FR" => "Paris",
-        "GB" => "London",
-        "ID" => "Jakarta",
-        "IN" => "New Delhi",
-        "IT" => "Rome",
-        "JP" => "Tokyo",
-        "KR" => "Seoul",
-        "MX" => "Mexico City",
-        "NG" => "Abuja",
-        "NZ" => "Wellington",
-        "PK" => "Islamabad",
-        "PT" => "Lisbon",
-        "RU" => "Moscow",
-        "TR" => "Ankara",
-        "UA" => "Kyiv",
-        "US" => "Washington D.C.",
-        "ZA" => "Pretoria",
-        _ => return None,
-    };
-    Some(capital)
+fn country_timezones(country_code: &str, country_name: &str) -> Option<Vec<PlaceTimeZone>> {
+    let contents = [
+        "/usr/share/zoneinfo/zone.tab",
+        "/usr/share/zoneinfo/zone1970.tab",
+    ]
+    .into_iter()
+    .find_map(|path| fs::read_to_string(path).ok())?;
+    let now = Utc::now();
+    let mut by_offset: BTreeMap<i32, (String, Vec<String>)> = BTreeMap::new();
+
+    for line in contents.lines().filter(|line| !line.starts_with('#')) {
+        let mut fields = line.split('\t');
+        let Some(countries) = fields.next() else {
+            continue;
+        };
+        let _coordinates = fields.next();
+        let Some(zone_name) = fields.next() else {
+            continue;
+        };
+        let comment = fields.next().unwrap_or_default().trim();
+        if !countries
+            .split(',')
+            .any(|code| code.eq_ignore_ascii_case(country_code))
+        {
+            continue;
+        }
+        let Ok(timezone) = Tz::from_str(zone_name) else {
+            continue;
+        };
+        let offset = now
+            .with_timezone(&timezone)
+            .offset()
+            .fix()
+            .local_minus_utc();
+        let description = if comment.is_empty() {
+            zone_name.replace('_', " ")
+        } else {
+            comment.to_owned()
+        };
+        let entry = by_offset
+            .entry(offset)
+            .or_insert_with(|| (zone_name.to_owned(), Vec::new()));
+        if !entry.1.contains(&description) {
+            entry.1.push(description);
+        }
+    }
+
+    (!by_offset.is_empty()).then(|| {
+        by_offset
+            .into_iter()
+            .map(|(offset_seconds, (timezone, descriptions))| PlaceTimeZone {
+                display_location: format!("{country_name} — {}", descriptions.join(", ")),
+                timezone,
+                offset_seconds,
+            })
+            .collect()
+    })
 }
 
 fn fetch_timezone(
@@ -452,14 +453,25 @@ mod tests {
     }
 
     #[test]
-    fn recognized_countries_resolve_to_capital_names() {
-        assert_eq!(
-            capital_for_country(Some("AR"), Some("Argentina")),
-            Some("Buenos Aires")
+    fn country_timezones_group_regions_by_current_offset() {
+        let brazil = country_timezones("BR", "Brazil").expect("Brazil zones");
+        assert!(brazil.len() >= 4);
+        assert!(
+            brazil
+                .iter()
+                .all(|zone| zone.display_location.starts_with("Brazil — "))
         );
-        assert_eq!(
-            capital_for_country(Some("US"), Some("United States")),
-            Some("Washington D.C.")
+    }
+
+    #[test]
+    fn america_query_resolves_locally_to_united_states_timezones() {
+        let request = parse_query("time in america").expect("request");
+        let results = lookup_request(&request).expect("lookup");
+        assert!(results.len() > 1);
+        assert!(
+            results
+                .iter()
+                .all(|result| result.location.starts_with("United States — "))
         );
     }
 

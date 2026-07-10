@@ -354,26 +354,6 @@ pub(super) fn web_search_result(search: web_search::WebSearch) -> SearchResult {
     }
 }
 
-pub(super) fn default_web_search_result(query: &str) -> SearchResult {
-    let title = if query.trim().is_empty() {
-        "Search the web".to_owned()
-    } else {
-        format!("Search the web for {query}")
-    };
-
-    SearchResult {
-        title,
-        flair: String::new(),
-        subtitle: "Default browser search".to_owned(),
-        icon: SearchResultIcon::WebSearch {
-            label: "W".to_owned(),
-        },
-        kind: SearchResultKind::DefaultWebSearch {
-            query: query.to_owned(),
-        },
-    }
-}
-
 pub(super) fn no_results(query: &str, _providers: &ProviderConfig) -> SearchResult {
     SearchResult {
         title: format!("No matches for {query}"),

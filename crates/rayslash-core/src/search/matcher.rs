@@ -20,7 +20,13 @@ pub(super) fn boosted_score(
     result
         .learning_id()
         .map(|id| {
-            let boost = if title_starts_with_query(&result.title, query) {
+            let boost = if title_starts_with_query(&result.title, query)
+                || matches!(
+                    result.kind,
+                    SearchResultKind::UtilityAction {
+                        action: crate::utility_actions::UtilityAction::System(_)
+                    }
+                ) {
                 ranking.boost_for(&id, query)
             } else {
                 0
@@ -67,7 +73,22 @@ fn title_starts_with_query(title: &str, query: &str) -> bool {
         .join(" ")
         .to_lowercase();
 
-    !query.is_empty() && title.to_lowercase().starts_with(&query)
+    if query.is_empty() {
+        return false;
+    }
+    let title = title.to_lowercase();
+    if title.starts_with(&query) {
+        return true;
+    }
+    let compact_title = title
+        .chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .collect::<String>();
+    let compact_query = query
+        .chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .collect::<String>();
+    compact_title.starts_with(&compact_query)
 }
 
 fn result_type_order(kind: &SearchResultKind) -> u8 {

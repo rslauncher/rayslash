@@ -312,6 +312,9 @@ impl SearchResult {
     pub fn learning_id(&self) -> Option<String> {
         match &self.kind {
             SearchResultKind::App { .. } | SearchResultKind::Project { .. } => self.stable_id(),
+            SearchResultKind::UtilityAction {
+                action: UtilityAction::System(action),
+            } => Some(format!("system-action:{:?}", action.kind)),
             SearchResultKind::Placeholder
             | SearchResultKind::NoResults { .. }
             | SearchResultKind::Calculator { .. }
@@ -321,7 +324,9 @@ impl SearchResult {
             | SearchResultKind::CurrencyConversionError { .. }
             | SearchResultKind::TimeLookup { .. }
             | SearchResultKind::TimeLookupError { .. }
-            | SearchResultKind::UtilityAction { .. }
+            | SearchResultKind::UtilityAction {
+                action: UtilityAction::Timer(_),
+            }
             | SearchResultKind::UtilityActionError { .. }
             | SearchResultKind::WebSearch { .. }
             | SearchResultKind::DefaultWebSearch { .. }

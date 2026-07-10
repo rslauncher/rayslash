@@ -262,12 +262,18 @@ fn mixed_search_default_browser_search_requires_search_command() {
         currency_conversion: false,
         time_lookup: false,
     };
+    let web_searches = vec![WebSearchConfig {
+        name: "Web Search".to_owned(),
+        keyword: "search".to_owned(),
+        url: "https://www.google.com/search?q=%s".to_owned(),
+        enabled: true,
+    }];
 
     let results = search::mixed_results_with_ranking_and_web_searches(
         &[],
         &apps,
         &[],
-        &[],
+        &web_searches,
         "manhattan",
         &providers,
         None,
@@ -279,28 +285,17 @@ fn mixed_search_default_browser_search_requires_search_command() {
         &[],
         &apps,
         &[],
-        &[],
+        &web_searches,
         "search manhattan",
         &providers,
         None,
     );
 
-    assert_eq!(results[0].title, "Search the web for manhattan");
-    assert_eq!(results[0].default_web_search_query(), Some("manhattan"));
-
-    let results = search::mixed_results_with_ranking_and_web_searches(
-        &[],
-        &apps,
-        &[],
-        &[],
-        "search",
-        &providers,
-        None,
+    assert_eq!(results[0].title, "Search Web Search for manhattan");
+    assert_eq!(
+        results[0].web_search_url(),
+        Some("https://www.google.com/search?q=manhattan")
     );
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].title, "Search the web");
-    assert_eq!(results[0].default_web_search_query(), Some(""));
 }
 
 #[test]
@@ -316,20 +311,25 @@ fn mixed_search_web_search_rows_suppress_regular_matches() {
         currency_conversion: false,
         time_lookup: false,
     };
+    let web_searches = vec![WebSearchConfig {
+        name: "Web Search".to_owned(),
+        keyword: "search".to_owned(),
+        url: "https://www.google.com/search?q=%s".to_owned(),
+        enabled: true,
+    }];
 
     let results = search::mixed_results_with_ranking_and_web_searches(
         &[],
         &apps,
         &[],
-        &[],
+        &web_searches,
         "search firefox",
         &providers,
         None,
     );
 
     assert_eq!(results.len(), 1);
-    assert_eq!(results[0].title, "Search the web for firefox");
-    assert_eq!(results[0].default_web_search_query(), Some("firefox"));
+    assert_eq!(results[0].title, "Search Web Search for firefox");
 }
 
 #[test]
@@ -410,6 +410,24 @@ fn mixed_search_supports_power_and_timer_actions() {
 }
 
 #[test]
+fn partial_system_actions_are_search_items_alongside_apps() {
+    let apps = vec![app("shutdown-helper.desktop", "Shutdown Helper")];
+    let results = search::mixed_results(&[], &apps, "shutdow");
+
+    assert!(results.iter().any(|result| {
+        matches!(
+            result.utility_action(),
+            Some(UtilityAction::System(action)) if action.kind == SystemActionKind::Shutdown
+        )
+    }));
+    assert!(
+        results
+            .iter()
+            .any(|result| result.title == "Shutdown Helper")
+    );
+}
+
+#[test]
 fn mixed_search_supports_currency_conversion_rows_without_network_for_same_currency() {
     let providers = ProviderConfig {
         apps: false,
@@ -459,13 +477,6 @@ fn mixed_search_distinguishes_calculator_errors_normal_queries_placeholders_and_
     assert_eq!(normal_query[0].title, "Calculator");
     assert!(normal_query[0].app_command().is_some());
     assert!(normal_query[0].calculator_result().is_none());
-
-    let default_web_search = search::mixed_results(&[], &[], "search anything");
-    assert_eq!(default_web_search[0].title, "Search the web for anything");
-    assert_eq!(
-        default_web_search[0].default_web_search_query(),
-        Some("anything")
-    );
 
     let no_results = search::mixed_results_with_providers(
         &[project("/tmp/rayslash", "rayslash")],

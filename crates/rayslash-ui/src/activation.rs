@@ -85,6 +85,15 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                         match actions::run_utility_action(action) {
                             Ok(()) => {
                                 if let Some(ui) = weak.upgrade() {
+                                    let query = ui.get_query_text();
+                                    record_learned_launch(
+                                        &config_state.borrow(),
+                                        &ranking_state,
+                                        &projects.borrow(),
+                                        &apps.borrow(),
+                                        &result,
+                                        query.as_str(),
+                                    );
                                     ui.set_status_text(
                                         format!("Scheduled {}", result.title).into(),
                                     );
@@ -372,6 +381,12 @@ fn active_learning_ids(projects: &[projects::Project], apps: &[apps::DesktopApp]
                 .iter()
                 .map(|project| format!("folder:{}", project.path.display())),
         )
+        .chain([
+            "system-action:Reboot".to_owned(),
+            "system-action:Shutdown".to_owned(),
+            "system-action:Logout".to_owned(),
+            "system-action:Lock".to_owned(),
+        ])
         .collect()
 }
 

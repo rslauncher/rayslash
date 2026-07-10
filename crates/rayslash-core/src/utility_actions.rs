@@ -3,6 +3,7 @@ use std::time::Duration;
 use crate::actions::CommandSpec;
 
 const DEFAULT_DELAY: Duration = Duration::from_secs(30);
+const DEFAULT_SYSTEM_ACTION_DELAY: Duration = Duration::ZERO;
 const DEFAULT_TIMER_MESSAGE: &str = "Timer finished.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +75,64 @@ pub fn parse_query(query: &str) -> Option<Result<UtilityAction, UtilityActionErr
     }
 
     None
+}
+
+pub fn fuzzy_system_action(query: &str) -> Option<UtilityAction> {
+    let query = query.trim().to_ascii_lowercase();
+    if query.chars().count() < 2 || query.chars().any(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    let candidates = [
+        (
+            SystemActionKind::Shutdown,
+            "shutdown",
+            ["shut down", "turn off", "power off"],
+        ),
+        (
+            SystemActionKind::Reboot,
+            "reboot",
+            ["restart", "reset", "reboot"],
+        ),
+        (
+            SystemActionKind::Logout,
+            "logout",
+            ["log out", "sign out", "logout"],
+        ),
+        (
+            SystemActionKind::Lock,
+            "lock",
+            ["lock screen", "lock", "lock"],
+        ),
+    ];
+
+    candidates
+        .into_iter()
+        .find_map(|(kind, canonical, aliases)| {
+            aliases
+                .iter()
+                .any(|alias| fuzzy_action_match(&query, alias))
+                .then(|| {
+                    UtilityAction::System(SystemAction {
+                        kind,
+                        delay: DEFAULT_SYSTEM_ACTION_DELAY,
+                        expression: canonical.to_owned(),
+                    })
+                })
+        })
+}
+
+fn fuzzy_action_match(query: &str, candidate: &str) -> bool {
+    if candidate.contains(query) || query.contains(candidate) {
+        return true;
+    }
+    let mut query_chars = query.chars().filter(|ch| !ch.is_whitespace());
+    let mut wanted = query_chars.next();
+    for candidate in candidate.chars().filter(|ch| !ch.is_whitespace()) {
+        if wanted == Some(candidate) {
+            wanted = query_chars.next();
+        }
+    }
+    wanted.is_none()
 }
 
 pub fn system_action_command(kind: SystemActionKind) -> CommandSpec {
@@ -177,7 +236,7 @@ fn parse_system_action(
 ) -> Result<UtilityAction, UtilityActionError> {
     let rest = rest.trim();
     let delay = if rest.is_empty() {
-        DEFAULT_DELAY
+        DEFAULT_SYSTEM_ACTION_DELAY
     } else if rest.eq_ignore_ascii_case("now") {
         Duration::ZERO
     } else {
@@ -332,10 +391,12 @@ fn strip_system_action_prefix(query: &str) -> Option<(SystemActionKind, &str)> {
     [
         ("reboot", SystemActionKind::Reboot),
         ("restart", SystemActionKind::Reboot),
+        ("reset", SystemActionKind::Reboot),
         ("shutdown", SystemActionKind::Shutdown),
         ("shut down", SystemActionKind::Shutdown),
         ("poweroff", SystemActionKind::Shutdown),
         ("power off", SystemActionKind::Shutdown),
+        ("turn off", SystemActionKind::Shutdown),
         ("logout", SystemActionKind::Logout),
         ("log out", SystemActionKind::Logout),
         ("lock screen", SystemActionKind::Lock),
@@ -687,7 +748,7 @@ mod tests {
             action,
             UtilityAction::System(SystemAction {
                 kind: SystemActionKind::Reboot,
-                delay: Duration::from_secs(30),
+                delay: Duration::ZERO,
                 expression: "reboot".to_owned(),
             })
         );
@@ -735,6 +796,21 @@ mod tests {
         let action = parse_query("timer in 10").expect("query").expect("action");
         assert_eq!(action_delay(&action), Duration::from_secs(10));
         assert!(action_title(&action).contains(DEFAULT_TIMER_MESSAGE));
+    }
+
+    #[test]
+    fn fuzzy_system_actions_include_partial_and_alternate_phrases() {
+        for (query, expected) in [
+            ("shutdow", SystemActionKind::Shutdown),
+            ("turn off", SystemActionKind::Shutdown),
+            ("reset", SystemActionKind::Reboot),
+        ] {
+            let UtilityAction::System(action) = fuzzy_system_action(query).expect("action") else {
+                panic!("expected system action");
+            };
+            assert_eq!(action.kind, expected);
+            assert_eq!(action.delay, Duration::ZERO);
+        }
     }
 
     #[test]

@@ -3,7 +3,10 @@ mod fixtures;
 use std::path::{Path, PathBuf};
 
 use fixtures::{app, project};
-use rayslash_core::{config::ProviderConfig, search};
+use rayslash_core::{
+    config::{ProviderConfig, WebSearchConfig},
+    search,
+};
 
 #[test]
 fn placeholder_results_are_available() {
@@ -93,10 +96,23 @@ fn current_result_types_have_stable_ids() {
         .into_iter()
         .next()
         .expect("calculator result");
-    let default_web_search = search::mixed_results(&projects, &[], "search zzz")
-        .into_iter()
-        .next()
-        .expect("default web search row");
+    let default_web_search = search::mixed_results_with_ranking_and_web_searches(
+        &projects,
+        &[],
+        &[],
+        &[WebSearchConfig {
+            name: "Web Search".to_owned(),
+            keyword: "search".to_owned(),
+            url: "https://www.google.com/search?q=%s".to_owned(),
+            enabled: true,
+        }],
+        "search zzz",
+        &ProviderConfig::default(),
+        None,
+    )
+    .into_iter()
+    .next()
+    .expect("default web search row");
     let no_results = search::mixed_results_with_providers(
         &projects,
         &[],
@@ -133,7 +149,7 @@ fn current_result_types_have_stable_ids() {
     assert_eq!(calculator_result.learning_id(), None);
     assert_eq!(
         default_web_search.stable_id(),
-        Some("default-web-search:zzz".to_owned())
+        Some("web-search:Web Search:https://www.google.com/search?q=zzz".to_owned())
     );
     assert_eq!(default_web_search.learning_id(), None);
     assert_eq!(no_results.stable_id(), Some("no-results:zzz".to_owned()));

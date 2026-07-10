@@ -76,7 +76,7 @@ fn alias_items(aliases: &[config::AliasConfig]) -> Vec<AliasItem> {
         .collect()
 }
 
-fn web_search_items(searches: &[config::WebSearchConfig]) -> Vec<WebSearchItem> {
+pub(crate) fn web_search_items(searches: &[config::WebSearchConfig]) -> Vec<WebSearchItem> {
     searches
         .iter()
         .map(|search| WebSearchItem {

@@ -202,7 +202,7 @@ impl Default for Config {
         Self {
             folder_sources: default_folder_sources(),
             aliases: Vec::new(),
-            web_searches: Vec::new(),
+            web_searches: vec![default_web_search()],
             providers: ProviderConfig::default(),
             actions: ActionConfig::default(),
             appearance: AppearanceConfig::default(),
@@ -381,7 +381,7 @@ fn default_true() -> bool {
 }
 
 fn normalize_web_searches(searches: Vec<WebSearchConfig>) -> Vec<WebSearchConfig> {
-    searches
+    let mut searches = searches
         .into_iter()
         .filter_map(|mut search| {
             search.name = search.name.trim().to_owned();
@@ -398,7 +398,28 @@ fn normalize_web_searches(searches: Vec<WebSearchConfig>) -> Vec<WebSearchConfig
 
             Some(search)
         })
-        .collect()
+        .collect::<Vec<_>>();
+    let default_index = searches.iter().position(|search| {
+        search
+            .keyword
+            .eq_ignore_ascii_case(crate::web_search::DEFAULT_SEARCH_KEYWORD)
+    });
+    let mut default_search = default_index
+        .map(|index| searches.remove(index))
+        .unwrap_or_else(default_web_search);
+    default_search.name = "Web Search".to_owned();
+    default_search.keyword = crate::web_search::DEFAULT_SEARCH_KEYWORD.to_owned();
+    searches.insert(0, default_search);
+    searches
+}
+
+fn default_web_search() -> WebSearchConfig {
+    WebSearchConfig {
+        name: "Web Search".to_owned(),
+        keyword: crate::web_search::DEFAULT_SEARCH_KEYWORD.to_owned(),
+        url: "https://www.google.com/search?q=%s".to_owned(),
+        enabled: true,
+    }
 }
 
 fn default_alternate_folder_opener_command() -> String {

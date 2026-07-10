@@ -45,7 +45,7 @@ slint::include_modules!();
 
 pub(crate) const DEFAULT_STATUS_TEXT: &str = "";
 const DESKTOP_APP_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
-const REMOTE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(180);
+const REMOTE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(450);
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -368,11 +368,6 @@ fn run_gui(
                 let config = config_state.borrow();
                 if !config.providers.web_search {
                     None
-                } else if web_search::is_default_search_trigger(keyword.as_str()) {
-                    Some((
-                        web_search::DEFAULT_SEARCH_KEYWORD.to_owned(),
-                        "Search".to_owned(),
-                    ))
                 } else {
                     web_search::trigger_from_input(&config.web_searches, keyword.as_str())
                         .map(|template| (template.keyword.clone(), template.name.clone()))

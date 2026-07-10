@@ -33,6 +33,28 @@ component SegmentButton inherits Rectangle {
     }
 }
 
+component MiniToggle inherits Rectangle {
+    in-out property <bool> checked;
+    in property <bool> light;
+    callback toggled();
+    width: 34px; height: 20px; border-radius: 10px;
+    background: root.light ? root.checked ? #202020 : #dedede : root.checked ? #d6d6d6 : #343434;
+    border-width: 1px; border-color: root.light ? #999999 : #666666;
+    Rectangle { x: root.checked ? 16px : 2px; y: 2px; width: 14px; height: 14px; border-radius: 7px; background: root.light ? root.checked ? #ffffff : #777777 : root.checked ? #181818 : #b8b8b8; }
+    TouchArea { mouse-cursor: pointer; clicked => { root.checked = !root.checked; root.toggled(); } }
+}
+
+component EngineField inherits Rectangle {
+    in-out property <string> value;
+    in property <bool> light;
+    in property <bool> editable: true;
+    in property <string> hint;
+    border-radius: 6px; border-width: 1px; border-color: field.has-focus ? (root.light ? #666666 : #888888) : (root.light ? #c8c8c8 : #484848);
+    background: root.light ? #ffffff : #191919;
+    Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.hint; visible: root.value == ""; color: root.light ? #888888 : #777777; font-size: 11px; vertical-alignment: center; overflow: elide; }
+    field := TextInput { x: 8px; width: parent.width - 16px; height: parent.height; enabled: root.editable; text <=> root.value; color: root.editable ? root.light ? #222222 : #eeeeee : root.light ? #777777 : #888888; font-size: 11px; single-line: true; vertical-alignment: center; }
+}
+
 export component SettingsPanel inherits FocusScope {
     in-out property <bool> open;
     in property <[AppChoiceItem]> alternate-opener-choices;
@@ -462,20 +484,25 @@ export component SettingsPanel inherits FocusScope {
             }
 
             for engine[index] in root.web-searches: Rectangle {
-                height: 152px; border-radius: 8px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
-                VerticalLayout { padding: 8px; spacing: 6px;
-                    HorizontalLayout { height: 14px; Text { width: 68px; text: "Icon / on"; color: root.text-muted; font-size: 10px; } Text { text: "Search engine name"; color: root.text-muted; font-size: 10px; } Text { text: "Keyword / pill"; color: root.text-muted; font-size: 10px; } }
-                    HorizontalLayout { height: 28px; spacing: 6px;
-                        Rectangle { width: 28px; border-radius: 6px; background: root.field-bg-hover; Text { text: "⌕"; color: root.text-strong; horizontal-alignment: center; vertical-alignment: center; font-size: 16px; } }
-                        Rectangle { width: 28px; border-radius: 6px; background: engine.enabled ? #4d7658 : root.field-bg-hover; Text { text: engine.enabled ? "✓" : "–"; color: root.text-strong; horizontal-alignment: center; vertical-alignment: center; } TouchArea { mouse-cursor: pointer; clicked => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, !engine.enabled); } } }
-                        TextInput { text <=> engine.name; color: root.text-strong; font-size: 12px; single-line: true; }
-                        TextInput { text <=> engine.keyword; color: root.text-strong; font-size: 12px; single-line: true; }
+                height: 138px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
+                VerticalLayout { padding: 10px; spacing: 7px;
+                    HorizontalLayout { height: 38px; spacing: 10px;
+                        Rectangle { width: 38px; border-radius: 9px; background: root.field-bg-hover; Text { text: engine.keyword == "" ? "?" : engine.keyword; color: root.text-strong; horizontal-alignment: center; vertical-alignment: center; font-size: 12px; font-weight: 800; overflow: elide; } }
+                        VerticalLayout { spacing: 1px; Text { text: engine.name == "" ? "New search engine" : engine.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; } Text { text: engine.keyword == "" ? "Choose a keyword" : engine.keyword; color: root.text-muted; font-size: 10px; overflow: elide; } }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        MiniToggle { checked: engine.enabled; light: root.light; toggled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, self.checked); } }
                     }
-                    Text { height: 14px; text: "URL with %s in place of the search term"; color: root.text-muted; font-size: 10px; }
-                    TextInput { height: 28px; text <=> engine.url; color: root.text-strong; font-size: 12px; single-line: true; }
-                    HorizontalLayout { height: 28px; spacing: 6px;
-                        Rectangle { background: root.field-bg-hover; border-radius: 6px; Text { text: "Save changes"; color: root.text-main; horizontal-alignment: center; vertical-alignment: center; font-size: 11px; } TouchArea { mouse-cursor: pointer; clicked => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } } }
-                        Rectangle { width: 66px; background: root.field-bg-hover; border-radius: 6px; Text { text: "Remove"; color: root.text-main; horizontal-alignment: center; vertical-alignment: center; font-size: 11px; } TouchArea { mouse-cursor: pointer; clicked => { root.web-search-remove-requested(index); } } }
+                    HorizontalLayout { height: 28px; spacing: 7px;
+                        EngineField { value <=> engine.name; light: root.light; editable: index != 0; hint: "Search engine name"; }
+                        EngineField { width: 112px; value <=> engine.keyword; light: root.light; editable: index != 0; hint: "Keyword"; }
+                    }
+                    HorizontalLayout { height: 28px; spacing: 7px;
+                        EngineField { value <=> engine.url; light: root.light; hint: "URL with %s in place of the search term"; }
+                        Rectangle { width: 30px; border-radius: 6px; background: save-engine.pressed ? root.field-bg-pressed : save-engine.has-hover ? root.field-bg-hover : transparent; Text { text: "✓"; color: root.text-main; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; } save-engine := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } } }
+                        Rectangle { width: index == 0 ? 0px : 30px; visible: index != 0; border-radius: 6px; background: remove-engine.pressed ? #6f2020 : remove-engine.has-hover ? #4c2424 : transparent;
+                            Path { x: 7px; y: 6px; width: 16px; height: 16px; viewbox-width: 24; viewbox-height: 24; stroke: #ef7777; stroke-width: 2px; fill: transparent; commands: "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 10v6 M14 10v6"; }
+                            remove-engine := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-remove-requested(index); } }
+                        }
                     }
                 }
             }

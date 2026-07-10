@@ -12,7 +12,7 @@ use crate::{
     },
     settings::{
         SettingsConfigError, config_from_settings_fields, first_existing_folder_source,
-        parse_alias_kind,
+        parse_alias_kind, web_search_items,
     },
 };
 
@@ -405,13 +405,19 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 return;
             }
             let mut next = config_state.borrow().clone();
-            let Some(engine) = next.web_searches.get_mut(index as usize) else {
-                return;
+            let updated = config::WebSearchConfig {
+                name: name.trim().into(),
+                keyword: keyword.trim().into(),
+                url: url.trim().into(),
+                enabled,
             };
-            engine.name = name.trim().into();
-            engine.keyword = keyword.trim().into();
-            engine.url = url.trim().into();
-            engine.enabled = enabled;
+            if let Some(engine) = next.web_searches.get_mut(index as usize) {
+                *engine = updated;
+            } else if index as usize == next.web_searches.len() {
+                next.web_searches.push(updated);
+            } else {
+                return;
+            }
             save_collection_change(
                 &ui,
                 &config_state,
@@ -429,34 +435,21 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
     ui.on_settings_web_search_add_requested({
         let weak = ui.as_weak();
         let config_state = config_state.clone();
-        let projects = projects.clone();
-        let apps = apps.clone();
-        let ranking_state = ranking_state.clone();
-        let icon_cache = icon_cache.clone();
-        let socket_path = socket_path.clone();
         move || {
             let Some(ui) = weak.upgrade() else {
                 return;
             };
-            let mut next = config_state.borrow().clone();
-            next.web_searches.push(config::WebSearchConfig {
-                name: "Google".into(),
-                keyword: "search".into(),
-                url: "https://www.google.com/search?q=%s".into(),
+            let mut searches = config_state.borrow().web_searches.clone();
+            searches.push(config::WebSearchConfig {
+                name: String::new(),
+                keyword: String::new(),
+                url: String::new(),
                 enabled: true,
             });
-            save_collection_change(
-                &ui,
-                &config_state,
-                next,
-                settings_save_blocked,
-                "Search engine added. Edit its fields below.",
-                &projects.borrow(),
-                &apps.borrow(),
-                &ranking_state.borrow(),
-                &icon_cache,
-                &socket_path,
+            ui.set_settings_web_searches(
+                Rc::new(VecModel::from(web_search_items(&searches))).into(),
             );
+            ui.set_status_text("Fill in the new search engine fields, then save it.".into());
         }
     });
     ui.on_settings_web_search_remove_requested({
@@ -472,7 +465,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 return;
             };
             let mut next = config_state.borrow().clone();
-            if (index as usize) < next.web_searches.len() {
+            if index > 0 && (index as usize) < next.web_searches.len() {
                 next.web_searches.remove(index as usize);
             }
             save_collection_change(

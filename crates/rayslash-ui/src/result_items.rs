@@ -45,6 +45,7 @@ fn subtitle_tooltip(result: &search::SearchResult) -> String {
         search::SearchResultKind::NoResults { query } => {
             format!("No enabled provider matched \"{query}\"")
         }
+        search::SearchResultKind::TimeLookup { .. } => result.subtitle.clone(),
         _ => String::new(),
     }
 }

@@ -14,10 +14,9 @@ use matcher::{boosted_score, fuzzy_matcher, fuzzy_pattern, search_result_order};
 use nucleo_matcher::Utf32Str;
 use providers::{
     alias_result, app_result, calculator_result, currency_conversion_result, currency_error_result,
-    default_web_search_result, disabled_providers_result, no_results,
-    placeholder_results_for_providers, project_result, time_lookup_error_result,
-    time_lookup_result, unit_conversion_result, utility_action_error_result, utility_action_result,
-    web_search_result,
+    disabled_providers_result, no_results, placeholder_results_for_providers, project_result,
+    time_lookup_error_result, time_lookup_result, unit_conversion_result,
+    utility_action_error_result, utility_action_result, web_search_result,
 };
 pub use providers::{display_path, placeholder_results, project_results};
 #[cfg(test)]
@@ -122,12 +121,41 @@ pub fn mixed_results_with_ranking_and_web_searches(
     if utility_results.iter().any(is_web_search_result) {
         return utility_results;
     }
+    if providers.time_lookup && time_lookup::parse_query(query).is_some() {
+        return utility_results;
+    }
 
     let pattern = fuzzy_pattern(query);
     let mut matcher = fuzzy_matcher();
     let mut char_buf = Vec::new();
 
     let mut matches = Vec::new();
+
+    if utility_actions::parse_query(query).is_none() {
+        let fuzzy_actions = utility_results
+            .iter()
+            .filter_map(|result| match &result.kind {
+                SearchResultKind::UtilityAction {
+                    action: utility_actions::UtilityAction::System(action),
+                } => Some((result.clone(), action.expression.clone())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        utility_results.retain(|result| {
+            !matches!(
+                result.kind,
+                SearchResultKind::UtilityAction {
+                    action: utility_actions::UtilityAction::System(_)
+                }
+            )
+        });
+        for (result, searchable_name) in fuzzy_actions {
+            let haystack = Utf32Str::new(&searchable_name, &mut char_buf);
+            let score = pattern.score(haystack, &mut matcher).unwrap_or(1);
+            let boosted_score = boosted_score(&result, score, query, ranking);
+            matches.push((result, score, boosted_score));
+        }
+    }
 
     for project in enabled_projects {
         let haystack = Utf32Str::new(&project.name, &mut char_buf);
@@ -204,7 +232,8 @@ fn utility_results(
     let mut results = Vec::new();
     let mut suppress_calculator = false;
 
-    if let Some(action) = utility_actions::parse_query(query) {
+    let parsed_utility_action = utility_actions::parse_query(query);
+    if let Some(action) = parsed_utility_action {
         suppress_calculator = true;
         match action {
             Ok(action) => results.push(utility_action_result(action)),
@@ -213,6 +242,8 @@ fn utility_results(
                 error.message,
             )),
         }
+    } else if let Some(action) = utility_actions::fuzzy_system_action(query) {
+        results.push(utility_action_result(action));
     }
 
     if providers.unit_conversion
@@ -241,7 +272,7 @@ fn utility_results(
         suppress_calculator = true;
         if providers.time_lookup {
             match time_lookup::lookup_request(&request) {
-                Ok(lookup) => results.push(time_lookup_result(lookup)),
+                Ok(lookups) => results.extend(lookups.into_iter().map(time_lookup_result)),
                 Err(error) => results.push(time_lookup_error_result(
                     &request.expression,
                     error.to_string(),
@@ -256,14 +287,7 @@ fn utility_results(
             .into_iter()
             .map(web_search_result)
             .collect::<Vec<_>>();
-        let has_custom_search = !custom_searches.is_empty();
         results.extend(custom_searches);
-
-        if !has_custom_search && let Some(search_terms) = web_search::default_search_terms(query) {
-            results.push(default_web_search_result(search_terms));
-        } else if !has_custom_search && web_search::is_default_search_trigger(query) {
-            results.push(default_web_search_result(""));
-        }
 
         if results.len() > web_result_count_before {
             suppress_calculator = true;
