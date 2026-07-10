@@ -1,8 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    rc::Rc,
+};
 
 use rayslash_core::{config, search};
 
-use crate::AppWindow;
+use crate::{AliasItem, AppWindow, WebSearchItem};
+use slint::VecModel;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsConfigError {
@@ -26,6 +30,10 @@ pub(crate) fn set_settings_properties(
     ui.set_settings_folder_sources(folder_sources_text(&config.folder_sources).into());
     ui.set_settings_aliases_text(aliases_text(&config.aliases).into());
     ui.set_settings_web_searches_text(web_searches_text(&config.web_searches).into());
+    ui.set_settings_aliases(Rc::new(VecModel::from(alias_items(&config.aliases))).into());
+    ui.set_settings_web_searches(
+        Rc::new(VecModel::from(web_search_items(&config.web_searches))).into(),
+    );
     ui.set_settings_alternate_folder_opener_command(
         config
             .actions
@@ -54,6 +62,30 @@ pub(crate) fn set_settings_properties(
     ui.set_settings_app_count(app_count.to_string().into());
     ui.set_settings_icon_count(format!("{icon_count}/{app_count}").into());
     ui.set_settings_ranking_entry_count(ranking_entry_count.to_string().into());
+}
+
+fn alias_items(aliases: &[config::AliasConfig]) -> Vec<AliasItem> {
+    aliases
+        .iter()
+        .map(|alias| AliasItem {
+            name: alias.name.clone().into(),
+            keyword: alias.query.clone().into(),
+            kind: alias.kind.map(alias_kind_label).unwrap_or("").into(),
+            target: alias.target.clone().into(),
+        })
+        .collect()
+}
+
+fn web_search_items(searches: &[config::WebSearchConfig]) -> Vec<WebSearchItem> {
+    searches
+        .iter()
+        .map(|search| WebSearchItem {
+            name: search.name.clone().into(),
+            keyword: search.keyword.clone().into(),
+            url: search.url.clone().into(),
+            enabled: search.enabled,
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -258,7 +290,7 @@ fn appearance_density_label(density: config::AppearanceDensity) -> &'static str 
     }
 }
 
-fn parse_alias_kind(text: &str) -> Option<config::AliasKind> {
+pub(crate) fn parse_alias_kind(text: &str) -> Option<config::AliasKind> {
     match text.trim().to_ascii_lowercase().as_str() {
         "" => None,
         "url" => Some(config::AliasKind::Url),

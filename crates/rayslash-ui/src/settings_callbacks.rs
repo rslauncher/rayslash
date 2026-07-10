@@ -10,7 +10,10 @@ use crate::{
         DesktopAppRefreshContext, ResultRefreshContext, ResultSelection, effective_search_query,
         refresh_desktop_apps_if_stale, refresh_result_view, refresh_settings_dependent_ui,
     },
-    settings::{SettingsConfigError, config_from_settings_fields, first_existing_folder_source},
+    settings::{
+        SettingsConfigError, config_from_settings_fields, first_existing_folder_source,
+        parse_alias_kind,
+    },
 };
 
 pub(crate) struct SettingsCallbackContext {
@@ -282,6 +285,211 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         }
     });
 
+    ui.on_settings_alias_save_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let ranking_state = ranking_state.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
+        move |index, name, keyword, kind, target| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let mut next = config_state.borrow().clone();
+            let Some(alias) = next.aliases.get_mut(index as usize) else {
+                return;
+            };
+            if name.trim().is_empty() || keyword.trim().is_empty() || target.trim().is_empty() {
+                ui.set_status_text("Alias name, keyword, and target are required.".into());
+                return;
+            }
+            alias.name = name.trim().to_owned();
+            alias.query = keyword.trim().to_owned();
+            alias.target = target.trim().to_owned();
+            alias.kind = parse_alias_kind(kind.as_str());
+            save_collection_change(
+                &ui,
+                &config_state,
+                next,
+                settings_save_blocked,
+                "Alias saved.",
+                &projects.borrow(),
+                &apps.borrow(),
+                &ranking_state.borrow(),
+                &icon_cache,
+                &socket_path,
+            );
+        }
+    });
+    ui.on_settings_alias_add_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let ranking_state = ranking_state.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
+        move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let mut next = config_state.borrow().clone();
+            next.aliases.push(config::AliasConfig {
+                name: "New alias".into(),
+                query: "alias".into(),
+                target: "https://example.com".into(),
+                kind: Some(config::AliasKind::Url),
+            });
+            save_collection_change(
+                &ui,
+                &config_state,
+                next,
+                settings_save_blocked,
+                "Alias added.",
+                &projects.borrow(),
+                &apps.borrow(),
+                &ranking_state.borrow(),
+                &icon_cache,
+                &socket_path,
+            );
+        }
+    });
+    ui.on_settings_alias_remove_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let ranking_state = ranking_state.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
+        move |index| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let mut next = config_state.borrow().clone();
+            if (index as usize) < next.aliases.len() {
+                next.aliases.remove(index as usize);
+            }
+            save_collection_change(
+                &ui,
+                &config_state,
+                next,
+                settings_save_blocked,
+                "Alias removed.",
+                &projects.borrow(),
+                &apps.borrow(),
+                &ranking_state.borrow(),
+                &icon_cache,
+                &socket_path,
+            );
+        }
+    });
+    ui.on_settings_web_search_save_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let ranking_state = ranking_state.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
+        move |index, name, keyword, url, enabled| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            if name.trim().is_empty() || keyword.trim().is_empty() || !url.contains("%s") {
+                ui.set_status_text(
+                    "Search name and keyword are required; URL must contain %s.".into(),
+                );
+                return;
+            }
+            let mut next = config_state.borrow().clone();
+            let Some(engine) = next.web_searches.get_mut(index as usize) else {
+                return;
+            };
+            engine.name = name.trim().into();
+            engine.keyword = keyword.trim().into();
+            engine.url = url.trim().into();
+            engine.enabled = enabled;
+            save_collection_change(
+                &ui,
+                &config_state,
+                next,
+                settings_save_blocked,
+                "Search engine saved.",
+                &projects.borrow(),
+                &apps.borrow(),
+                &ranking_state.borrow(),
+                &icon_cache,
+                &socket_path,
+            );
+        }
+    });
+    ui.on_settings_web_search_add_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let ranking_state = ranking_state.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
+        move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let mut next = config_state.borrow().clone();
+            next.web_searches.push(config::WebSearchConfig {
+                name: "Google".into(),
+                keyword: "search".into(),
+                url: "https://www.google.com/search?q=%s".into(),
+                enabled: true,
+            });
+            save_collection_change(
+                &ui,
+                &config_state,
+                next,
+                settings_save_blocked,
+                "Search engine added. Edit its fields below.",
+                &projects.borrow(),
+                &apps.borrow(),
+                &ranking_state.borrow(),
+                &icon_cache,
+                &socket_path,
+            );
+        }
+    });
+    ui.on_settings_web_search_remove_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let ranking_state = ranking_state.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
+        move |index| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let mut next = config_state.borrow().clone();
+            if (index as usize) < next.web_searches.len() {
+                next.web_searches.remove(index as usize);
+            }
+            save_collection_change(
+                &ui,
+                &config_state,
+                next,
+                settings_save_blocked,
+                "Search engine removed.",
+                &projects.borrow(),
+                &apps.borrow(),
+                &ranking_state.borrow(),
+                &icon_cache,
+                &socket_path,
+            );
+        }
+    });
+
     ui.on_settings_browse_folder_requested({
         let weak = ui.as_weak();
         move |current_sources| {
@@ -376,6 +584,40 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             }
         }
     });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_collection_change(
+    ui: &AppWindow,
+    state: &Rc<RefCell<config::Config>>,
+    config_to_save: config::Config,
+    blocked: bool,
+    message: &str,
+    projects: &[projects::Project],
+    apps: &[apps::DesktopApp],
+    ranking: &ranking::RankingState,
+    icon_cache: &Rc<RefCell<IconImageCache>>,
+    socket_path: &std::path::Path,
+) {
+    if blocked {
+        ui.set_status_text("Could not save settings: fix config.toml and restart rayslash.".into());
+        return;
+    }
+    if let Err(error) = config::save_config_with_backup(&config_to_save) {
+        ui.set_status_text(format!("Could not save settings: {error}").into());
+        return;
+    }
+    *state.borrow_mut() = config_to_save.normalized();
+    refresh_settings_dependent_ui(
+        ui,
+        &state.borrow(),
+        projects,
+        apps,
+        ranking,
+        icon_cache,
+        socket_path,
+    );
+    set_ephemeral_status(ui, message);
 }
 
 fn set_ephemeral_status(ui: &AppWindow, message: &str) {

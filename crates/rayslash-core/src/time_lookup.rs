@@ -10,6 +10,7 @@ use serde::Deserialize;
 
 const GEOCODING_API_BASE: &str = "https://geocoding-api.open-meteo.com";
 const FORECAST_API_BASE: &str = "https://api.open-meteo.com";
+const WORLD_BANK_API_BASE: &str = "https://api.worldbank.org";
 const REQUEST_TIMEOUT: Duration = Duration::from_millis(1200);
 const CACHE_TTL: Duration = Duration::from_secs(60 * 60);
 
@@ -62,12 +63,21 @@ struct GeocodingResult {
     country: Option<String>,
     admin1: Option<String>,
     timezone: Option<String>,
+    feature_code: Option<String>,
+    country_code: Option<String>,
+    population: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
 struct ForecastTimeZoneResponse {
     timezone: Option<String>,
     utc_offset_seconds: i32,
+}
+
+#[derive(Debug, Deserialize)]
+struct WorldBankCountry {
+    #[serde(rename = "capitalCity")]
+    capital_city: String,
 }
 
 static PLACE_CACHE: OnceLock<Mutex<BTreeMap<String, CachedPlace>>> = OnceLock::new();
@@ -162,7 +172,23 @@ fn place_timezone_for(location: &str) -> Result<PlaceTimeZone, TimeLookupError> 
 }
 
 fn fetch_place_timezone(location: &str) -> Result<PlaceTimeZone, TimeLookupError> {
-    let location = fetch_location(location)?;
+    let requested = canonical_location_query(location);
+    let mut location = fetch_location(&requested)?;
+    if location.feature_code.as_deref() == Some("PCLI")
+        && let Some(capital) = location
+            .country_code
+            .as_deref()
+            .and_then(|code| fetch_country_capital(code).ok())
+            .or_else(|| {
+                capital_for_country(
+                    location.country_code.as_deref(),
+                    location.country.as_deref(),
+                )
+                .map(str::to_owned)
+            })
+    {
+        location = fetch_location_in_country(&capital, location.country_code.as_deref())?;
+    }
     let timezone = fetch_timezone(location.latitude, location.longitude)?;
     let display_location = display_location(&location);
 
@@ -174,6 +200,30 @@ fn fetch_place_timezone(location: &str) -> Result<PlaceTimeZone, TimeLookupError
             .unwrap_or_else(|| "Local time".to_owned()),
         offset_seconds: timezone.utc_offset_seconds,
     })
+}
+
+fn fetch_country_capital(country_code: &str) -> Result<String, TimeLookupError> {
+    let url = format!(
+        "{WORLD_BANK_API_BASE}/v2/country/{}?format=json",
+        url_encode(country_code)
+    );
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(REQUEST_TIMEOUT))
+        .build()
+        .into();
+    let mut response = agent
+        .get(&url)
+        .call()
+        .map_err(|source| TimeLookupError::Request(source.to_string()))?;
+    let (_, countries): (serde::de::IgnoredAny, Vec<WorldBankCountry>) = response
+        .body_mut()
+        .read_json()
+        .map_err(|source| TimeLookupError::Response(source.to_string()))?;
+    countries
+        .into_iter()
+        .map(|country| country.capital_city)
+        .find(|capital| !capital.trim().is_empty())
+        .ok_or_else(|| TimeLookupError::Response("Country capital was unavailable.".to_owned()))
 }
 
 fn fetch_location(location: &str) -> Result<GeocodingResult, TimeLookupError> {
@@ -196,8 +246,112 @@ fn fetch_location(location: &str) -> Result<GeocodingResult, TimeLookupError> {
 
     response
         .results
-        .and_then(|mut results| results.drain(..).next())
+        .and_then(|results| best_location_result(results, location, None))
         .ok_or_else(|| TimeLookupError::Response(format!("No place found for {location}.")))
+}
+
+fn fetch_location_in_country(
+    location: &str,
+    country_code: Option<&str>,
+) -> Result<GeocodingResult, TimeLookupError> {
+    let url = format!(
+        "{GEOCODING_API_BASE}/v1/search?name={}&count=10&language=en&format=json",
+        url_encode(location)
+    );
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(REQUEST_TIMEOUT))
+        .build()
+        .into();
+    let mut response = agent
+        .get(&url)
+        .call()
+        .map_err(|source| TimeLookupError::Request(source.to_string()))?;
+    let response: GeocodingResponse = response
+        .body_mut()
+        .read_json()
+        .map_err(|source| TimeLookupError::Response(source.to_string()))?;
+
+    response
+        .results
+        .and_then(|results| best_location_result(results, location, country_code))
+        .ok_or_else(|| TimeLookupError::Response(format!("No place found for {location}.")))
+}
+
+fn best_location_result(
+    mut results: Vec<GeocodingResult>,
+    requested: &str,
+    country_code: Option<&str>,
+) -> Option<GeocodingResult> {
+    let requested = comparable_place_name(requested);
+    results.sort_by_key(|result| {
+        let country_mismatch = country_code.is_some_and(|code| {
+            !result
+                .country_code
+                .as_deref()
+                .is_some_and(|candidate| candidate.eq_ignore_ascii_case(code))
+        });
+        let name_mismatch = comparable_place_name(&result.name) != requested;
+        let not_capital = result.feature_code.as_deref() != Some("PPLC");
+        (
+            country_mismatch,
+            name_mismatch,
+            not_capital,
+            std::cmp::Reverse(result.population.unwrap_or(0)),
+        )
+    });
+    results.into_iter().next()
+}
+
+fn comparable_place_name(value: &str) -> String {
+    value
+        .chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn canonical_location_query(location: &str) -> String {
+    match comparable_place_name(location).as_str() {
+        "america" | "usa" | "us" | "unitedstatesofamerica" => "United States".to_owned(),
+        "washingtondc" | "washingtondistrict ofcolumbia" => "Washington D.C.".to_owned(),
+        "uk" | "greatbritain" => "United Kingdom".to_owned(),
+        "uae" => "United Arab Emirates".to_owned(),
+        _ => normalize_location_for_display(location),
+    }
+}
+
+fn capital_for_country(code: Option<&str>, _country: Option<&str>) -> Option<&'static str> {
+    let code = code.unwrap_or_default().to_ascii_uppercase();
+    let capital = match code.as_str() {
+        "AR" => "Buenos Aires",
+        "AU" => "Canberra",
+        "BR" => "Brasília",
+        "CA" => "Ottawa",
+        "CL" => "Santiago",
+        "CN" => "Beijing",
+        "DE" => "Berlin",
+        "EG" => "Cairo",
+        "ES" => "Madrid",
+        "FR" => "Paris",
+        "GB" => "London",
+        "ID" => "Jakarta",
+        "IN" => "New Delhi",
+        "IT" => "Rome",
+        "JP" => "Tokyo",
+        "KR" => "Seoul",
+        "MX" => "Mexico City",
+        "NG" => "Abuja",
+        "NZ" => "Wellington",
+        "PK" => "Islamabad",
+        "PT" => "Lisbon",
+        "RU" => "Moscow",
+        "TR" => "Ankara",
+        "UA" => "Kyiv",
+        "US" => "Washington D.C.",
+        "ZA" => "Pretoria",
+        _ => return None,
+    };
+    Some(capital)
 }
 
 fn fetch_timezone(
@@ -288,6 +442,25 @@ mod tests {
         assert_eq!(request.expression, "time in argentina");
         assert!(parse_query("time argentina").is_none());
         assert!(parse_query("time in a").is_none());
+    }
+
+    #[test]
+    fn canonicalizes_country_and_punctuation_free_capital_queries() {
+        assert_eq!(canonical_location_query("america"), "United States");
+        assert_eq!(canonical_location_query("washington dc"), "Washington D.C.");
+        assert_eq!(comparable_place_name("Washington D.C."), "washingtondc");
+    }
+
+    #[test]
+    fn recognized_countries_resolve_to_capital_names() {
+        assert_eq!(
+            capital_for_country(Some("AR"), Some("Argentina")),
+            Some("Buenos Aires")
+        );
+        assert_eq!(
+            capital_for_country(Some("US"), Some("United States")),
+            Some("Washington D.C.")
+        );
     }
 
     #[test]

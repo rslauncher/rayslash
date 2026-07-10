@@ -169,6 +169,14 @@ pub fn default_web_search_command_for_app(
         let mut command = app.command.clone();
         if is_firefox_like_browser(desktop_id, &command.program) {
             command.args.push(OsString::from("--search"));
+            command.args.push(OsString::from(query));
+            return Ok(command);
+        }
+        if is_chromium_like_browser(desktop_id, &command.program) {
+            return Ok(open_target_command(&format!(
+                "https://www.google.com/search?q={}",
+                url_encode(query)
+            )));
         }
         command.args.push(OsString::from(query));
         return Ok(command);
@@ -387,6 +395,36 @@ fn is_firefox_like_browser(desktop_id: &str, program: &std::ffi::OsStr) -> bool 
     ["firefox", "librewolf", "waterfox", "icecat", "zen"]
         .iter()
         .any(|name| id.contains(name) || program.contains(name))
+}
+
+fn is_chromium_like_browser(desktop_id: &str, program: &std::ffi::OsStr) -> bool {
+    let id = desktop_id.to_ascii_lowercase();
+    let program = program.to_string_lossy().to_ascii_lowercase();
+    [
+        "chromium",
+        "chrome",
+        "brave",
+        "vivaldi",
+        "opera",
+        "microsoft-edge",
+        "thorium",
+    ]
+    .iter()
+    .any(|name| id.contains(name) || program.contains(name))
+}
+
+fn url_encode(text: &str) -> String {
+    let mut encoded = String::new();
+    for byte in text.as_bytes() {
+        match *byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(*byte as char);
+            }
+            b' ' => encoded.push('+'),
+            byte => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
 }
 
 pub fn parse_action_command(command: &str) -> Option<CommandSpec> {

@@ -42,6 +42,26 @@ fn default_web_search_command_uses_firefox_search_mode_when_supported() {
 }
 
 #[test]
+fn default_web_search_command_uses_url_for_chromium_browsers() {
+    let mut browser = fixtures::app("google-chrome.desktop", "Google Chrome");
+    browser.command.program = OsString::from("google-chrome-stable");
+    browser.command.args = vec![OsString::from("--new-window")];
+
+    let command = actions::default_web_search_command_for_app(
+        "rust slint",
+        "google-chrome.desktop",
+        Some(&browser),
+    )
+    .expect("browser search command");
+
+    assert_eq!(command.program, OsString::from("xdg-open"));
+    assert_eq!(
+        command.args,
+        vec![OsString::from("https://www.google.com/search?q=rust+slint")]
+    );
+}
+
+#[test]
 fn parse_action_command_preserves_alias_command_arguments() {
     let command =
         actions::parse_action_command(r#"notify-send "Hello world""#).expect("command spec");

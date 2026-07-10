@@ -1,5 +1,5 @@
 import { SettingToggle } from "./components.slint";
-import { AppChoiceItem } from "./models.slint";
+import { AliasItem, AppChoiceItem, WebSearchItem } from "./models.slint";
 
 component SegmentButton inherits Rectangle {
     in property <string> label;
@@ -40,6 +40,8 @@ export component SettingsPanel inherits FocusScope {
     in-out property <string> folder-sources;
     in-out property <string> aliases-text;
     in-out property <string> web-searches-text;
+    in property <[AliasItem]> aliases;
+    in property <[WebSearchItem]> web-searches;
     in-out property <string> alternate-folder-opener-command;
     in-out property <bool> provider-apps;
     in-out property <bool> provider-folders;
@@ -68,6 +70,12 @@ export component SettingsPanel inherits FocusScope {
     callback browse-folder-requested(string);
     callback choose-alternate-opener-requested(string);
     callback clear-ranking-requested();
+    callback alias-save-requested(int, string, string, string, string);
+    callback alias-add-requested();
+    callback alias-remove-requested(int);
+    callback web-search-save-requested(int, string, string, string, bool);
+    callback web-search-add-requested();
+    callback web-search-remove-requested(int);
     callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     private property <color> text-strong: root.light ? #1f1f1f : #f2f2f2;
@@ -104,8 +112,8 @@ export component SettingsPanel inherits FocusScope {
             root.density,
             settings-max-results-input.text,
             root.show-tooltips,
-            settings-aliases-input.text,
-            settings-web-searches-input.text);
+            root.aliases-text,
+            root.web-searches-text);
     }
 
     min-height: 0px;
@@ -133,7 +141,7 @@ export component SettingsPanel inherits FocusScope {
         width: 100%;
         height: 100%;
         viewport-width: self.width;
-        viewport-height: root.open ? root.alternate-picker-open ? 1371px : 1221px : 0px;
+        viewport-height: root.open ? (root.alternate-picker-open ? 1371px : 1221px) + (root.aliases.length + root.web-searches.length) * 160px : 0px;
         interactive: root.open;
 
         VerticalLayout {
@@ -416,45 +424,29 @@ export component SettingsPanel inherits FocusScope {
                 font-weight: 700;
             }
 
-            Rectangle {
-                height: 82px;
-                border-radius: 8px;
-                background: root.field-bg;
-                border-width: 1px;
-                border-color: settings-aliases-input.has-focus ? root.field-border-focus : root.field-border;
-
-                settings-aliases-input := TextInput {
-                    x: 10px;
-                    y: 8px;
-                    width: parent.width - 20px;
-                    height: parent.height - 16px;
-                    text: root.aliases-text;
-                    color: root.text-strong;
-                    font-size: 12px;
-                    single-line: false;
-                    vertical-alignment: top;
-
-                    key-pressed(event) => {
-                        if (event.text == Key.Escape) {
-                            root.cancel-requested();
-                            accept
-                        } else {
-                            reject
-                        }
-                    }
-
-                    changed has-focus => {
-                        if (!self.has-focus) {
-                            root.save-settings();
-                        }
-                    }
-                }
+            Rectangle { height: 34px; border-radius: 8px; background: alias-add.pressed ? root.field-bg-pressed : alias-add.has-hover ? root.field-bg-hover : root.field-bg;
+                Text { text: "+  Add alias"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                alias-add := TouchArea { mouse-cursor: pointer; clicked => { root.alias-add-requested(); } }
             }
 
-            Text {
-                text: "name | keyword | kind | target";
-                color: root.text-muted;
-                font-size: 11px;
+            for alias[index] in root.aliases: Rectangle {
+                height: 152px; border-radius: 8px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
+                VerticalLayout { padding: 8px; spacing: 6px;
+                    HorizontalLayout { height: 14px; Text { text: "Name"; color: root.text-muted; font-size: 10px; } Text { text: "Keyword"; color: root.text-muted; font-size: 10px; } }
+                    HorizontalLayout { height: 28px; spacing: 6px;
+                        TextInput { text <=> alias.name; color: root.text-strong; font-size: 12px; single-line: true; }
+                        TextInput { text <=> alias.keyword; color: root.text-strong; font-size: 12px; single-line: true; }
+                    }
+                    HorizontalLayout { height: 14px; Text { text: "Kind (url, file, folder, or command)"; color: root.text-muted; font-size: 10px; } Text { text: "Target"; color: root.text-muted; font-size: 10px; } }
+                    HorizontalLayout { height: 28px; spacing: 6px;
+                        TextInput { text <=> alias.kind; color: root.text-strong; font-size: 12px; single-line: true; }
+                        TextInput { text <=> alias.target; color: root.text-strong; font-size: 12px; single-line: true; }
+                    }
+                    HorizontalLayout { height: 28px; spacing: 6px;
+                        Rectangle { background: root.field-bg-hover; border-radius: 6px; Text { text: "Save"; color: root.text-main; horizontal-alignment: center; vertical-alignment: center; font-size: 11px; } TouchArea { mouse-cursor: pointer; clicked => { root.alias-save-requested(index, alias.name, alias.keyword, alias.kind, alias.target); } } }
+                        Rectangle { width: 66px; background: root.field-bg-hover; border-radius: 6px; Text { text: "Remove"; color: root.text-main; horizontal-alignment: center; vertical-alignment: center; font-size: 11px; } TouchArea { mouse-cursor: pointer; clicked => { root.alias-remove-requested(index); } } }
+                    }
+                }
             }
 
             Text {
@@ -464,45 +456,28 @@ export component SettingsPanel inherits FocusScope {
                 font-weight: 700;
             }
 
-            Rectangle {
-                height: 82px;
-                border-radius: 8px;
-                background: root.field-bg;
-                border-width: 1px;
-                border-color: settings-web-searches-input.has-focus ? root.field-border-focus : root.field-border;
-
-                settings-web-searches-input := TextInput {
-                    x: 10px;
-                    y: 8px;
-                    width: parent.width - 20px;
-                    height: parent.height - 16px;
-                    text: root.web-searches-text;
-                    color: root.text-strong;
-                    font-size: 12px;
-                    single-line: false;
-                    vertical-alignment: top;
-
-                    key-pressed(event) => {
-                        if (event.text == Key.Escape) {
-                            root.cancel-requested();
-                            accept
-                        } else {
-                            reject
-                        }
-                    }
-
-                    changed has-focus => {
-                        if (!self.has-focus) {
-                            root.save-settings();
-                        }
-                    }
-                }
+            Rectangle { height: 34px; border-radius: 8px; background: search-add.pressed ? root.field-bg-pressed : search-add.has-hover ? root.field-bg-hover : root.field-bg;
+                Text { text: "+  Add search engine"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                search-add := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-add-requested(); } }
             }
 
-            Text {
-                text: "on/off | name | keyword | url with %s";
-                color: root.text-muted;
-                font-size: 11px;
+            for engine[index] in root.web-searches: Rectangle {
+                height: 152px; border-radius: 8px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
+                VerticalLayout { padding: 8px; spacing: 6px;
+                    HorizontalLayout { height: 14px; Text { width: 68px; text: "Icon / on"; color: root.text-muted; font-size: 10px; } Text { text: "Search engine name"; color: root.text-muted; font-size: 10px; } Text { text: "Keyword / pill"; color: root.text-muted; font-size: 10px; } }
+                    HorizontalLayout { height: 28px; spacing: 6px;
+                        Rectangle { width: 28px; border-radius: 6px; background: root.field-bg-hover; Text { text: "⌕"; color: root.text-strong; horizontal-alignment: center; vertical-alignment: center; font-size: 16px; } }
+                        Rectangle { width: 28px; border-radius: 6px; background: engine.enabled ? #4d7658 : root.field-bg-hover; Text { text: engine.enabled ? "✓" : "–"; color: root.text-strong; horizontal-alignment: center; vertical-alignment: center; } TouchArea { mouse-cursor: pointer; clicked => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, !engine.enabled); } } }
+                        TextInput { text <=> engine.name; color: root.text-strong; font-size: 12px; single-line: true; }
+                        TextInput { text <=> engine.keyword; color: root.text-strong; font-size: 12px; single-line: true; }
+                    }
+                    Text { height: 14px; text: "URL with %s in place of the search term"; color: root.text-muted; font-size: 10px; }
+                    TextInput { height: 28px; text <=> engine.url; color: root.text-strong; font-size: 12px; single-line: true; }
+                    HorizontalLayout { height: 28px; spacing: 6px;
+                        Rectangle { background: root.field-bg-hover; border-radius: 6px; Text { text: "Save changes"; color: root.text-main; horizontal-alignment: center; vertical-alignment: center; font-size: 11px; } TouchArea { mouse-cursor: pointer; clicked => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } } }
+                        Rectangle { width: 66px; background: root.field-bg-hover; border-radius: 6px; Text { text: "Remove"; color: root.text-main; horizontal-alignment: center; vertical-alignment: center; font-size: 11px; } TouchArea { mouse-cursor: pointer; clicked => { root.web-search-remove-requested(index); } } }
+                    }
+                }
             }
 
             Text {

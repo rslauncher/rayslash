@@ -14,6 +14,12 @@ use std::{
     path::PathBuf,
     process::ExitCode,
     rc::Rc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
+    thread,
     time::{Duration, Instant},
 };
 
@@ -22,13 +28,13 @@ use opener_visual::to_app_choice_items;
 use rayslash_core::{apps, config, projects, web_search};
 use result_items::{IconImageCache, to_result_items};
 use runtime_state::{
-    ResultRefreshContext, ResultSelection, effective_search_query, load_runtime_app_state,
-    load_runtime_ranking_state, profile_enabled, profile_stage, refresh_result_view,
-    refresh_settings_dependent_ui, search_result_set, sync_app_install_state,
+    ResultRefreshContext, ResultSelection, SearchResultSet, effective_search_query,
+    load_runtime_app_state, load_runtime_ranking_state, profile_enabled, profile_stage,
+    refresh_result_view, refresh_settings_dependent_ui, search_result_set, sync_app_install_state,
 };
 use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
-    ComponentHandle, VecModel,
+    ComponentHandle, Timer, TimerMode, VecModel,
     winit_030::{EventResult, WinitWindowAccessor, winit},
 };
 use window_state::{
@@ -39,6 +45,7 @@ slint::include_modules!();
 
 pub(crate) const DEFAULT_STATUS_TEXT: &str = "";
 const DESKTOP_APP_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+const REMOTE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(180);
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -212,6 +219,44 @@ fn run_gui(
     )));
     profile_stage(profile, "initial result item build", stage_started);
     profile_stage(profile, "startup before event loop", startup_started);
+
+    let remote_search_generation = Arc::new(AtomicU64::new(0));
+    let (remote_result_tx, remote_result_rx) = mpsc::channel::<(u64, String, SearchResultSet)>();
+    let remote_result_timer = Timer::default();
+    remote_result_timer.start(TimerMode::Repeated, Duration::from_millis(24), {
+        let weak = ui.as_weak();
+        let current_results = current_results.clone();
+        let results_model = results_model.clone();
+        let icon_cache = icon_cache.clone();
+        let remote_search_generation = remote_search_generation.clone();
+        move || {
+            let mut newest = None;
+            while let Ok(result) = remote_result_rx.try_recv() {
+                newest = Some(result);
+            }
+            let Some((generation, query, result_set)) = newest else {
+                return;
+            };
+            if remote_search_generation.load(Ordering::Relaxed) != generation {
+                return;
+            }
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let results = result_set.results;
+            let count = results.len();
+            results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
+            *current_results.borrow_mut() = results;
+            ui.set_result_count(count as i32);
+            ui.set_result_tip_text(result_set.result_tip.into());
+            ui.set_selected_index(runtime_state::selected_index_for_query(
+                &query,
+                count as i32,
+            ));
+            ui.invoke_reset_result_scroll();
+            ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+        }
+    });
 
     ui.set_result_count(current_results.borrow().len() as i32);
     ui.set_result_tip_text(initial_result_tip.into());
@@ -418,12 +463,56 @@ fn run_gui(
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
+        let remote_search_generation = remote_search_generation.clone();
+        let remote_result_tx = remote_result_tx.clone();
         move |query| {
             let stage_started = Instant::now();
 
             if let Some(ui) = weak.upgrade() {
                 let effective_query =
                     effective_search_query(query.as_str(), ui.get_active_search_keyword().as_str());
+                let needs_remote_lookup = config_state.borrow().providers.time_lookup
+                    && rayslash_core::time_lookup::parse_query(&effective_query).is_some()
+                    || config_state.borrow().providers.currency_conversion
+                        && rayslash_core::currency::parse_query(&effective_query)
+                            .is_some_and(|request| request.base != request.quote);
+
+                if needs_remote_lookup {
+                    let generation = remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
+                    let expected_generation = remote_search_generation.clone();
+                    let config = config_state.borrow().clone();
+                    let ranking = ranking_state.borrow().clone();
+                    let app_install = app_install_state.borrow().clone();
+                    let projects_snapshot = projects.borrow().clone();
+                    let apps_snapshot = apps.borrow().clone();
+                    let effective_query = effective_query.clone();
+                    let remote_result_tx = remote_result_tx.clone();
+
+                    ui.set_status_text("Looking up…".into());
+                    thread::spawn(move || {
+                        thread::sleep(REMOTE_SEARCH_DEBOUNCE);
+                        if expected_generation.load(Ordering::Relaxed) != generation {
+                            return;
+                        }
+
+                        let result_set = search_result_set(
+                            &config,
+                            &ranking,
+                            &app_install,
+                            &projects_snapshot,
+                            &apps_snapshot,
+                            &effective_query,
+                        );
+                        if expected_generation.load(Ordering::Relaxed) != generation {
+                            return;
+                        }
+
+                        let _ = remote_result_tx.send((generation, effective_query, result_set));
+                    });
+                    return;
+                }
+
+                remote_search_generation.fetch_add(1, Ordering::Relaxed);
                 let count = refresh_result_view(
                     &ui,
                     ResultRefreshContext {

@@ -1,9 +1,9 @@
 import { SearchBox, SettingsGearIcon } from "./components.slint";
-import { AppChoiceItem, ResultItem } from "./models.slint";
+import { AliasItem, AppChoiceItem, ResultItem, WebSearchItem } from "./models.slint";
 import { ResultList } from "./result_list.slint";
 import { SettingsPanel } from "./settings_panel.slint";
 
-export { AppChoiceItem, ResultItem }from "./models.slint";
+export { AliasItem, AppChoiceItem, ResultItem, WebSearchItem }from "./models.slint";
 
 component HeaderBar inherits HorizontalLayout {
     in property <bool> settings-open;
@@ -149,6 +149,8 @@ export component AppWindow inherits Window {
     in-out property <string> settings-folder-sources: "";
     in-out property <string> settings-aliases-text: "";
     in-out property <string> settings-web-searches-text: "";
+    in property <[AliasItem]> settings-aliases;
+    in property <[WebSearchItem]> settings-web-searches;
     in-out property <string> settings-alternate-folder-opener-command: "xdg-terminal-exec";
     in-out property <bool> settings-provider-apps: true;
     in-out property <bool> settings-provider-folders: true;
@@ -193,6 +195,12 @@ export component AppWindow inherits Window {
     callback settings-browse-folder-requested(string);
     callback settings-choose-alternate-opener-requested(string);
     callback settings-clear-ranking-requested();
+    callback settings-alias-save-requested(int, string, string, string, string);
+    callback settings-alias-add-requested();
+    callback settings-alias-remove-requested(int);
+    callback settings-web-search-save-requested(int, string, string, string, bool);
+    callback settings-web-search-add-requested();
+    callback settings-web-search-remove-requested(int);
     callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     public function focus-search() {
@@ -377,6 +385,8 @@ export component AppWindow inherits Window {
                         folder-sources <=> root.settings-folder-sources;
                         aliases-text <=> root.settings-aliases-text;
                         web-searches-text <=> root.settings-web-searches-text;
+                        aliases: root.settings-aliases;
+                        web-searches: root.settings-web-searches;
                         alternate-folder-opener-command <=> root.settings-alternate-folder-opener-command;
                         provider-apps <=> root.settings-provider-apps;
                         provider-folders <=> root.settings-provider-folders;
@@ -414,6 +424,12 @@ export component AppWindow inherits Window {
                         clear-ranking-requested => {
                             root.settings-clear-ranking-requested();
                         }
+                        alias-save-requested(index, name, keyword, kind, target) => { root.settings-alias-save-requested(index, name, keyword, kind, target); }
+                        alias-add-requested => { root.settings-alias-add-requested(); }
+                        alias-remove-requested(index) => { root.settings-alias-remove-requested(index); }
+                        web-search-save-requested(index, name, keyword, url, enabled) => { root.settings-web-search-save-requested(index, name, keyword, url, enabled); }
+                        web-search-add-requested => { root.settings-web-search-add-requested(); }
+                        web-search-remove-requested(index) => { root.settings-web-search-remove-requested(index); }
                         save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {
                             root.settings-save-requested(
                                 folder-sources,
