@@ -1,6 +1,26 @@
-# rayslash
+<!-- markdownlint-disable MD033 MD041 -->
+<h1 align="center">rayslash</h1>
 
-`rayslash` is a lightweight, keyboard-first application launcher for Linux. It uses a compact native [Slint](https://slint.dev/) interface and works on both Wayland and X11 without compositor-specific integrations.
+<p align="center">
+  <img src="./icons/rayslash-icon.svg" alt="rayslash icon" width="128" height="128">
+</p>
+
+<p align="center">
+  <a href="https://github.com/rslauncher/rayslash/releases">
+    <img src="https://img.shields.io/github/downloads/rslauncher/rayslash/total?style=flat-square" alt="Total downloads">
+  </a>
+  <a href="https://github.com/rslauncher/rayslash/stargazers">
+    <img src="https://img.shields.io/github/stars/rslauncher/rayslash?style=flat-square" alt="GitHub stars">
+  </a>
+  <a href="https://github.com/rslauncher/rayslash/releases/latest">
+    <img src="https://img.shields.io/github/v/release/rslauncher/rayslash?display_name=tag&sort=semver&style=flat-square" alt="Latest release">
+  </a>
+</p>
+
+<p align="center">
+  rayslash is a lightweight, keyboard-first application launcher for Linux. It uses a compact native <a href="https://slint.dev/">Slint</a> interface and works on both Wayland and X11 without compositor-specific integrations.
+</p>
+<!-- markdownlint-enable MD033 MD041 -->
 
 ## Features
 
@@ -19,7 +39,7 @@
 Building requires a recent Rust toolchain and the Fontconfig development files for your distribution.
 
 ```sh
-git clone https://github.com/rayan/rayslash.git
+git clone https://github.com/rslauncher/rayslash.git
 cd rayslash
 cargo install --path crates/rayslash-ui
 ```
