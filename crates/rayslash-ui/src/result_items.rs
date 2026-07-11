@@ -156,23 +156,36 @@ fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache)
         search::SearchResultIcon::SystemLogout => fallback_icon("logout", ""),
         search::SearchResultIcon::SystemLock => fallback_icon("lock", ""),
         search::SearchResultIcon::Timer => fallback_icon("stopwatch", ""),
-        search::SearchResultIcon::WebSearch { label } => RowIcon {
-            image: Image::default(),
-            has_image: false,
-            kind: "text",
-            text: label.clone(),
-        },
+        search::SearchResultIcon::WebSearch {
+            label,
+            path: Some(path),
+        } => load_icon_image(path, icon_cache).map_or_else(
+            || fallback_icon_owned("text", label.clone()),
+            |image| RowIcon {
+                image,
+                has_image: true,
+                kind: "web-search",
+                text: String::new(),
+            },
+        ),
+        search::SearchResultIcon::WebSearch { label, path: None } => {
+            fallback_icon_owned("text", label.clone())
+        }
         search::SearchResultIcon::ProjectFolder => fallback_icon("folder", ""),
         search::SearchResultIcon::Placeholder => fallback_icon("placeholder", ""),
     }
 }
 
 fn fallback_icon(kind: &'static str, text: &'static str) -> RowIcon {
+    fallback_icon_owned(kind, text.to_owned())
+}
+
+fn fallback_icon_owned(kind: &'static str, text: String) -> RowIcon {
     RowIcon {
         image: Image::default(),
         has_image: false,
         kind,
-        text: text.to_owned(),
+        text,
     }
 }
 

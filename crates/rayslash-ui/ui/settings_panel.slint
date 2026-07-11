@@ -38,10 +38,10 @@ component MiniToggle inherits Rectangle {
     in-out property <bool> checked;
     in property <bool> light;
     callback toggled();
-    width: 34px; height: 20px; border-radius: 10px;
-    background: root.light ? root.checked ? #202020 : #dedede : root.checked ? #d6d6d6 : #343434;
-    border-width: 1px; border-color: root.light ? #999999 : #666666;
-    Rectangle { x: root.checked ? 16px : 2px; y: 2px; width: 14px; height: 14px; border-radius: 7px; background: root.light ? root.checked ? #ffffff : #777777 : root.checked ? #181818 : #b8b8b8; }
+    width: 30px; height: 18px; border-radius: 9px;
+    background: root.light ? root.checked ? #202020 : #e1e1e1 : root.checked ? #d6d6d6 : #303030;
+    border-width: 1px; border-color: root.light ? root.checked ? #202020 : #a9a9a9 : root.checked ? #eeeeee : #666666;
+    Rectangle { x: root.checked ? 14px : 2px; y: 2px; width: 14px; height: 14px; border-radius: 7px; background: root.light ? root.checked ? #ffffff : #777777 : root.checked ? #181818 : #b8b8b8; }
     TouchArea { mouse-cursor: pointer; clicked => { root.checked = !root.checked; root.toggled(); } }
 }
 
@@ -50,10 +50,19 @@ component EngineField inherits Rectangle {
     in property <bool> light;
     in property <bool> editable: true;
     in property <string> hint;
+    callback focus-lost();
+    callback edit-settled();
     border-radius: 6px; border-width: 1px; border-color: field.has-focus ? (root.light ? #666666 : #888888) : (root.light ? #c8c8c8 : #484848);
     background: root.light ? #ffffff : #191919;
     Text { x: 8px; width: parent.width - 16px; height: parent.height; text: root.hint; visible: root.value == ""; color: root.light ? #888888 : #777777; font-size: 11px; vertical-alignment: center; overflow: elide; }
-    field := TextInput { x: 8px; width: parent.width - 16px; height: parent.height; enabled: root.editable; text <=> root.value; color: root.editable ? root.light ? #222222 : #eeeeee : root.light ? #777777 : #888888; font-size: 11px; single-line: true; vertical-alignment: center; }
+    save-delay := Timer { interval: 600ms; running: false; triggered => { self.running = false; root.edit-settled(); } }
+    field := TextInput {
+        x: 8px; width: parent.width - 16px; height: parent.height; enabled: root.editable; text <=> root.value;
+        color: root.editable ? root.light ? #222222 : #eeeeee : root.light ? #777777 : #888888;
+        font-size: 11px; single-line: true; vertical-alignment: center;
+        edited => { save-delay.running = false; save-delay.running = true; }
+        changed has-focus => { if (!self.has-focus && root.editable) { save-delay.running = false; root.focus-lost(); } }
+    }
 }
 
 export component SettingsPanel inherits FocusScope {
@@ -546,18 +555,22 @@ export component SettingsPanel inherits FocusScope {
                 VerticalLayout { padding: 8px; spacing: 6px;
                     HorizontalLayout { height: 34px; spacing: 9px;
                         Rectangle { width: 34px; border-radius: 8px; background: root.field-bg-hover;
-                            Path { x: 8px; y: 7px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M11 4 A7 7 0 1 0 11 18 A7 7 0 1 0 11 4 M16.2 16.2 L21 21"; }
+                            Image { x: 6px; y: 6px; width: 22px; height: 22px; source: engine.icon; image-fit: contain; visible: engine.has_icon; }
+                            Path { x: 8px; y: 7px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M11 4 A7 7 0 1 0 11 18 A7 7 0 1 0 11 4 M16.2 16.2 L21 21"; visible: !engine.has_icon; }
                         }
                         VerticalLayout { spacing: 1px; Text { text: engine.name == "" ? "New search engine" : engine.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; } Text { text: engine.keyword == "" ? "Choose a keyword" : engine.keyword; color: root.text-muted; font-size: 10px; overflow: elide; } }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Rectangle { width: 34px; background: transparent; MiniToggle { y: 7px; checked: engine.enabled; light: root.light; toggled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, self.checked); } } }
+                        Rectangle { width: engine.valid ? 0px : 28px; visible: !engine.valid; border-radius: 7px; background: root.light ? #fff1c7 : #594615;
+                            Path { x: 5px; y: 5px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; commands: "M12 3 L22 20 H2 Z M12 9 V14 M12 17 V18"; stroke: root.light ? #9a6700 : #ffd166; stroke-width: 2px; fill: transparent; }
+                        }
+                        Rectangle { width: 34px; background: transparent; MiniToggle { x: 2px; y: 8px; checked: engine.enabled; light: root.light; toggled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, self.checked); } } }
                     }
                     HorizontalLayout { height: 26px; spacing: 6px;
-                        EngineField { value <=> engine.name; light: root.light; editable: index != 0; hint: "Search engine name"; }
-                        EngineField { width: 145px; value <=> engine.keyword; light: root.light; editable: index != 0; hint: "Keyword"; }
+                        EngineField { value <=> engine.name; light: root.light; editable: index != 0; hint: "Search engine name"; focus-lost => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } edit-settled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } }
+                        EngineField { width: 145px; value <=> engine.keyword; light: root.light; editable: index != 0; hint: "Keyword"; focus-lost => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } edit-settled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } }
                     }
                     HorizontalLayout { height: 26px; spacing: 6px;
-                        EngineField { value <=> engine.url; light: root.light; hint: "URL with %s in place of the search term"; }
+                        EngineField { value <=> engine.url; light: root.light; hint: "URL with %s in place of the search term"; focus-lost => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } edit-settled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } }
                         Rectangle { width: 28px; border-radius: 6px; background: save-engine.pressed ? root.field-bg-pressed : save-engine.has-hover ? root.field-bg-hover : transparent; Text { text: "✓"; color: root.text-main; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; } save-engine := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } } }
                         Rectangle { width: index == 0 ? 0px : 28px; visible: index != 0; border-radius: 6px; background: remove-engine.pressed ? #6f2020 : remove-engine.has-hover ? #4c2424 : transparent;
                             Path { x: 6px; y: 5px; width: 16px; height: 16px; viewbox-width: 24; viewbox-height: 24; stroke: #ef7777; stroke-width: 2px; fill: transparent; commands: "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 10v6 M14 10v6"; }

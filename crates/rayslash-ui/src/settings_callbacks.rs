@@ -1,7 +1,7 @@
 use std::{cell::Cell, cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
 
 use rayslash_core::{app_state, apps, config, projects, ranking, search};
-use slint::{ComponentHandle, Timer, VecModel};
+use slint::{ComponentHandle, Model, Timer, VecModel};
 
 use crate::{
     AppChoiceItem, AppWindow, DEFAULT_STATUS_TEXT, DESKTOP_APP_REFRESH_INTERVAL, ResultItem,
@@ -400,19 +400,14 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             let Some(ui) = weak.upgrade() else {
                 return;
             };
-            if name.trim().is_empty() || keyword.trim().is_empty() || !url.contains("%s") {
-                ui.set_status_text(
-                    "Search name and keyword are required; URL must contain %s.".into(),
-                );
-                return;
-            }
             let mut next = config_state.borrow().clone();
             let updated = config::WebSearchConfig {
                 name: name.trim().into(),
                 keyword: keyword.trim().into(),
-                url: url.trim().into(),
+                url: url.trim().replace("{query}", "%s"),
                 enabled,
             };
+            let valid = rayslash_core::web_search::is_valid_template(&updated);
             if let Some(engine) = next.web_searches.get_mut(index as usize) {
                 *engine = updated;
             } else if index as usize == next.web_searches.len() {
@@ -420,12 +415,19 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             } else {
                 return;
             }
+            if next.clone().normalized() == *config_state.borrow() {
+                return;
+            }
             save_collection_change(
                 &ui,
                 &config_state,
                 next,
                 settings_save_blocked,
-                "Search engine saved.",
+                if valid {
+                    "Search engine saved."
+                } else {
+                    "Search engine draft saved; complete the required fields to activate it."
+                },
                 &projects.borrow(),
                 &apps.borrow(),
                 &ranking_state.borrow(),
@@ -437,21 +439,34 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
     ui.on_settings_web_search_add_requested({
         let weak = ui.as_weak();
         let config_state = config_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let ranking_state = ranking_state.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
         move || {
             let Some(ui) = weak.upgrade() else {
                 return;
             };
-            let mut searches = config_state.borrow().web_searches.clone();
-            searches.push(config::WebSearchConfig {
+            let mut next = config_state.borrow().clone();
+            next.web_searches.push(config::WebSearchConfig {
                 name: String::new(),
                 keyword: String::new(),
                 url: String::new(),
                 enabled: true,
             });
-            ui.set_settings_web_searches(
-                Rc::new(VecModel::from(web_search_items(&searches))).into(),
+            save_collection_change(
+                &ui,
+                &config_state,
+                next,
+                settings_save_blocked,
+                "Search engine draft added; changes save when a field loses focus.",
+                &projects.borrow(),
+                &apps.borrow(),
+                &ranking_state.borrow(),
+                &icon_cache,
+                &socket_path,
             );
-            ui.set_status_text("Fill in the new search engine fields, then save it.".into());
         }
     });
     ui.on_settings_web_search_remove_requested({
@@ -605,9 +620,27 @@ fn save_collection_change(
     }
     *state.borrow_mut() = config_to_save.normalized();
     let favicon_searches = state.borrow().web_searches.clone();
+    let weak = ui.as_weak();
     std::thread::spawn(move || {
         for search in &favicon_searches {
             let _ = rayslash_core::web_search::fetch_and_cache_favicon(search);
+        }
+        if let Err(error) = weak.upgrade_in_event_loop(move |ui| {
+            let model = ui.get_settings_web_searches();
+            for (index, updated) in web_search_items(&favicon_searches).into_iter().enumerate() {
+                let Some(current) = model.row_data(index) else {
+                    continue;
+                };
+                if current.name == updated.name
+                    && current.keyword == updated.keyword
+                    && current.url == updated.url
+                    && current.enabled == updated.enabled
+                {
+                    model.set_row_data(index, updated);
+                }
+            }
+        }) {
+            eprintln!("failed to refresh search favicons on the UI event loop: {error}");
         }
     });
     refresh_settings_dependent_ui(

@@ -357,6 +357,7 @@ pub(crate) fn web_search_result(search: web_search::WebSearch) -> SearchResult {
         subtitle,
         icon: SearchResultIcon::WebSearch {
             label: search.icon_label,
+            path: search.icon_path,
         },
         kind: SearchResultKind::WebSearch {
             name: search.name,

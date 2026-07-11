@@ -6,7 +6,7 @@ use std::{
 use rayslash_core::{config, search};
 
 use crate::{AliasItem, AppWindow, WebSearchItem};
-use slint::VecModel;
+use slint::{Image, VecModel};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsConfigError {
@@ -80,11 +80,18 @@ fn alias_items(aliases: &[config::AliasConfig]) -> Vec<AliasItem> {
 pub(crate) fn web_search_items(searches: &[config::WebSearchConfig]) -> Vec<WebSearchItem> {
     searches
         .iter()
-        .map(|search| WebSearchItem {
-            name: search.name.clone().into(),
-            keyword: search.keyword.clone().into(),
-            url: search.url.clone().into(),
-            enabled: search.enabled,
+        .map(|search| {
+            let icon = rayslash_core::web_search::cached_favicon_path(search)
+                .and_then(|path| Image::load_from_path(&path).ok());
+            WebSearchItem {
+                name: search.name.clone().into(),
+                keyword: search.keyword.clone().into(),
+                url: search.url.clone().into(),
+                enabled: search.enabled,
+                has_icon: icon.is_some(),
+                icon: icon.unwrap_or_default(),
+                valid: rayslash_core::web_search::is_valid_template(search),
+            }
         })
         .collect()
 }
@@ -240,16 +247,6 @@ pub(crate) fn parse_web_searches_text(text: &str) -> Result<Vec<config::WebSearc
         let enabled = parse_enabled_flag(enabled)
             .ok_or_else(|| format!("search line {} must start with on or off", index + 1))?;
         let url = url.replace("{query}", "%s");
-        if name.is_empty() || keyword.is_empty() || url.is_empty() {
-            return Err(format!(
-                "search line {} has an empty required field",
-                index + 1
-            ));
-        }
-        if !url.contains("%s") {
-            return Err(format!("search line {} URL must contain %s", index + 1));
-        }
-
         searches.push(config::WebSearchConfig {
             name: (*name).to_owned(),
             keyword: (*keyword).to_owned(),
@@ -584,10 +581,15 @@ mod tests {
     }
 
     #[test]
-    fn web_searches_text_requires_percent_placeholder() {
-        assert_eq!(
-            parse_web_searches_text("on | Broken | br | https://example.com/search"),
-            Err("search line 1 URL must contain %s".to_owned())
-        );
+    fn web_searches_text_preserves_incomplete_rows_as_drafts() {
+        let parsed = parse_web_searches_text(
+            "on | YouTube |  | https://www.youtube.com/results?search_query=%s\n\
+             on | Broken | br | https://example.com/search",
+        )
+        .expect("draft rows remain parseable");
+
+        assert_eq!(parsed.len(), 2);
+        assert!(!rayslash_core::web_search::is_valid_template(&parsed[0]));
+        assert!(!rayslash_core::web_search::is_valid_template(&parsed[1]));
     }
 }

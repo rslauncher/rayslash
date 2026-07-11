@@ -28,8 +28,13 @@ pub enum SearchResultIcon {
     SystemLogout,
     SystemLock,
     Timer,
-    WebSearch { label: String },
-    App { path: Option<PathBuf> },
+    WebSearch {
+        label: String,
+        path: Option<PathBuf>,
+    },
+    App {
+        path: Option<PathBuf>,
+    },
     ProjectFolder,
 }
 

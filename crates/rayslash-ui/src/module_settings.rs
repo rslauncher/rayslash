@@ -58,17 +58,35 @@ pub(crate) fn load_runtime_modules(
 pub(crate) fn module_items(config: &modules::ModulesConfig) -> Vec<ModuleItem> {
     modules::official_module_descriptors()
         .iter()
-        .map(|descriptor| ModuleItem {
-            id: descriptor.id.into(),
-            name: descriptor.name.into(),
-            description: descriptor.description.into(),
-            author: descriptor.author.into(),
-            version: descriptor.version.into(),
-            enabled: config.is_official_enabled(descriptor.id).unwrap_or(true),
-            installed: true,
-            official: true,
+        .map(|descriptor| {
+            let (icon_kind, icon_text) = module_icon(descriptor.id);
+            ModuleItem {
+                id: descriptor.id.into(),
+                name: descriptor.name.into(),
+                description: descriptor.description.into(),
+                author: descriptor.author.into(),
+                version: descriptor.version.into(),
+                enabled: config.is_official_enabled(descriptor.id).unwrap_or(true),
+                installed: true,
+                official: true,
+                icon_kind: icon_kind.into(),
+                icon_text: icon_text.into(),
+            }
         })
         .collect()
+}
+
+fn module_icon(module_id: &str) -> (&'static str, &'static str) {
+    match module_id {
+        modules::CALCULATOR_MODULE_ID => ("calculator", ""),
+        modules::UNITS_MODULE_ID => ("text", "U"),
+        modules::CURRENCY_MODULE_ID => ("text", "$"),
+        modules::TIME_MODULE_ID => ("time", ""),
+        modules::WEB_SEARCH_MODULE_ID => ("search", ""),
+        modules::TIMERS_MODULE_ID => ("stopwatch", ""),
+        modules::ALIASES_MODULE_ID => ("link", ""),
+        _ => ("placeholder", ""),
+    }
 }
 
 pub(crate) fn refresh_module_items(

@@ -28,6 +28,9 @@ export struct WebSearchItem {
     keyword: string,
     url: string,
     enabled: bool,
+    icon: image,
+    has_icon: bool,
+    valid: bool,
 }
 
 export struct ModuleItem {
@@ -39,4 +42,6 @@ export struct ModuleItem {
     enabled: bool,
     installed: bool,
     official: bool,
+    icon_kind: string,
+    icon_text: string,
 }

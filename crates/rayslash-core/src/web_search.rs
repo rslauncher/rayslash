@@ -11,13 +11,14 @@ pub struct WebSearch {
     pub query: String,
     pub url: String,
     pub icon_label: String,
+    pub icon_path: Option<PathBuf>,
     pub host: String,
 }
 
 pub fn matching_web_searches(templates: &[WebSearchConfig], input: &str) -> Vec<WebSearch> {
     templates
         .iter()
-        .filter(|template| template.enabled)
+        .filter(|template| template.enabled && is_valid_template(template))
         .filter_map(|template| web_search_for_template(template, input))
         .collect()
 }
@@ -33,8 +34,16 @@ pub fn web_search_for_template(template: &WebSearchConfig, input: &str) -> Optio
         query: search_terms.to_owned(),
         url,
         icon_label: icon_label_for_template(template),
+        icon_path: cached_favicon_path(template),
         host: host_from_url(&template.url).unwrap_or_default(),
     })
+}
+
+pub fn is_valid_template(template: &WebSearchConfig) -> bool {
+    !template.name.trim().is_empty()
+        && !template.keyword.trim().is_empty()
+        && template.url.contains("%s")
+        && host_from_url(&template.url).is_some()
 }
 
 pub fn search_terms_for_trigger<'a>(input: &'a str, trigger: &str) -> Option<&'a str> {
@@ -74,7 +83,7 @@ pub fn trigger_from_input<'a>(
 
     templates
         .iter()
-        .filter(|template| template.enabled)
+        .filter(|template| template.enabled && is_valid_template(template))
         .find(|template| input.eq_ignore_ascii_case(template.keyword.trim()))
 }
 
@@ -147,6 +156,9 @@ pub fn cached_favicon_path(template: &WebSearchConfig) -> Option<PathBuf> {
 }
 
 pub fn fetch_and_cache_favicon(template: &WebSearchConfig) -> Option<PathBuf> {
+    if !is_valid_template(template) {
+        return None;
+    }
     if template
         .keyword
         .eq_ignore_ascii_case(DEFAULT_SEARCH_KEYWORD)
@@ -240,6 +252,19 @@ mod tests {
             enabled: false,
         };
 
+        assert!(matching_web_searches(&[template], "yt rust").is_empty());
+    }
+
+    #[test]
+    fn incomplete_templates_are_drafts_and_never_match() {
+        let template = WebSearchConfig {
+            name: "YouTube".to_owned(),
+            keyword: String::new(),
+            url: "https://www.youtube.com/results?search_query=%s".to_owned(),
+            enabled: true,
+        };
+
+        assert!(!is_valid_template(&template));
         assert!(matching_web_searches(&[template], "yt rust").is_empty());
     }
 

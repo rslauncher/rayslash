@@ -386,20 +386,11 @@ fn default_true() -> bool {
 fn normalize_web_searches(searches: Vec<WebSearchConfig>) -> Vec<WebSearchConfig> {
     let mut searches = searches
         .into_iter()
-        .filter_map(|mut search| {
+        .map(|mut search| {
             search.name = search.name.trim().to_owned();
             search.keyword = search.keyword.trim().to_owned();
             search.url = search.url.trim().replace("{query}", "%s");
-
-            if search.name.is_empty()
-                || search.keyword.is_empty()
-                || search.url.is_empty()
-                || !search.url.contains("%s")
-            {
-                return None;
-            }
-
-            Some(search)
+            search
         })
         .collect::<Vec<_>>();
     let default_index = searches.iter().position(|search| {

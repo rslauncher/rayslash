@@ -448,6 +448,23 @@ fn saved_config_writes_normalized_folder_sources() {
     assert!(!saved.contains("\"relative/projects\""));
 }
 
+#[test]
+fn incomplete_web_search_rows_survive_normalization_as_inactive_drafts() {
+    let mut config = Config::default();
+    config.web_searches.push(WebSearchConfig {
+        name: "YouTube".to_owned(),
+        keyword: String::new(),
+        url: "https://www.youtube.com/results?search_query=%s".to_owned(),
+        enabled: true,
+    });
+
+    let normalized = config.normalized();
+    let draft = normalized.web_searches.last().expect("draft row");
+    assert_eq!(draft.name, "YouTube");
+    assert!(draft.keyword.is_empty());
+    assert!(!rayslash_core::web_search::is_valid_template(draft));
+}
+
 fn backup_files(dir: &Path) -> Vec<PathBuf> {
     fs::read_dir(dir)
         .expect("read save directory")
