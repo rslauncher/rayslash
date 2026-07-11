@@ -1,5 +1,6 @@
 import { SettingToggle } from "./components.slint";
-import { AliasItem, AppChoiceItem, WebSearchItem } from "./models.slint";
+import { AliasItem, AppChoiceItem, ModuleItem, WebSearchItem } from "./models.slint";
+import { ModulesPanel } from "./modules_panel.slint";
 
 component SegmentButton inherits Rectangle {
     in property <string> label;
@@ -64,6 +65,7 @@ export component SettingsPanel inherits FocusScope {
     in-out property <string> web-searches-text;
     in property <[AliasItem]> aliases;
     in property <[WebSearchItem]> web-searches;
+    in property <[ModuleItem]> modules;
     in-out property <string> alternate-folder-opener-command;
     in-out property <bool> provider-apps;
     in-out property <bool> provider-folders;
@@ -73,6 +75,7 @@ export component SettingsPanel inherits FocusScope {
     in-out property <bool> provider-unit-conversion;
     in-out property <bool> provider-currency-conversion;
     in-out property <bool> provider-time-lookup;
+    in-out property <bool> provider-utility-actions;
     in-out property <bool> alternate-folder-opener-enabled;
     in-out property <bool> ranking-learn-from-usage;
     in-out property <string> theme;
@@ -98,7 +101,10 @@ export component SettingsPanel inherits FocusScope {
     callback web-search-save-requested(int, string, string, string, bool);
     callback web-search-add-requested();
     callback web-search-remove-requested(int);
-    callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
+    callback module-toggle-requested(string, bool);
+    callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
+
+    private property <string> settings-section: "general";
 
     private property <color> text-strong: root.light ? #1f1f1f : #f2f2f2;
     private property <color> text-main: root.light ? #2d2d2d : #d8d8d8;
@@ -113,6 +119,7 @@ export component SettingsPanel inherits FocusScope {
 
     public function focus-settings() {
         settings-scroll.viewport-y = 0px;
+        modules-panel.reset-scroll();
         root.focus();
     }
 
@@ -128,6 +135,7 @@ export component SettingsPanel inherits FocusScope {
             root.provider-unit-conversion,
             root.provider-currency-conversion,
             root.provider-time-lookup,
+            root.provider-utility-actions,
             root.alternate-folder-opener-enabled,
             root.ranking-learn-from-usage,
             root.theme,
@@ -146,7 +154,9 @@ export component SettingsPanel inherits FocusScope {
 
     changed open => {
         if (root.open) {
+            root.settings-section = "general";
             settings-scroll.viewport-y = 0px;
+            modules-panel.reset-scroll();
         }
     }
 
@@ -159,23 +169,66 @@ export component SettingsPanel inherits FocusScope {
         }
     }
 
-    settings-scroll := Flickable {
+    Text {
+        x: 0px;
+        y: 0px;
         width: 100%;
-        height: 100%;
+        height: 24px;
+        text: "Settings";
+        color: root.text-strong;
+        font-size: 18px;
+        font-weight: 700;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        x: 0px;
+        y: 30px;
+        width: 100%;
+        height: 38px;
+        border-radius: 9px;
+        background: root.light ? #e7e7e7 : #222222;
+        border-width: 1px;
+        border-color: root.field-border;
+
+        HorizontalLayout {
+            padding: 2px;
+            spacing: 2px;
+
+            SegmentButton {
+                label: "General";
+                selected: root.settings-section == "general";
+                light: root.light;
+                clicked => {
+                    root.settings-section = "general";
+                    settings-scroll.viewport-y = 0px;
+                }
+            }
+
+            SegmentButton {
+                label: "Modules";
+                selected: root.settings-section == "modules";
+                light: root.light;
+                clicked => {
+                    root.settings-section = "modules";
+                    modules-panel.reset-scroll();
+                }
+            }
+        }
+    }
+
+    settings-scroll := Flickable {
+        y: 76px;
+        width: 100%;
+        height: parent.height - 76px;
+        visible: root.settings-section == "general";
         viewport-width: self.width;
-        viewport-height: root.open ? (root.alternate-picker-open ? 1371px : 1221px) + root.aliases.length * 134px + root.web-searches.length * 134px : 0px;
-        interactive: root.open;
+        viewport-height: root.open ? (root.alternate-picker-open ? 1139px : 989px) + root.aliases.length * 134px + root.web-searches.length * 134px : 0px;
+        interactive: root.open && root.settings-section == "general";
 
         VerticalLayout {
             width: settings-scroll.width;
             spacing: 9px;
-
-            Text {
-                text: "Settings";
-                color: root.text-strong;
-                font-size: 18px;
-                font-weight: 700;
-            }
 
             Text {
                 text: "Folder source";
@@ -553,87 +606,6 @@ export component SettingsPanel inherits FocusScope {
                 spacing: 8px;
 
                 SettingToggle {
-                    label: "Web";
-                    description: "Template searches";
-                    light: root.light;
-                    tooltips-enabled: root.show-tooltips;
-                    checked <=> root.provider-web-search;
-                    toggled => {
-                        root.save-settings();
-                    }
-                }
-
-                SettingToggle {
-                    label: "Units";
-                    description: "Local conversions";
-                    light: root.light;
-                    tooltips-enabled: root.show-tooltips;
-                    checked <=> root.provider-unit-conversion;
-                    toggled => {
-                        root.save-settings();
-                    }
-                }
-            }
-
-            HorizontalLayout {
-                height: 58px;
-                spacing: 8px;
-
-                SettingToggle {
-                    label: "Currency";
-                    description: "Frankfurter rates";
-                    light: root.light;
-                    tooltips-enabled: root.show-tooltips;
-                    checked <=> root.provider-currency-conversion;
-                    toggled => {
-                        root.save-settings();
-                    }
-                }
-
-                SettingToggle {
-                    label: "Time";
-                    description: "Place time lookup";
-                    light: root.light;
-                    tooltips-enabled: root.show-tooltips;
-                    checked <=> root.provider-time-lookup;
-                    toggled => {
-                        root.save-settings();
-                    }
-                }
-            }
-
-            HorizontalLayout {
-                height: 58px;
-                spacing: 8px;
-
-                SettingToggle {
-                    label: "Calculator";
-                    description: "Local math results";
-                    light: root.light;
-                    tooltips-enabled: root.show-tooltips;
-                    checked <=> root.provider-calculator;
-                    toggled => {
-                        root.save-settings();
-                    }
-                }
-
-                SettingToggle {
-                    label: "Aliases";
-                    description: "Manual quick links";
-                    light: root.light;
-                    tooltips-enabled: root.show-tooltips;
-                    checked <=> root.provider-aliases;
-                    toggled => {
-                        root.save-settings();
-                    }
-                }
-            }
-
-            HorizontalLayout {
-                height: 58px;
-                spacing: 8px;
-
-                SettingToggle {
                     label: "Learning";
                     description: "Local result ranking";
                     light: root.light;
@@ -968,6 +940,19 @@ export component SettingsPanel inherits FocusScope {
                 height: 8px;
                 background: transparent;
             }
+        }
+    }
+
+    modules-panel := ModulesPanel {
+        y: 76px;
+        width: 100%;
+        height: parent.height - 76px;
+        visible: root.settings-section == "modules";
+        modules: root.modules;
+        light: root.light;
+
+        module-toggle-requested(id, enabled) => {
+            root.module-toggle-requested(id, enabled);
         }
     }
 }

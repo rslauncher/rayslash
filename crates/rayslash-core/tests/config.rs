@@ -163,6 +163,7 @@ learn_from_usage = false
             unit_conversion: false,
             currency_conversion: true,
             time_lookup: true,
+            utility_actions: true,
         }
     );
     assert!(!config.actions.alternate_folder_opener_enabled);
@@ -238,6 +239,7 @@ max_results = 0
             unit_conversion: true,
             currency_conversion: true,
             time_lookup: true,
+            utility_actions: true,
         }
     );
     assert_eq!(
@@ -339,6 +341,7 @@ fn config_can_be_saved_and_loaded_from_toml() {
             unit_conversion: true,
             currency_conversion: false,
             time_lookup: true,
+            utility_actions: true,
         },
         actions: ActionConfig {
             alternate_folder_opener_enabled: false,

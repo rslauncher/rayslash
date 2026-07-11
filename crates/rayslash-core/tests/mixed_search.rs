@@ -120,6 +120,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             unit_conversion: false,
             currency_conversion: false,
             time_lookup: false,
+            utility_actions: false,
         },
     );
 
@@ -144,6 +145,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             unit_conversion: false,
             currency_conversion: false,
             time_lookup: false,
+            utility_actions: false,
         },
     );
 
@@ -163,6 +165,7 @@ fn mixed_search_provider_and_empty_index_rows_respect_provider_toggles() {
             unit_conversion: false,
             currency_conversion: false,
             time_lookup: false,
+            utility_actions: false,
         },
     );
 
@@ -206,6 +209,7 @@ fn mixed_search_matches_alias_names_and_queries_when_provider_enabled() {
             unit_conversion: false,
             currency_conversion: false,
             time_lookup: false,
+            utility_actions: false,
         },
         None,
     );
@@ -230,6 +234,7 @@ fn mixed_search_supports_configured_web_search_templates() {
         unit_conversion: false,
         currency_conversion: false,
         time_lookup: false,
+        utility_actions: false,
     };
 
     let results = search::mixed_results_with_ranking_and_web_searches(
@@ -261,6 +266,7 @@ fn mixed_search_default_browser_search_requires_search_command() {
         unit_conversion: false,
         currency_conversion: false,
         time_lookup: false,
+        utility_actions: false,
     };
     let web_searches = vec![WebSearchConfig {
         name: "Web Search".to_owned(),
@@ -310,6 +316,7 @@ fn mixed_search_web_search_rows_suppress_regular_matches() {
         unit_conversion: false,
         currency_conversion: false,
         time_lookup: false,
+        utility_actions: false,
     };
     let web_searches = vec![WebSearchConfig {
         name: "Web Search".to_owned(),
@@ -343,6 +350,7 @@ fn mixed_search_supports_local_unit_conversion() {
         unit_conversion: true,
         currency_conversion: false,
         time_lookup: false,
+        utility_actions: false,
     };
 
     let results = search::mixed_results_with_providers(&[], &[], "10 km to mi", &providers);
@@ -362,6 +370,7 @@ fn mixed_search_unit_conversions_suppress_calculator_errors() {
         unit_conversion: true,
         currency_conversion: false,
         time_lookup: false,
+        utility_actions: false,
     };
 
     let compact = search::mixed_results_with_providers(&[], &[], "10c to k", &providers);
@@ -438,6 +447,7 @@ fn mixed_search_supports_currency_conversion_rows_without_network_for_same_curre
         unit_conversion: false,
         currency_conversion: true,
         time_lookup: false,
+        utility_actions: false,
     };
 
     let results = search::mixed_results_with_providers(&[], &[], "10 usd to usd", &providers);
@@ -491,6 +501,7 @@ fn mixed_search_distinguishes_calculator_errors_normal_queries_placeholders_and_
             unit_conversion: true,
             currency_conversion: true,
             time_lookup: true,
+            utility_actions: true,
         },
     );
 

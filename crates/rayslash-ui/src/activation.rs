@@ -4,7 +4,9 @@ use std::{
     sync::{Arc, atomic::AtomicBool},
 };
 
-use rayslash_core::{actions, app_state, apps, config, projects, ranking, search};
+use rayslash_core::{
+    actions, app_state, apps, config, projects, providers::ProviderAction, ranking, search,
+};
 use slint::ComponentHandle;
 
 use crate::{AppWindow, window_state::hide_launcher};
@@ -38,51 +40,38 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                 .and_then(|index| current_results.borrow().get(index).cloned());
 
             match result {
-                Some(result) => {
-                    if let Some(copyable_result) = result
-                        .calculator_result()
-                        .or_else(|| result.unit_conversion_result())
-                        .or_else(|| result.currency_conversion_result())
-                        .or_else(|| result.time_lookup_result())
-                    {
-                        match copy_to_clipboard(copyable_result) {
-                            Ok(()) => {
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(
-                                        format!("Copied result: {}", copyable_result).into(),
-                                    );
-                                    hide_launcher(&ui, is_visible.as_ref());
-                                }
-                            }
-                            Err(error) => {
-                                eprintln!("failed to copy result: {error}");
-
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(
-                                        format!("Could not copy result: {}", copyable_result)
-                                            .into(),
-                                    );
-                                }
+                Some(result) => match result.provider_action() {
+                    ProviderAction::None => {
+                        if let Some(ui) = weak.upgrade() {
+                            ui.set_status_text(format!("Preview only: {}", result.title).into());
+                        }
+                    }
+                    ProviderAction::Dismiss => {
+                        if let Some(ui) = weak.upgrade() {
+                            hide_launcher(&ui, is_visible.as_ref());
+                        }
+                    }
+                    ProviderAction::CopyText(text) => match copy_to_clipboard(&text) {
+                        Ok(()) => {
+                            if let Some(ui) = weak.upgrade() {
+                                ui.set_status_text(format!("Copied result: {text}").into());
+                                hide_launcher(&ui, is_visible.as_ref());
                             }
                         }
-                    } else if let Some(calculator_error) = result.calculator_error_message() {
-                        if let Some(ui) = weak.upgrade() {
-                            ui.set_status_text(calculator_error.into());
+                        Err(error) => {
+                            eprintln!("failed to copy result: {error}");
+                            if let Some(ui) = weak.upgrade() {
+                                ui.set_status_text(format!("Could not copy result: {text}").into());
+                            }
                         }
-                    } else if let Some(currency_error) = result.currency_error_message() {
+                    },
+                    ProviderAction::ShowMessage(message) => {
                         if let Some(ui) = weak.upgrade() {
-                            ui.set_status_text(currency_error.into());
+                            ui.set_status_text(message.into());
                         }
-                    } else if let Some(time_lookup_error) = result.time_lookup_error_message() {
-                        if let Some(ui) = weak.upgrade() {
-                            ui.set_status_text(time_lookup_error.into());
-                        }
-                    } else if let Some(utility_error) = result.utility_action_error_message() {
-                        if let Some(ui) = weak.upgrade() {
-                            ui.set_status_text(utility_error.into());
-                        }
-                    } else if let Some(action) = result.utility_action() {
-                        match actions::run_utility_action(action) {
+                    }
+                    ProviderAction::RunUtility(action) => {
+                        match actions::run_utility_action(&action) {
                             Ok(()) => {
                                 if let Some(ui) = weak.upgrade() {
                                     let query = ui.get_query_text();
@@ -102,7 +91,6 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                             }
                             Err(error) => {
                                 eprintln!("failed to run utility action {}: {error}", result.title);
-
                                 if let Some(ui) = weak.upgrade() {
                                     ui.set_status_text(
                                         format!("Could not run {}", result.title).into(),
@@ -110,30 +98,25 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                 }
                             }
                         }
-                    } else if result.is_no_results() {
-                        if let Some(ui) = weak.upgrade() {
-                            hide_launcher(&ui, is_visible.as_ref());
-                        }
-                    } else if let Some(url) = result.web_search_url() {
-                        match actions::open_url(url) {
-                            Ok(_child) => {
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(format!("Opening {}", result.title).into());
-                                    hide_launcher(&ui, is_visible.as_ref());
-                                }
-                            }
-                            Err(error) => {
-                                eprintln!("failed to open web search {}: {error}", result.title);
-
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(
-                                        "Could not open web search. Is `xdg-open` on PATH?".into(),
-                                    );
-                                }
+                    }
+                    ProviderAction::OpenUrl(url) => match actions::open_url(&url) {
+                        Ok(_child) => {
+                            if let Some(ui) = weak.upgrade() {
+                                ui.set_status_text(format!("Opening {}", result.title).into());
+                                hide_launcher(&ui, is_visible.as_ref());
                             }
                         }
-                    } else if let Some(query) = result.default_web_search_query() {
-                        match actions::open_default_web_search(query, &apps.borrow()) {
+                        Err(error) => {
+                            eprintln!("failed to open web search {}: {error}", result.title);
+                            if let Some(ui) = weak.upgrade() {
+                                ui.set_status_text(
+                                    "Could not open web search. Is `xdg-open` on PATH?".into(),
+                                );
+                            }
+                        }
+                    },
+                    ProviderAction::OpenDefaultWebSearch(query) => {
+                        match actions::open_default_web_search(&query, &apps.borrow()) {
                             Ok(_child) => {
                                 if let Some(ui) = weak.upgrade() {
                                     ui.set_status_text(format!("Opening {}", result.title).into());
@@ -142,7 +125,6 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                             }
                             Err(error) => {
                                 eprintln!("failed to open default web search {query}: {error}");
-
                                 if let Some(ui) = weak.upgrade() {
                                     ui.set_status_text(
                                         "Could not open browser search. Is a default browser set?"
@@ -151,21 +133,21 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                 }
                             }
                         }
-                    } else if let Some(path) = result.project_path() {
-                        let display_path = search::display_path(path);
-
+                    }
+                    ProviderAction::OpenFolder(path) => {
+                        let display_path = search::display_path(&path);
                         if use_alternate_opener
                             && config_state
                                 .borrow()
                                 .actions
                                 .alternate_folder_opener_enabled
                         {
-                            let editor_command = config_state
+                            let opener_command = config_state
                                 .borrow()
                                 .actions
                                 .alternate_folder_opener_command
                                 .clone();
-                            match actions::open_project_in_editor(path, &editor_command) {
+                            match actions::open_project_in_editor(&path, &opener_command) {
                                 Ok(_child) => {
                                     if let Some(ui) = weak.upgrade() {
                                         let query = ui.get_query_text();
@@ -180,7 +162,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                         ui.set_status_text(
                                             format!(
                                                 "Opening {} with {}",
-                                                result.title, editor_command
+                                                result.title, opener_command
                                             )
                                             .into(),
                                         );
@@ -189,16 +171,15 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                 }
                                 Err(error) => {
                                     eprintln!(
-                                        "failed to open project with `{} {}`: {error}",
-                                        editor_command,
+                                        "failed to open folder with `{} {}`: {error}",
+                                        opener_command,
                                         path.display()
                                     );
-
                                     if let Some(ui) = weak.upgrade() {
                                         ui.set_status_text(
                                             format!(
                                                 "Could not open {}. Is `{}` on PATH?",
-                                                display_path, editor_command
+                                                display_path, opener_command
                                             )
                                             .into(),
                                         );
@@ -206,7 +187,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                 }
                             }
                         } else {
-                            match actions::open_project_folder(path) {
+                            match actions::open_project_folder(&path) {
                                 Ok(_child) => {
                                     if let Some(ui) = weak.upgrade() {
                                         let query = ui.get_query_text();
@@ -219,22 +200,20 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                             query.as_str(),
                                         );
                                         ui.set_status_text(
-                                            format!("Opening folder {}", display_path).into(),
+                                            format!("Opening folder {display_path}").into(),
                                         );
                                         hide_launcher(&ui, is_visible.as_ref());
                                     }
                                 }
                                 Err(error) => {
                                     eprintln!(
-                                        "failed to open project folder with `xdg-open {}`: {error}",
+                                        "failed to open folder with `xdg-open {}`: {error}",
                                         path.display()
                                     );
-
                                     if let Some(ui) = weak.upgrade() {
                                         ui.set_status_text(
                                             format!(
-                                                "Could not open folder {}. Is `xdg-open` on PATH?",
-                                                display_path
+                                                "Could not open folder {display_path}. Is `xdg-open` on PATH?"
                                             )
                                             .into(),
                                         );
@@ -242,83 +221,77 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                                 }
                             }
                         }
-                    } else if let Some(app_activation) = result.app_activation() {
-                        match actions::activate_app(
-                            app_activation.id,
-                            &result.title,
-                            app_activation.command,
-                            app_activation.desktop_file,
-                            app_activation.dbus_activatable,
-                            app_activation.startup_wm_class,
-                        ) {
-                            Ok(outcome) => {
-                                if let Some(ui) = weak.upgrade() {
-                                    let query = ui.get_query_text();
-                                    record_learned_launch(
-                                        &config_state.borrow(),
-                                        &ranking_state,
-                                        &projects.borrow(),
-                                        &apps.borrow(),
-                                        &result,
-                                        query.as_str(),
-                                    );
-                                    mark_app_selected(&app_install_state, &result);
-                                    let status = match outcome {
-                                        actions::LaunchOutcome::FocusedExisting => {
-                                            format!("Showing {}", result.title)
-                                        }
-                                        actions::LaunchOutcome::Completed => {
-                                            format!("Launching {}", result.title)
-                                        }
-                                        actions::LaunchOutcome::Spawned(_) => {
-                                            format!("Launching {}", result.title)
-                                        }
-                                    };
-                                    ui.set_status_text(status.into());
-                                    hide_launcher(&ui, is_visible.as_ref());
-                                }
-                            }
-                            Err(error) => {
-                                eprintln!(
-                                    "failed to launch app {} with command `{}`: {error}",
-                                    result.title,
-                                    command_display(app_activation.command)
-                                );
-
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(
-                                        format!(
-                                            "Could not launch {}. Is `{}` on PATH?",
-                                            result.title,
-                                            app_activation.command.program.to_string_lossy()
-                                        )
-                                        .into(),
-                                    );
-                                }
-                            }
-                        }
-                    } else if let Some(alias) = result.alias().cloned() {
-                        match actions::launch_alias(&alias) {
-                            Ok(_child) => {
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(format!("Opening {}", result.title).into());
-                                    hide_launcher(&ui, is_visible.as_ref());
-                                }
-                            }
-                            Err(error) => {
-                                eprintln!("failed to launch alias {}: {error}", result.title);
-
-                                if let Some(ui) = weak.upgrade() {
-                                    ui.set_status_text(
-                                        format!("Could not open alias {}", result.title).into(),
-                                    );
-                                }
-                            }
-                        }
-                    } else if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text(format!("Preview only: {}", result.title).into());
                     }
-                }
+                    ProviderAction::LaunchApp {
+                        id,
+                        command,
+                        desktop_file,
+                        dbus_activatable,
+                        startup_wm_class,
+                    } => match actions::activate_app(
+                        &id,
+                        &result.title,
+                        &command,
+                        &desktop_file,
+                        dbus_activatable,
+                        startup_wm_class.as_deref(),
+                    ) {
+                        Ok(outcome) => {
+                            if let Some(ui) = weak.upgrade() {
+                                let query = ui.get_query_text();
+                                record_learned_launch(
+                                    &config_state.borrow(),
+                                    &ranking_state,
+                                    &projects.borrow(),
+                                    &apps.borrow(),
+                                    &result,
+                                    query.as_str(),
+                                );
+                                mark_app_selected(&app_install_state, &result);
+                                let verb = match outcome {
+                                    actions::LaunchOutcome::FocusedExisting => "Showing",
+                                    actions::LaunchOutcome::Completed
+                                    | actions::LaunchOutcome::Spawned(_) => "Launching",
+                                };
+                                ui.set_status_text(format!("{verb} {}", result.title).into());
+                                hide_launcher(&ui, is_visible.as_ref());
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!(
+                                "failed to launch app {} with command `{}`: {error}",
+                                result.title,
+                                command_display(&command)
+                            );
+                            if let Some(ui) = weak.upgrade() {
+                                ui.set_status_text(
+                                    format!(
+                                        "Could not launch {}. Is `{}` on PATH?",
+                                        result.title,
+                                        command.program.to_string_lossy()
+                                    )
+                                    .into(),
+                                );
+                            }
+                        }
+                    },
+                    ProviderAction::LaunchAlias(alias) => match actions::launch_alias(&alias) {
+                        Ok(_child) => {
+                            if let Some(ui) = weak.upgrade() {
+                                ui.set_status_text(format!("Opening {}", result.title).into());
+                                hide_launcher(&ui, is_visible.as_ref());
+                            }
+                        }
+                        Err(error) => {
+                            eprintln!("failed to launch alias {}: {error}", result.title);
+                            if let Some(ui) = weak.upgrade() {
+                                ui.set_status_text(
+                                    format!("Could not open alias {}", result.title).into(),
+                                );
+                            }
+                        }
+                    },
+                },
                 None => {
                     if let Some(ui) = weak.upgrade() {
                         ui.set_status_text("No result selected.".into());

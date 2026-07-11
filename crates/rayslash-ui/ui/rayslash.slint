@@ -1,9 +1,9 @@
 import { SearchBox, SettingsGearIcon } from "./components.slint";
-import { AliasItem, AppChoiceItem, ResultItem, WebSearchItem } from "./models.slint";
+import { AliasItem, AppChoiceItem, ModuleItem, ResultItem, WebSearchItem } from "./models.slint";
 import { ResultList } from "./result_list.slint";
 import { SettingsPanel } from "./settings_panel.slint";
 
-export { AliasItem, AppChoiceItem, ResultItem, WebSearchItem }from "./models.slint";
+export { AliasItem, AppChoiceItem, ModuleItem, ResultItem, WebSearchItem } from "./models.slint";
 
 component HeaderBar inherits HorizontalLayout {
     in property <bool> settings-open;
@@ -151,6 +151,7 @@ export component AppWindow inherits Window {
     in-out property <string> settings-web-searches-text: "";
     in property <[AliasItem]> settings-aliases;
     in property <[WebSearchItem]> settings-web-searches;
+    in property <[ModuleItem]> settings-modules;
     in-out property <string> settings-alternate-folder-opener-command: "xdg-terminal-exec";
     in-out property <bool> settings-provider-apps: true;
     in-out property <bool> settings-provider-folders: true;
@@ -160,6 +161,7 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-provider-unit-conversion: true;
     in-out property <bool> settings-provider-currency-conversion: true;
     in-out property <bool> settings-provider-time-lookup: true;
+    in-out property <bool> settings-provider-utility-actions: true;
     in-out property <bool> settings-alternate-folder-opener-enabled: true;
     in-out property <bool> settings-ranking-learn-from-usage: true;
     in-out property <string> settings-theme: "dark";
@@ -203,7 +205,8 @@ export component AppWindow inherits Window {
     callback settings-web-search-save-requested(int, string, string, string, bool);
     callback settings-web-search-add-requested();
     callback settings-web-search-remove-requested(int);
-    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
+    callback settings-module-toggle-requested(string, bool);
+    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     public function focus-search() {
         search.focus();
@@ -391,6 +394,7 @@ export component AppWindow inherits Window {
                         web-searches-text <=> root.settings-web-searches-text;
                         aliases: root.settings-aliases;
                         web-searches: root.settings-web-searches;
+                        modules: root.settings-modules;
                         alternate-folder-opener-command <=> root.settings-alternate-folder-opener-command;
                         provider-apps <=> root.settings-provider-apps;
                         provider-folders <=> root.settings-provider-folders;
@@ -400,6 +404,7 @@ export component AppWindow inherits Window {
                         provider-unit-conversion <=> root.settings-provider-unit-conversion;
                         provider-currency-conversion <=> root.settings-provider-currency-conversion;
                         provider-time-lookup <=> root.settings-provider-time-lookup;
+                        provider-utility-actions <=> root.settings-provider-utility-actions;
                         alternate-folder-opener-enabled <=> root.settings-alternate-folder-opener-enabled;
                         ranking-learn-from-usage <=> root.settings-ranking-learn-from-usage;
                         theme <=> root.settings-theme;
@@ -434,7 +439,8 @@ export component AppWindow inherits Window {
                         web-search-save-requested(index, name, keyword, url, enabled) => { root.settings-web-search-save-requested(index, name, keyword, url, enabled); }
                         web-search-add-requested => { root.settings-web-search-add-requested(); }
                         web-search-remove-requested(index) => { root.settings-web-search-remove-requested(index); }
-                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {
+                        module-toggle-requested(id, enabled) => { root.settings-module-toggle-requested(id, enabled); }
+                        save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, provider-utility-actions, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {
                             root.settings-save-requested(
                                 folder-sources,
                                 alternate-opener-command,
@@ -446,6 +452,7 @@ export component AppWindow inherits Window {
                                 provider-unit-conversion,
                                 provider-currency-conversion,
                                 provider-time-lookup,
+                                provider-utility-actions,
                                 alternate-opener-enabled,
                                 ranking-learn-from-usage,
                                 theme,

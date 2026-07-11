@@ -46,6 +46,8 @@ pub struct ProviderConfig {
     pub currency_conversion: bool,
     #[serde(default = "default_true")]
     pub time_lookup: bool,
+    #[serde(default = "default_true")]
+    pub utility_actions: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,6 +224,7 @@ impl Default for ProviderConfig {
             unit_conversion: true,
             currency_conversion: true,
             time_lookup: true,
+            utility_actions: true,
         }
     }
 }

@@ -1,6 +1,7 @@
 mod activation;
 mod cli;
 mod ipc;
+mod module_settings;
 mod opener_visual;
 mod result_items;
 mod runtime_state;
@@ -24,8 +25,12 @@ use std::{
 };
 
 use activation::{ActivationCallbackContext, register_activation_callback};
+use module_settings::{
+    ModuleSettingsCallbackContext, load_runtime_modules, module_items,
+    register_module_settings_callback,
+};
 use opener_visual::{accent_color_for_icon, to_app_choice_items};
-use rayslash_core::{apps, config, projects, web_search};
+use rayslash_core::{apps, config, projects, providers::ProviderExecutionHint, web_search};
 use result_items::{IconImageCache, to_result_items};
 use runtime_state::{
     ResultRefreshContext, ResultSelection, SearchResultSet, effective_search_query,
@@ -45,7 +50,6 @@ slint::include_modules!();
 
 pub(crate) const DEFAULT_STATUS_TEXT: &str = "";
 const DESKTOP_APP_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
-const REMOTE_SEARCH_DEBOUNCE: Duration = Duration::from_millis(450);
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -139,13 +143,19 @@ fn run_gui(
     let suppress_next_focus_hide = Rc::new(Cell::new(false));
 
     let stage_started = Instant::now();
-    let (config, settings_save_blocked) = match config::load_config() {
+    let (mut config, settings_save_blocked) = match config::load_config() {
         Ok(config) => (config, false),
         Err(error) => {
             eprintln!("{error}; using default config");
             (config::Config::default(), true)
         }
     };
+    let runtime_modules = load_runtime_modules(&config.providers, !settings_save_blocked);
+    runtime_modules
+        .config
+        .apply_to_provider_config(&mut config.providers);
+    let module_writes_blocked = runtime_modules.writes_blocked;
+    let module_state = Rc::new(RefCell::new(runtime_modules.config));
     let config_state = Rc::new(RefCell::new(config));
     let favicon_searches = config_state.borrow().web_searches.clone();
     thread::spawn(move || {
@@ -260,7 +270,9 @@ fn run_gui(
                 count as i32,
             ));
             ui.invoke_reset_result_scroll();
-            ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+            if ui.get_status_text().as_str() == "Looking up…" {
+                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+            }
         }
     });
 
@@ -268,6 +280,9 @@ fn run_gui(
     ui.set_result_tip_text(initial_result_tip.into());
     ui.set_results(results_model.clone().into());
     ui.set_selected_index(-1);
+
+    let module_model = Rc::new(VecModel::from(module_items(&module_state.borrow())));
+    ui.set_settings_modules(module_model.clone().into());
 
     let alternate_opener_choices = Rc::new(VecModel::from(to_app_choice_items(
         &apps.borrow(),
@@ -488,13 +503,12 @@ fn run_gui(
             if let Some(ui) = weak.upgrade() {
                 let effective_query =
                     effective_search_query(query.as_str(), ui.get_active_search_keyword().as_str());
-                let needs_remote_lookup = config_state.borrow().providers.time_lookup
-                    && rayslash_core::time_lookup::parse_query(&effective_query).is_some()
-                    || config_state.borrow().providers.currency_conversion
-                        && rayslash_core::currency::parse_query(&effective_query)
-                            .is_some_and(|request| request.base != request.quote);
+                let execution_hint = rayslash_core::search::query_execution_hint(
+                    &effective_query,
+                    &config_state.borrow().providers,
+                );
 
-                if needs_remote_lookup {
+                if let ProviderExecutionHint::DebouncedNetwork { debounce_ms } = execution_hint {
                     let generation = remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
                     let expected_generation = remote_search_generation.clone();
                     let config = config_state.borrow().clone();
@@ -507,7 +521,7 @@ fn run_gui(
 
                     ui.set_status_text("Looking up…".into());
                     thread::spawn(move || {
-                        thread::sleep(REMOTE_SEARCH_DEBOUNCE);
+                        thread::sleep(Duration::from_millis(debounce_ms));
                         if expected_generation.load(Ordering::Relaxed) != generation {
                             return;
                         }
@@ -585,6 +599,27 @@ fn run_gui(
             suppress_next_focus_hide: suppress_next_focus_hide.clone(),
             last_desktop_app_refresh: last_desktop_app_refresh.clone(),
             settings_save_blocked,
+            profile,
+        },
+    );
+
+    register_module_settings_callback(
+        &ui,
+        ModuleSettingsCallbackContext {
+            module_state: module_state.clone(),
+            module_model: module_model.clone(),
+            module_writes_blocked,
+            config_state: config_state.clone(),
+            app_install_state: app_install_state.clone(),
+            ranking_state: ranking_state.clone(),
+            projects: projects.clone(),
+            apps: apps.clone(),
+            current_results: current_results.clone(),
+            results_model: results_model.clone(),
+            icon_cache: icon_cache.clone(),
+            socket_path: socket_path.clone(),
+            remote_search_generation: remote_search_generation.clone(),
+            remote_result_tx: remote_result_tx.clone(),
             profile,
         },
     );

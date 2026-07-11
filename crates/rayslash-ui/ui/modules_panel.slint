@@ -1,0 +1,333 @@
+import { ModuleItem } from "./models.slint";
+
+component ModuleTab inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> light;
+    callback clicked();
+
+    height: 34px;
+    border-radius: 7px;
+    background: root.selected
+        ? root.light ? #202020 : #d6d6d6
+        : tab-touch.has-hover ? root.light ? #eeeeee : #292929 : transparent;
+
+    animate background { duration: 90ms; }
+
+    Text {
+        width: 100%;
+        height: 100%;
+        text: root.label;
+        color: root.selected
+            ? root.light ? #ffffff : #181818
+            : root.light ? #333333 : #dddddd;
+        font-size: 12px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    tab-touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+component ModuleSwitch inherits Rectangle {
+    in property <bool> checked;
+    in property <bool> available;
+    in property <bool> light;
+    callback toggled(bool);
+
+    width: 38px;
+    height: 22px;
+    border-radius: 11px;
+    opacity: root.available ? 1 : 0.45;
+    background: root.light
+        ? root.checked ? #202020 : #dedede
+        : root.checked ? #d6d6d6 : #343434;
+    border-width: 1px;
+    border-color: root.light ? #999999 : #666666;
+
+    Rectangle {
+        x: root.checked ? 18px : 2px;
+        y: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: root.light
+            ? root.checked ? #ffffff : #777777
+            : root.checked ? #181818 : #b8b8b8;
+
+        animate x { duration: 100ms; }
+    }
+
+    switch-touch := TouchArea {
+        enabled: root.available;
+        mouse-cursor: root.available ? pointer : default;
+        clicked => {
+            root.toggled(!root.checked);
+        }
+    }
+}
+
+component ModuleCard inherits Rectangle {
+    in property <ModuleItem> item;
+    in property <bool> shown;
+    in property <bool> light;
+    callback toggle-requested(string, bool);
+
+    height: root.shown ? 104px : 0px;
+    visible: root.shown;
+    border-radius: 10px;
+    background: root.light ? #ffffff : #202020;
+    border-width: 1px;
+    border-color: root.light ? #d0d0d0 : #3a3a3a;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        spacing: 11px;
+
+        Rectangle {
+            width: 38px;
+            height: 38px;
+            border-radius: 9px;
+            background: root.light ? #e8e8e8 : #343434;
+            vertical-stretch: 0;
+
+            Text {
+                width: 100%;
+                height: 100%;
+                text: root.item.official ? "RS" : "M";
+                color: root.light ? #3d3d3d : #dddddd;
+                font-size: 15px;
+                font-weight: 800;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        VerticalLayout {
+            spacing: 3px;
+
+            HorizontalLayout {
+                height: 21px;
+                spacing: 7px;
+
+                Text {
+                    text: root.item.name;
+                    color: root.light ? #1f1f1f : #f2f2f2;
+                    font-size: 14px;
+                    font-weight: 700;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+
+                Rectangle {
+                    width: root.item.official ? 52px : 0px;
+                    height: 18px;
+                    visible: root.item.official;
+                    border-radius: 5px;
+                    background: root.light ? #e2e2e2 : #393939;
+                    horizontal-stretch: 0;
+
+                    Text {
+                        width: 100%;
+                        height: 100%;
+                        text: "Official";
+                        color: root.light ? #454545 : #cfcfcf;
+                        font-size: 9px;
+                        font-weight: 700;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+
+            Text {
+                height: 18px;
+                text: root.item.description;
+                color: root.light ? #555555 : #b8b8b8;
+                font-size: 11px;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+
+            HorizontalLayout {
+                height: 18px;
+                spacing: 6px;
+
+                Text {
+                    text: "by " + root.item.author;
+                    color: root.light ? #707070 : #929292;
+                    font-size: 10px;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.item.version == "" ? "" : "v" + root.item.version;
+                    color: root.light ? #777777 : #888888;
+                    font-size: 10px;
+                    horizontal-stretch: 0;
+                    vertical-alignment: center;
+                }
+            }
+
+            Text {
+                height: 18px;
+                text: root.item.installed
+                    ? root.item.enabled ? "Installed · Enabled" : "Installed · Disabled"
+                    : "Not installed";
+                color: root.item.installed && root.item.enabled
+                    ? root.light ? #2f6a43 : #86c99d
+                    : root.light ? #777777 : #969696;
+                font-size: 10px;
+                font-weight: 600;
+                vertical-alignment: center;
+            }
+        }
+
+        VerticalLayout {
+            width: 62px;
+            spacing: 5px;
+            alignment: center;
+
+            Rectangle {
+                height: 22px;
+                background: transparent;
+
+                ModuleSwitch {
+                    x: (parent.width - self.width) / 2;
+                    checked: root.item.enabled;
+                    available: root.item.installed;
+                    light: root.light;
+                    toggled(enabled) => {
+                        root.toggle-requested(root.item.id, enabled);
+                    }
+                }
+            }
+
+            Text {
+                text: root.item.enabled ? "Enabled" : "Disabled";
+                color: root.light ? #666666 : #9a9a9a;
+                font-size: 9px;
+                horizontal-alignment: center;
+            }
+        }
+    }
+}
+
+export component ModulesPanel inherits FocusScope {
+    in property <[ModuleItem]> modules;
+    in property <bool> light;
+    callback module-toggle-requested(string, bool);
+
+    private property <string> selected-tab: "installed";
+
+    public function reset-scroll() {
+        module-scroll.viewport-y = 0px;
+    }
+
+    VerticalLayout {
+        spacing: 8px;
+
+        Text {
+            height: 18px;
+            text: "Manage bundled capabilities without changing the launcher core.";
+            color: root.light ? #666666 : #9a9a9a;
+            font-size: 11px;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            height: 38px;
+            border-radius: 9px;
+            background: root.light ? #e7e7e7 : #222222;
+            border-width: 1px;
+            border-color: root.light ? #d0d0d0 : #3a3a3a;
+
+            HorizontalLayout {
+                padding: 2px;
+                spacing: 2px;
+
+                ModuleTab {
+                    label: "Installed";
+                    selected: root.selected-tab == "installed";
+                    light: root.light;
+                    clicked => {
+                        root.selected-tab = "installed";
+                        root.reset-scroll();
+                    }
+                }
+
+                ModuleTab {
+                    label: "Official";
+                    selected: root.selected-tab == "official";
+                    light: root.light;
+                    clicked => {
+                        root.selected-tab = "official";
+                        root.reset-scroll();
+                    }
+                }
+            }
+        }
+
+        module-scroll := Flickable {
+            min-height: 0px;
+            vertical-stretch: 1;
+            viewport-width: self.width;
+            viewport-height: root.modules.length * 112px + 72px;
+            interactive: true;
+
+            VerticalLayout {
+                width: module-scroll.width;
+                spacing: 8px;
+
+                for item in root.modules: ModuleCard {
+                    item: item;
+                    shown: root.selected-tab == "installed" ? item.installed : item.official;
+                    light: root.light;
+                    toggle-requested(id, enabled) => {
+                        root.module-toggle-requested(id, enabled);
+                    }
+                }
+
+                Rectangle {
+                    height: 64px;
+                    border-radius: 10px;
+                    background: root.light ? #eeeeee : #202020;
+                    border-width: 1px;
+                    border-color: root.light ? #d4d4d4 : #3a3a3a;
+
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        padding-top: 9px;
+                        padding-bottom: 9px;
+                        spacing: 3px;
+
+                        Text {
+                            text: "Community modules";
+                            color: root.light ? #333333 : #d8d8d8;
+                            font-size: 11px;
+                            font-weight: 700;
+                        }
+
+                        Text {
+                            text: "Registry search and third-party installs are planned for a later phase.";
+                            color: root.light ? #707070 : #929292;
+                            font-size: 10px;
+                            overflow: elide;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

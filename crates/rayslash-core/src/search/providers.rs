@@ -18,7 +18,7 @@ pub fn placeholder_results() -> Vec<SearchResult> {
     placeholder_results_for_providers(&ProviderConfig::default())
 }
 
-pub(super) fn placeholder_results_for_providers(providers: &ProviderConfig) -> Vec<SearchResult> {
+pub(crate) fn placeholder_results_for_providers(providers: &ProviderConfig) -> Vec<SearchResult> {
     let mut results = Vec::new();
 
     if providers.apps {
@@ -101,6 +101,17 @@ pub(super) fn placeholder_results_for_providers(providers: &ProviderConfig) -> V
         });
     }
 
+    if results.is_empty() && providers.utility_actions {
+        results.push(SearchResult {
+            title: "Use timers and system actions".to_owned(),
+            flair: String::new(),
+            subtitle: "Type a timer, reminder, reboot, shutdown, logout, or lock command"
+                .to_owned(),
+            icon: SearchResultIcon::Placeholder,
+            kind: SearchResultKind::Placeholder,
+        });
+    }
+
     if results.is_empty() {
         results.push(disabled_providers_result());
     }
@@ -145,7 +156,7 @@ pub fn project_results(projects: &[Project], query: &str) -> Vec<SearchResult> {
         .collect()
 }
 
-pub(super) fn project_result(project: &Project) -> SearchResult {
+pub(crate) fn project_result(project: &Project) -> SearchResult {
     let subtitle = dirs::home_dir()
         .map(|home| display_path_for_home(&project.path, &home))
         .unwrap_or_else(|| project.path.display().to_string());
@@ -165,7 +176,7 @@ pub(super) fn project_result_with_subtitle(project: &Project, subtitle: String) 
     }
 }
 
-pub(super) fn app_result(app: &DesktopApp) -> SearchResult {
+pub(crate) fn app_result(app: &DesktopApp) -> SearchResult {
     SearchResult {
         title: app.name.clone(),
         flair: String::new(),
@@ -183,7 +194,7 @@ pub(super) fn app_result(app: &DesktopApp) -> SearchResult {
     }
 }
 
-pub(super) fn alias_result(alias: &AliasConfig) -> SearchResult {
+pub(crate) fn alias_result(alias: &AliasConfig) -> SearchResult {
     SearchResult {
         title: alias.name.clone(),
         flair: String::new(),
@@ -195,7 +206,7 @@ pub(super) fn alias_result(alias: &AliasConfig) -> SearchResult {
     }
 }
 
-pub(super) fn calculator_result(calculation: calc::Calculation) -> SearchResult {
+pub(crate) fn calculator_result(calculation: calc::Calculation) -> SearchResult {
     match calculation {
         calc::Calculation::Value { expression, result } => SearchResult {
             title: result.clone(),
@@ -220,7 +231,7 @@ pub(super) fn calculator_result(calculation: calc::Calculation) -> SearchResult 
     }
 }
 
-pub(super) fn unit_conversion_result(conversion: units::UnitConversion) -> SearchResult {
+pub(crate) fn unit_conversion_result(conversion: units::UnitConversion) -> SearchResult {
     SearchResult {
         title: conversion.result.clone(),
         flair: String::new(),
@@ -233,7 +244,7 @@ pub(super) fn unit_conversion_result(conversion: units::UnitConversion) -> Searc
     }
 }
 
-pub(super) fn currency_conversion_result(conversion: currency::CurrencyConversion) -> SearchResult {
+pub(crate) fn currency_conversion_result(conversion: currency::CurrencyConversion) -> SearchResult {
     let subtitle = if let Some(date) = conversion.date.as_deref() {
         format!(
             "Currency: {} ({}, {date})",
@@ -258,7 +269,7 @@ pub(super) fn currency_conversion_result(conversion: currency::CurrencyConversio
     }
 }
 
-pub(super) fn currency_error_result(expression: &str, message: String) -> SearchResult {
+pub(crate) fn currency_error_result(expression: &str, message: String) -> SearchResult {
     SearchResult {
         title: "Currency conversion unavailable.".to_owned(),
         flair: String::new(),
@@ -271,7 +282,7 @@ pub(super) fn currency_error_result(expression: &str, message: String) -> Search
     }
 }
 
-pub(super) fn time_lookup_result(lookup: time_lookup::TimeLookup) -> SearchResult {
+pub(crate) fn time_lookup_result(lookup: time_lookup::TimeLookup) -> SearchResult {
     SearchResult {
         title: lookup.result.clone(),
         flair: String::new(),
@@ -287,7 +298,7 @@ pub(super) fn time_lookup_result(lookup: time_lookup::TimeLookup) -> SearchResul
     }
 }
 
-pub(super) fn time_lookup_error_result(expression: &str, message: String) -> SearchResult {
+pub(crate) fn time_lookup_error_result(expression: &str, message: String) -> SearchResult {
     SearchResult {
         title: "Time lookup unavailable.".to_owned(),
         flair: String::new(),
@@ -300,7 +311,7 @@ pub(super) fn time_lookup_error_result(expression: &str, message: String) -> Sea
     }
 }
 
-pub(super) fn utility_action_result(action: utility_actions::UtilityAction) -> SearchResult {
+pub(crate) fn utility_action_result(action: utility_actions::UtilityAction) -> SearchResult {
     let icon = match &action {
         utility_actions::UtilityAction::System(action) => match action.kind {
             SystemActionKind::Reboot => SearchResultIcon::SystemReboot,
@@ -320,7 +331,7 @@ pub(super) fn utility_action_result(action: utility_actions::UtilityAction) -> S
     }
 }
 
-pub(super) fn utility_action_error_result(expression: &str, message: String) -> SearchResult {
+pub(crate) fn utility_action_error_result(expression: &str, message: String) -> SearchResult {
     SearchResult {
         title: message.clone(),
         flair: String::new(),
@@ -333,7 +344,7 @@ pub(super) fn utility_action_error_result(expression: &str, message: String) -> 
     }
 }
 
-pub(super) fn web_search_result(search: web_search::WebSearch) -> SearchResult {
+pub(crate) fn web_search_result(search: web_search::WebSearch) -> SearchResult {
     let subtitle = if search.host.is_empty() {
         format!("Custom search - {}", search.keyword)
     } else {

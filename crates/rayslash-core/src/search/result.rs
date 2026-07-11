@@ -1,6 +1,11 @@
 use std::path::{Path, PathBuf};
 
-use crate::{actions::CommandSpec, config::AliasConfig, utility_actions::UtilityAction};
+use crate::{
+    actions::CommandSpec,
+    config::AliasConfig,
+    providers::{ProviderAction, ProviderId},
+    utility_actions::UtilityAction,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchResult {
@@ -92,6 +97,35 @@ pub enum SearchResultKind {
 }
 
 impl SearchResult {
+    pub fn provider_id(&self) -> ProviderId {
+        match &self.kind {
+            SearchResultKind::App { .. } => ProviderId::CORE_APPS,
+            SearchResultKind::Project { .. } => ProviderId::CORE_FOLDERS,
+            SearchResultKind::Calculator { .. } | SearchResultKind::CalculatorError { .. } => {
+                ProviderId::CALCULATOR
+            }
+            SearchResultKind::UnitConversion { .. } => ProviderId::UNITS,
+            SearchResultKind::CurrencyConversion { .. }
+            | SearchResultKind::CurrencyConversionError { .. } => ProviderId::CURRENCY,
+            SearchResultKind::TimeLookup { .. } | SearchResultKind::TimeLookupError { .. } => {
+                ProviderId::TIME
+            }
+            SearchResultKind::UtilityAction { .. }
+            | SearchResultKind::UtilityActionError { .. } => ProviderId::TIMERS,
+            SearchResultKind::WebSearch { .. } | SearchResultKind::DefaultWebSearch { .. } => {
+                ProviderId::WEB_SEARCH
+            }
+            SearchResultKind::Alias { .. } => ProviderId::ALIASES,
+            SearchResultKind::Placeholder | SearchResultKind::NoResults { .. } => {
+                ProviderId::CORE_FALLBACK
+            }
+        }
+    }
+
+    pub fn provider_action(&self) -> ProviderAction {
+        ProviderAction::from_result(self)
+    }
+
     pub fn project_path(&self) -> Option<&Path> {
         match &self.kind {
             SearchResultKind::Placeholder => None,

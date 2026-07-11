@@ -7,7 +7,7 @@ use nucleo_matcher::{
 
 use super::{SearchResult, SearchResultKind};
 
-pub(super) fn boosted_score(
+pub(crate) fn boosted_score(
     result: &SearchResult,
     score: u32,
     query: &str,
@@ -43,7 +43,7 @@ pub(super) fn project_order(a: &Project, b: &Project) -> std::cmp::Ordering {
         .then_with(|| a.path.cmp(&b.path))
 }
 
-pub(super) fn search_result_order(a: &SearchResult, b: &SearchResult) -> std::cmp::Ordering {
+pub(crate) fn search_result_order(a: &SearchResult, b: &SearchResult) -> std::cmp::Ordering {
     a.title
         .to_lowercase()
         .cmp(&b.title.to_lowercase())
@@ -51,7 +51,7 @@ pub(super) fn search_result_order(a: &SearchResult, b: &SearchResult) -> std::cm
         .then_with(|| a.subtitle.cmp(&b.subtitle))
 }
 
-pub(super) fn fuzzy_pattern(query: &str) -> Pattern {
+pub(crate) fn fuzzy_pattern(query: &str) -> Pattern {
     Pattern::new(
         query,
         CaseMatching::Ignore,
@@ -60,7 +60,7 @@ pub(super) fn fuzzy_pattern(query: &str) -> Pattern {
     )
 }
 
-pub(super) fn fuzzy_matcher() -> Matcher {
+pub(crate) fn fuzzy_matcher() -> Matcher {
     let mut config = Config::DEFAULT;
     config.prefer_prefix = true;
     Matcher::new(config)

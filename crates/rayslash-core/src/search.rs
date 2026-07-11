@@ -1,23 +1,18 @@
-mod matcher;
-mod providers;
+pub(crate) mod matcher;
+pub(crate) mod providers;
 mod result;
 
 use crate::apps::DesktopApp;
-use crate::calc;
 use crate::config::{AliasConfig, ProviderConfig, WebSearchConfig};
-use crate::currency;
 use crate::projects::Project;
-use crate::ranking::RankingState;
-use crate::{time_lookup, units, utility_actions, web_search};
-
-use matcher::{boosted_score, fuzzy_matcher, fuzzy_pattern, search_result_order};
-use nucleo_matcher::Utf32Str;
-use providers::{
-    alias_result, app_result, calculator_result, currency_conversion_result, currency_error_result,
-    disabled_providers_result, no_results, placeholder_results_for_providers, project_result,
-    time_lookup_error_result, time_lookup_result, unit_conversion_result,
-    utility_action_error_result, utility_action_result, web_search_result,
+use crate::providers::{
+    ProviderAction, ProviderContext, ProviderExecutionHint, ProviderId, builtin_providers,
+    query_execution_hint as provider_query_execution_hint,
 };
+use crate::ranking::RankingState;
+
+use matcher::{boosted_score, search_result_order};
+use providers::{disabled_providers_result, no_results, placeholder_results_for_providers};
 pub use providers::{display_path, placeholder_results, project_results};
 #[cfg(test)]
 use providers::{display_path_for_home, project_result_with_subtitle};
@@ -81,111 +76,90 @@ pub fn mixed_results_with_ranking_and_web_searches(
     ranking: Option<&RankingState>,
 ) -> Vec<SearchResult> {
     let query = query.trim();
-    let mut utility_results = utility_results(query, providers, web_searches);
+    let context = ProviderContext {
+        query,
+        projects,
+        apps,
+        aliases,
+        web_searches,
+        legacy_config: providers,
+        ranking,
+    };
+    let provider_registry = builtin_providers();
 
-    if !providers.apps
-        && !providers.folders
-        && !providers.calculator
-        && !providers.aliases
-        && !providers.web_search
-        && !providers.unit_conversion
-        && !providers.currency_conversion
-        && !providers.time_lookup
-        && utility_results.is_empty()
+    if !provider_registry
+        .iter()
+        .any(|provider| provider.config(&context).enabled)
     {
         return vec![disabled_providers_result()];
     }
 
-    let enabled_projects = if providers.folders { projects } else { &[] };
-    let enabled_apps = if providers.apps { apps } else { &[] };
-    let enabled_aliases = if providers.aliases { aliases } else { &[] };
-    if enabled_projects.is_empty() && enabled_apps.is_empty() && enabled_aliases.is_empty() {
-        return if query.is_empty() || utility_results.is_empty() {
+    let mut outcomes = Vec::with_capacity(provider_registry.len());
+    let mut suppresses_calculator = false;
+    for provider in provider_registry {
+        if provider.metadata().id == ProviderId::CALCULATOR && suppresses_calculator {
+            continue;
+        }
+        let output = provider.run(&context);
+        suppresses_calculator |= output.suppresses_calculator;
+        outcomes.push(output);
+    }
+
+    let data_sources_empty = (!provider_enabled(&context, &ProviderId::CORE_FOLDERS)
+        || projects.is_empty())
+        && (!provider_enabled(&context, &ProviderId::CORE_APPS) || apps.is_empty())
+        && (!provider_enabled(&context, &ProviderId::ALIASES) || aliases.is_empty());
+    if data_sources_empty {
+        let results = outcomes
+            .into_iter()
+            .flat_map(|outcome| outcome.results)
+            .map(|provider_result| provider_result.result)
+            .collect::<Vec<_>>();
+        return if query.is_empty() || results.is_empty() {
             placeholder_results_for_providers(providers)
         } else {
-            utility_results
+            results
         };
     }
 
     if query.is_empty() {
-        let mut results = enabled_projects
-            .iter()
-            .map(project_result)
-            .chain(enabled_apps.iter().map(app_result))
-            .chain(enabled_aliases.iter().map(alias_result))
+        let mut results = outcomes
+            .into_iter()
+            .flat_map(|outcome| outcome.results)
+            .map(|provider_result| provider_result.result)
             .collect::<Vec<_>>();
         results.sort_by(search_result_order);
         return results;
     }
 
-    if utility_results.iter().any(is_web_search_result) {
-        return utility_results;
+    if outcomes.iter().any(|outcome| outcome.exclusive) {
+        return outcomes
+            .into_iter()
+            .filter(|outcome| !is_data_provider(&outcome.provider_id))
+            .flat_map(|outcome| outcome.results)
+            .map(|provider_result| provider_result.result)
+            .collect();
     }
-    if providers.time_lookup && time_lookup::parse_query(query).is_some() {
-        return utility_results;
-    }
-
-    let pattern = fuzzy_pattern(query);
-    let mut matcher = fuzzy_matcher();
-    let mut char_buf = Vec::new();
 
     let mut matches = Vec::new();
-
-    if utility_actions::parse_query(query).is_none() {
-        let fuzzy_actions = utility_results
-            .iter()
-            .filter_map(|result| match &result.kind {
-                SearchResultKind::UtilityAction {
-                    action: utility_actions::UtilityAction::System(action),
-                } => Some((result.clone(), action.expression.clone())),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        utility_results.retain(|result| {
-            !matches!(
-                result.kind,
-                SearchResultKind::UtilityAction {
-                    action: utility_actions::UtilityAction::System(_)
-                }
-            )
-        });
-        for (result, searchable_name) in fuzzy_actions {
-            let haystack = Utf32Str::new(&searchable_name, &mut char_buf);
-            let score = pattern.score(haystack, &mut matcher).unwrap_or(1);
-            let boosted_score = boosted_score(&result, score, query, ranking);
-            matches.push((result, score, boosted_score));
-        }
-    }
-
-    for project in enabled_projects {
-        let haystack = Utf32Str::new(&project.name, &mut char_buf);
-        if let Some(score) = pattern.score(haystack, &mut matcher) {
-            let result = project_result(project);
-            let boosted_score = boosted_score(&result, score, query, ranking);
-            matches.push((result, score, boosted_score));
-        }
-    }
-
-    for app in enabled_apps {
-        if let Some(score) = app_match_score(app, &pattern, &mut matcher, &mut char_buf) {
-            let result = app_result(app);
-            let boosted_score = boosted_score(&result, score, query, ranking);
-            matches.push((result, score, boosted_score));
-        }
-    }
-
-    for alias in enabled_aliases {
-        let name_score = {
-            let haystack = Utf32Str::new(&alias.name, &mut char_buf);
-            pattern.score(haystack, &mut matcher)
-        };
-        let query_score = {
-            let haystack = Utf32Str::new(&alias.query, &mut char_buf);
-            pattern.score(haystack, &mut matcher)
-        };
-        if let Some(score) = name_score.max(query_score) {
-            let result = alias_result(alias);
-            matches.push((result, score, score));
+    let mut priority_results = Vec::new();
+    for provider_result in outcomes.into_iter().flat_map(|outcome| outcome.results) {
+        if let Some(score) = provider_result.match_score {
+            let ranking_eligible = provider_result.ranking_eligible
+                && matches!(
+                    provider_result.action,
+                    ProviderAction::LaunchApp { .. }
+                        | ProviderAction::OpenFolder(_)
+                        | ProviderAction::RunUtility(_)
+                );
+            let boosted_score = if ranking_eligible {
+                boosted_score(&provider_result.result, score, query, ranking)
+            } else {
+                score
+            };
+            matches.push((provider_result.result, score, boosted_score));
+        } else {
+            priority_results.push(provider_result.result);
         }
     }
 
@@ -198,13 +172,13 @@ pub fn mixed_results_with_ranking_and_web_searches(
         },
     );
 
-    let mut results = matches
+    let mut ranked_results = matches
         .into_iter()
         .map(|(result, _score, _boosted_score)| result)
         .collect::<Vec<_>>();
 
-    utility_results.append(&mut results);
-    let results = utility_results;
+    priority_results.append(&mut ranked_results);
+    let results = priority_results;
 
     if results.is_empty() {
         return vec![no_results(query, providers)];
@@ -213,127 +187,32 @@ pub fn mixed_results_with_ranking_and_web_searches(
     results
 }
 
-fn is_web_search_result(result: &SearchResult) -> bool {
-    matches!(
-        result.kind,
-        SearchResultKind::WebSearch { .. } | SearchResultKind::DefaultWebSearch { .. }
-    )
+pub fn query_execution_hint(query: &str, providers: &ProviderConfig) -> ProviderExecutionHint {
+    provider_query_execution_hint(&ProviderContext {
+        query: query.trim(),
+        projects: &[],
+        apps: &[],
+        aliases: &[],
+        web_searches: &[],
+        legacy_config: providers,
+        ranking: None,
+    })
 }
 
-fn utility_results(
-    query: &str,
-    providers: &ProviderConfig,
-    web_searches: &[WebSearchConfig],
-) -> Vec<SearchResult> {
-    if query.is_empty() {
-        return Vec::new();
-    }
-
-    let mut results = Vec::new();
-    let mut suppress_calculator = false;
-
-    let parsed_utility_action = utility_actions::parse_query(query);
-    if let Some(action) = parsed_utility_action {
-        suppress_calculator = true;
-        match action {
-            Ok(action) => results.push(utility_action_result(action)),
-            Err(error) => results.push(utility_action_error_result(
-                &error.expression,
-                error.message,
-            )),
-        }
-    } else if let Some(action) = utility_actions::fuzzy_system_action(query) {
-        results.push(utility_action_result(action));
-    }
-
-    if providers.unit_conversion
-        && let Some(conversion) = units::convert_query(query)
-    {
-        suppress_calculator = true;
-        results.push(unit_conversion_result(conversion));
-    } else if units::looks_like_conversion_query(query) {
-        suppress_calculator = true;
-    }
-
-    if let Some(request) = currency::parse_query(query) {
-        suppress_calculator = true;
-        if providers.currency_conversion {
-            match currency::convert_request(&request) {
-                Ok(conversion) => results.push(currency_conversion_result(conversion)),
-                Err(error) => results.push(currency_error_result(
-                    &request.expression,
-                    error.to_string(),
-                )),
-            }
-        }
-    }
-
-    if let Some(request) = time_lookup::parse_query(query) {
-        suppress_calculator = true;
-        if providers.time_lookup {
-            match time_lookup::lookup_request(&request) {
-                Ok(lookups) => results.extend(lookups.into_iter().map(time_lookup_result)),
-                Err(error) => results.push(time_lookup_error_result(
-                    &request.expression,
-                    error.to_string(),
-                )),
-            }
-        }
-    }
-
-    if providers.web_search {
-        let web_result_count_before = results.len();
-        let custom_searches = web_search::matching_web_searches(web_searches, query)
-            .into_iter()
-            .map(web_search_result)
-            .collect::<Vec<_>>();
-        results.extend(custom_searches);
-
-        if results.len() > web_result_count_before {
-            suppress_calculator = true;
-        }
-    }
-
-    if providers.calculator
-        && !suppress_calculator
-        && let Some(calculation) = calc::calculate(query)
-    {
-        results.push(calculator_result(calculation));
-    }
-
-    results
-}
-
-fn app_match_score(
-    app: &DesktopApp,
-    pattern: &nucleo_matcher::pattern::Pattern,
-    matcher: &mut nucleo_matcher::Matcher,
-    char_buf: &mut Vec<char>,
-) -> Option<u32> {
-    let mut score = score_text(&app.name, pattern, matcher, char_buf);
-
-    for term in app
-        .localized_names
+fn provider_enabled(context: &ProviderContext<'_>, id: &ProviderId) -> bool {
+    builtin_providers()
         .iter()
-        .chain(app.keywords.iter())
-        .map(String::as_str)
-        .chain(app.generic_name.as_deref())
-        .chain(app.comment.as_deref())
-    {
-        score = score.max(score_text(term, pattern, matcher, char_buf));
-    }
-
-    score
+        .find(|provider| &provider.metadata().id == id)
+        .is_some_and(|provider| provider.config(context).enabled)
 }
 
-fn score_text(
-    text: &str,
-    pattern: &nucleo_matcher::pattern::Pattern,
-    matcher: &mut nucleo_matcher::Matcher,
-    char_buf: &mut Vec<char>,
-) -> Option<u32> {
-    let haystack = Utf32Str::new(text, char_buf);
-    pattern.score(haystack, matcher)
+fn is_data_provider(id: &ProviderId) -> bool {
+    matches!(
+        id,
+        id if id == &ProviderId::CORE_APPS
+            || id == &ProviderId::CORE_FOLDERS
+            || id == &ProviderId::ALIASES
+    )
 }
 
 #[cfg(test)]
