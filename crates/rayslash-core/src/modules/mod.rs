@@ -17,8 +17,9 @@ pub use package::{
 };
 pub use registry::{
     DEFAULT_REGISTRY_ROOT_URL, RAW_REGISTRY_ROOT_URL, RegistryIndex, RegistryModule,
-    RegistryRefresh, RegistryRoot, RegistryVersion, ReviewStatus, load_cached_registry,
-    refresh_registry, verify_registry_bytes,
+    RegistryRefresh, RegistryRevocation, RegistryRevocations, RegistryRoot, RegistryVersion,
+    ReviewStatus, installed_revocation, load_cached_registry, refresh_registry,
+    verify_registry_bytes,
 };
 pub use runtime::{ModuleQueryBatch, query_installed_modules};
 pub use state::{

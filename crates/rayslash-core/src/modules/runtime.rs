@@ -15,7 +15,10 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{ModulePackageManifest, ModulesConfig, PackageKind, load_installed_modules};
+use super::{
+    ModulePackageManifest, ModulesConfig, PackageKind, installed_revocation, load_cached_registry,
+    load_installed_modules,
+};
 
 const HOST_PROTOCOL: u32 = 1;
 const HOST_TIMEOUT: Duration = Duration::from_secs(5);
@@ -116,9 +119,26 @@ pub fn query_installed_modules(
     let Ok(installed) = load_installed_modules() else {
         return batch;
     };
+    let revocations = load_cached_registry()
+        .ok()
+        .map(|registry| registry.revocations);
     let mut candidates = Vec::new();
     for (module_id, installed) in installed.modules {
         if !config.is_enabled(&module_id).unwrap_or(installed.enabled) {
+            continue;
+        }
+        if let Some(revocation) = revocations.as_ref().and_then(|revocations| {
+            installed_revocation(
+                revocations,
+                &module_id,
+                &installed.version,
+                &installed.digest,
+            )
+        }) {
+            batch.errors.push(format!(
+                "{module_id}: installed version was revoked: {}",
+                revocation.reason
+            ));
             continue;
         }
         let manifest_path = installed.install_path.join("module.toml");
@@ -214,6 +234,14 @@ fn query_wasm_module(
             Err("module query timed out".into())
         }
     }
+}
+
+pub(super) fn probe_wasm_module(
+    module_id: &str,
+    install_path: &Path,
+    manifest: &ModulePackageManifest,
+) -> Result<(), String> {
+    query_wasm_module(module_id, install_path, manifest, "", 1, "{}").map(|_| ())
 }
 
 fn host_pool() -> &'static Mutex<BTreeMap<String, mpsc::Sender<HostJob>>> {
@@ -514,8 +542,13 @@ fn module_host_path() -> PathBuf {
     env::var_os("RAYSLASH_MODULE_HOST")
         .map(PathBuf::from)
         .or_else(|| {
-            let path = PathBuf::from("/usr/libexec/rayslash/rayslash-module-host");
-            path.is_file().then_some(path)
+            [
+                "/app/libexec/rayslash/rayslash-module-host",
+                "/usr/libexec/rayslash/rayslash-module-host",
+            ]
+            .into_iter()
+            .map(PathBuf::from)
+            .find(|path| path.is_file())
         })
         .unwrap_or_else(|| PathBuf::from("rayslash-module-host"))
 }

@@ -160,6 +160,7 @@ fn run_gui(
         .config
         .apply_to_provider_config(&mut config.providers);
     let module_writes_blocked = runtime_modules.writes_blocked;
+    let module_migration_pending = runtime_modules.migration_pending;
     let module_state = Rc::new(RefCell::new(runtime_modules.config));
     let module_catalog = Rc::new(RefCell::new(
         modules::load_cached_registry()
@@ -296,6 +297,12 @@ fn run_gui(
         &module_catalog.borrow(),
     )));
     ui.set_settings_modules(module_model.clone().into());
+    if module_migration_pending {
+        ui.set_status_text(
+            "Optional providers were migrated without downloading code. Open Settings → Modules and choose Restore for each module you want."
+                .into(),
+        );
+    }
 
     let (registry_tx, registry_rx) = mpsc::channel();
     thread::spawn(move || {
@@ -655,7 +662,7 @@ fn run_gui(
         },
     );
 
-    register_module_settings_callback(
+    let _module_install_timer = register_module_settings_callback(
         &ui,
         ModuleSettingsCallbackContext {
             module_state: module_state.clone(),
