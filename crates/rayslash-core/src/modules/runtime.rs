@@ -436,24 +436,104 @@ fn parse_host_output(
     let results = value
         .results
         .into_iter()
-        .map(|result| SearchResult {
-            title: result.title,
-            flair: String::new(),
-            subtitle: result.subtitle,
-            icon: map_icon(result.icon, install_path),
-            kind: SearchResultKind::Module {
-                module_id: module_id.to_owned(),
-                result_id: result.id,
-                action: map_action(result.action, permissions, settings_json),
-                score: result.score,
-            },
+        .map(|result| {
+            validate_result(&result)?;
+            Ok(SearchResult {
+                title: result.title,
+                flair: String::new(),
+                subtitle: result.subtitle,
+                icon: map_icon(result.icon, install_path),
+                kind: SearchResultKind::Module {
+                    module_id: module_id.to_owned(),
+                    result_id: result.id,
+                    action: map_action(result.action, permissions, settings_json),
+                    score: result.score,
+                },
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, String>>()?;
     Ok(ModuleQueryBatch {
         results,
         exclusive: value.exclusive,
         errors: Vec::new(),
     })
+}
+
+fn validate_result(result: &ResultValue) -> Result<(), String> {
+    validate_text("result ID", &result.id, 1, 256)?;
+    validate_text("result title", &result.title, 1, 512)?;
+    validate_text("result subtitle", &result.subtitle, 0, 1024)?;
+    match &result.icon {
+        IconValue::PackagePath(path) => {
+            let path = Path::new(path);
+            if path.as_os_str().len() > 512
+                || path.is_absolute()
+                || path
+                    .components()
+                    .any(|part| !matches!(part, std::path::Component::Normal(_)))
+            {
+                return Err("invalid module package icon path".into());
+            }
+        }
+        IconValue::Text(value) => validate_text("text icon", value, 1, 16)?,
+        IconValue::None => {}
+    }
+    match &result.action {
+        ActionValue::CopyText(value) => validate_text("copy action", value, 0, 64 * 1024)?,
+        ActionValue::OpenUrl(value) => {
+            let authority = value
+                .strip_prefix("https://")
+                .and_then(|rest| rest.split('/').next());
+            if value.len() > 4096
+                || value.chars().any(char::is_control)
+                || authority.is_none_or(|authority| authority.is_empty() || authority.contains('@'))
+            {
+                return Err("invalid module URL action".into());
+            }
+        }
+        ActionValue::OpenPath(value) => validate_text("path action", value, 1, 4096)?,
+        ActionValue::ShowMessage(value) => validate_text("message action", value, 0, 4096)?,
+        ActionValue::Notify((title, body)) => {
+            validate_text("notification title", title, 1, 256)?;
+            validate_text("notification body", body, 0, 4096)?;
+        }
+        ActionValue::RunApprovedCommand(command) => validate_command(command)?,
+        ActionValue::ScheduleNotification((delay, title, body)) => {
+            validate_delay(*delay)?;
+            validate_text("notification title", title, 1, 256)?;
+            validate_text("notification body", body, 0, 4096)?;
+        }
+        ActionValue::ScheduleCommand((delay, command)) => {
+            validate_delay(*delay)?;
+            validate_command(command)?;
+        }
+        ActionValue::None => {}
+    }
+    Ok(())
+}
+
+fn validate_text(label: &str, value: &str, minimum: usize, maximum: usize) -> Result<(), String> {
+    let length = value.chars().count();
+    if length < minimum || length > maximum || value.chars().any(char::is_control) {
+        return Err(format!("invalid module {label}"));
+    }
+    Ok(())
+}
+
+fn validate_command(command: &[String]) -> Result<(), String> {
+    if command.is_empty() || command.len() > 32 {
+        return Err("invalid module command action".into());
+    }
+    for (index, argument) in command.iter().enumerate() {
+        validate_text("command argument", argument, usize::from(index == 0), 4096)?;
+    }
+    Ok(())
+}
+
+fn validate_delay(delay: u64) -> Result<(), String> {
+    (delay <= 31_536_000)
+        .then_some(())
+        .ok_or_else(|| "module scheduled action exceeds one year".into())
 }
 
 fn map_icon(icon: IconValue, install_path: &Path) -> SearchResultIcon {
@@ -596,5 +676,27 @@ mod tests {
             r#"{"target":"/home/user/notes"}"#,
         );
         assert!(matches!(blocked, ModuleAction::ShowMessage(_)));
+    }
+
+    #[test]
+    fn launcher_rejects_hostile_result_fields_again() {
+        let result = ResultValue {
+            id: "one".into(),
+            title: "bad\nresult".into(),
+            subtitle: String::new(),
+            icon: IconValue::None,
+            score: None,
+            action: ActionValue::None,
+        };
+        assert!(validate_result(&result).is_err());
+        let command = ResultValue {
+            id: "one".into(),
+            title: "Result".into(),
+            subtitle: String::new(),
+            icon: IconValue::None,
+            score: None,
+            action: ActionValue::RunApprovedCommand(Vec::new()),
+        };
+        assert!(validate_result(&command).is_err());
     }
 }
