@@ -4,7 +4,8 @@ Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 
 License:        MIT
-URL:            https://github.com/rayan/rayslash
+URL:            https://github.com/rslauncher/rayslash
+Suggests:       rayslash-module-host
 Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cargo
@@ -16,8 +17,8 @@ BuildRequires:  appstream
 
 %description
 rayslash is a lightweight keyboard-first launcher for Linux desktops. It
-searches installed desktop applications, configured folders, aliases, and
-calculator expressions from a compact native Slint window.
+searches installed desktop applications and configured folders from a compact
+native Slint window. Optional capabilities are installed as modules.
 
 %prep
 %autosetup

@@ -4,6 +4,7 @@ use std::{
     io::{self, Cursor, Read},
     path::{Component, Path, PathBuf},
     process,
+    time::Duration,
 };
 
 use semver::{Version, VersionReq};
@@ -132,12 +133,35 @@ pub fn install_registry_version(
     module: &RegistryModule,
     version: &RegistryVersion,
 ) -> Result<InstalledModule, PackageError> {
+    if module.review_status == super::ReviewStatus::Blocked {
+        return Err(PackageError::Invalid(
+            "this module is blocked by registry moderation".into(),
+        ));
+    }
+    if super::load_cached_registry().ok().is_some_and(|registry| {
+        super::installed_revocation(
+            &registry.revocations,
+            &module.id,
+            &version.version,
+            &version.sha256,
+        )
+        .is_some()
+    }) {
+        return Err(PackageError::Invalid(
+            "this module version was revoked by the signed registry".into(),
+        ));
+    }
     if version.size == 0 || version.size > MAX_COMPRESSED_BYTES {
         return Err(PackageError::Invalid(
             "registry package size is outside limits".into(),
         ));
     }
-    let bytes = ureq::get(&version.asset_url)
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
+        .into();
+    let bytes = agent
+        .get(&version.asset_url)
         .header("User-Agent", "rayslash/0.1 module-installer")
         .call()
         .map_err(|error| PackageError::Network(error.to_string()))?
@@ -153,6 +177,45 @@ pub fn install_registry_version(
     }
     let modules_dir = modules_data_dir().ok_or(PackageError::DirectoryUnavailable)?;
     fs::create_dir_all(&modules_dir).map_err(|source| io_error(&modules_dir, source))?;
+    let _install_lock = InstallLock::acquire(&modules_dir)?;
+    remove_abandoned_staging(&modules_dir)?;
+    let existing = load_installed_modules()?.modules.remove(&module.id);
+    let mut repair_broken = false;
+    if let Some(installed) = existing.as_ref() {
+        if version.version < installed.version {
+            return Err(PackageError::Invalid(format!(
+                "refusing to downgrade {} from {} to {}",
+                module.id, installed.version, version.version
+            )));
+        }
+        if version.version == installed.version {
+            if version.sha256.eq_ignore_ascii_case(&installed.digest) {
+                let existing_manifest =
+                    fs::read_to_string(installed.install_path.join("module.toml"))
+                        .ok()
+                        .and_then(|text| toml::from_str::<ModulePackageManifest>(&text).ok());
+                if existing_manifest.as_ref().is_some_and(|manifest| {
+                    manifest.id == module.id
+                        && manifest.version == version.version
+                        && installed.install_path.join("module.wasm").is_file()
+                        && super::runtime::probe_wasm_module(
+                            &module.id,
+                            &installed.install_path,
+                            manifest,
+                        )
+                        .is_ok()
+                }) {
+                    return Ok(installed.clone());
+                }
+                repair_broken = true;
+            } else {
+                return Err(PackageError::Invalid(format!(
+                    "version {} was already installed with a different digest",
+                    version.version
+                )));
+            }
+        }
+    }
     let staging = modules_dir.join(format!(
         ".staging-{}-{}",
         safe_filename(&module.id),
@@ -174,10 +237,25 @@ pub fn install_registry_version(
         if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent).map_err(|source| io_error(parent, source))?;
         }
-        if destination.exists() {
+        if repair_broken && destination.exists() {
+            fs::remove_dir_all(&destination).map_err(|source| io_error(&destination, source))?;
+        }
+        let destination_existed = destination.exists();
+        if destination_existed {
             fs::remove_dir_all(&staging).map_err(|source| io_error(&staging, source))?;
         } else {
             fs::rename(&staging, &destination).map_err(|source| io_error(&destination, source))?;
+        }
+        if manifest.kind == PackageKind::Wasm
+            && let Err(error) =
+                super::runtime::probe_wasm_module(&module.id, &destination, &manifest)
+        {
+            if !destination_existed {
+                let _ = fs::remove_dir_all(&destination);
+            }
+            return Err(PackageError::Invalid(format!(
+                "module failed its startup probe: {error}"
+            )));
         }
         let installed = InstalledModule {
             version: version.version.clone(),
@@ -196,6 +274,71 @@ pub fn install_registry_version(
         let _ = fs::remove_dir_all(&staging);
     }
     result
+}
+
+struct InstallLock {
+    path: PathBuf,
+}
+
+impl InstallLock {
+    fn acquire(modules_dir: &Path) -> Result<Self, PackageError> {
+        let path = modules_dir.join(".install.lock");
+        for attempt in 0..2 {
+            let mut options = fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            match options.open(&path) {
+                Ok(mut file) => {
+                    use std::io::Write;
+                    writeln!(file, "{}", process::id())
+                        .map_err(|source| io_error(&path, source))?;
+                    return Ok(Self { path });
+                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists && attempt == 0 => {
+                    if lock_owner_is_alive(&path) {
+                        return Err(PackageError::Invalid(
+                            "another module install or update is already running".into(),
+                        ));
+                    }
+                    fs::remove_file(&path).map_err(|source| io_error(&path, source))?;
+                }
+                Err(source) => return Err(io_error(&path, source)),
+            }
+        }
+        Err(PackageError::Invalid(
+            "could not acquire the module install lock".into(),
+        ))
+    }
+}
+
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
+
+fn lock_owner_is_alive(path: &Path) -> bool {
+    let Ok(value) = fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(pid) = value.trim().parse::<u32>() else {
+        return false;
+    };
+    Path::new("/proc").join(pid.to_string()).exists()
+}
+
+fn remove_abandoned_staging(modules_dir: &Path) -> Result<(), PackageError> {
+    for entry in fs::read_dir(modules_dir).map_err(|source| io_error(modules_dir, source))? {
+        let entry = entry.map_err(|source| io_error(modules_dir, source))?;
+        if entry.file_name().to_string_lossy().starts_with(".staging-") {
+            let path = entry.path();
+            if path.is_dir() {
+                fs::remove_dir_all(&path).map_err(|source| io_error(&path, source))?;
+            } else {
+                fs::remove_file(&path).map_err(|source| io_error(&path, source))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn load_installed_modules() -> Result<InstalledModules, PackageError> {
@@ -217,6 +360,9 @@ pub fn load_installed_modules() -> Result<InstalledModules, PackageError> {
 }
 
 pub fn remove_installed_module(module_id: &str, remove_data: bool) -> Result<bool, PackageError> {
+    let modules_dir = modules_data_dir().ok_or(PackageError::DirectoryUnavailable)?;
+    fs::create_dir_all(&modules_dir).map_err(|source| io_error(&modules_dir, source))?;
+    let _install_lock = InstallLock::acquire(&modules_dir)?;
     let mut state = load_installed_modules()?;
     let Some(installed) = state.modules.remove(module_id) else {
         return Ok(false);
@@ -355,6 +501,12 @@ fn validate_manifest(
     version: &RegistryVersion,
     root: &Path,
 ) -> Result<(), PackageError> {
+    if manifest.kind == PackageKind::Declarative {
+        return Err(PackageError::Invalid(
+            "declarative packages are reserved for a future API; use a WASM package with API v1"
+                .into(),
+        ));
+    }
     if manifest.id != module.id
         || manifest.name != module.name
         || manifest.description != module.description

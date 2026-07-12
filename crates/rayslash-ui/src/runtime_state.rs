@@ -1,11 +1,14 @@
 use std::{
     cell::RefCell,
+    collections::BTreeMap,
     path::Path,
     rc::Rc,
     time::{Duration, Instant},
 };
 
-use rayslash_core::{app_state, apps, config, projects, ranking, search};
+use rayslash_core::{
+    app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking, search,
+};
 use slint::VecModel;
 
 use crate::{
@@ -59,15 +62,57 @@ pub(crate) fn search_result_set(
     query: &str,
 ) -> SearchResultSet {
     let ranking = config.ranking.learn_from_usage.then_some(ranking_state);
+    let mut core_providers = config.providers.clone();
+    core_providers.calculator = false;
+    core_providers.aliases = false;
+    core_providers.web_search = false;
+    core_providers.unit_conversion = false;
+    core_providers.currency_conversion = false;
+    core_providers.time_lookup = false;
+    core_providers.utility_actions = false;
     let mut results = search::mixed_results_with_ranking_and_web_searches(
         projects,
         apps,
         &config.aliases,
         &config.web_searches,
         query,
-        &config.providers,
+        &core_providers,
         ranking,
     );
+    let module_config = modules::load_modules_config(&config.providers)
+        .unwrap_or_else(|_| modules::ModulesConfig::empty());
+    let settings = module_settings(config);
+    let module_results = modules::query_installed_modules(
+        query,
+        config.appearance.max_results,
+        &module_config,
+        &settings,
+    );
+    if module_results.exclusive {
+        results = module_results.results;
+    } else if !module_results.results.is_empty() {
+        results.retain(|result| !result.is_no_results());
+        results.extend(module_results.results);
+    } else if !query.trim().is_empty()
+        && let Some(error) = module_results.errors.first()
+    {
+        results.retain(|result| !result.is_no_results());
+        results.push(search::SearchResult {
+            title: "Module runtime unavailable".into(),
+            flair: "Module".into(),
+            subtitle: error.clone(),
+            icon: search::SearchResultIcon::Module {
+                label: "!".into(),
+                path: None,
+            },
+            kind: search::SearchResultKind::Module {
+                module_id: "rayslash.module-runtime".into(),
+                result_id: "runtime-error".into(),
+                action: search::ModuleAction::ShowMessage(error.clone()),
+                score: None,
+            },
+        });
+    }
     apply_new_app_flairs(&mut results, app_state);
     let total_results = results.len();
     let max_results = config.appearance.max_results;
@@ -82,6 +127,37 @@ pub(crate) fn search_result_set(
         results,
         result_tip,
     }
+}
+
+pub(crate) fn query_execution_hint(config: &config::Config) -> ProviderExecutionHint {
+    let module_config = modules::load_modules_config(&config.providers)
+        .unwrap_or_else(|_| modules::ModulesConfig::empty());
+    let enabled_modules = modules::load_installed_modules()
+        .ok()
+        .is_some_and(|installed| {
+            installed
+                .modules
+                .iter()
+                .any(|(id, module)| module_config.is_enabled(id).unwrap_or(module.enabled))
+        });
+    if enabled_modules {
+        ProviderExecutionHint::DebouncedNetwork { debounce_ms: 150 }
+    } else {
+        ProviderExecutionHint::Local
+    }
+}
+
+fn module_settings(config: &config::Config) -> BTreeMap<String, String> {
+    let mut settings = BTreeMap::new();
+    settings.insert(
+        modules::WEB_SEARCH_MODULE_ID.to_owned(),
+        serde_json::json!({ "searches": config.web_searches }).to_string(),
+    );
+    settings.insert(
+        modules::ALIASES_MODULE_ID.to_owned(),
+        serde_json::json!({ "aliases": config.aliases }).to_string(),
+    );
+    settings
 }
 
 pub(crate) fn refresh_desktop_apps(
