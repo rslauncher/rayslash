@@ -8,8 +8,7 @@ use std::{
 };
 
 use crate::apps::DesktopApp;
-use crate::config::{AliasConfig, AliasKind};
-use crate::utility_actions::{SystemActionKind, UtilityAction};
+use crate::search::ModuleAction;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
@@ -104,23 +103,6 @@ fn launch_desktop_file(desktop_file: &Path) -> io::Result<LaunchOutcome> {
     match spawn_command_checked(&desktop_command)? {
         LaunchProcess::Running(child) => Ok(LaunchOutcome::Spawned(child)),
         LaunchProcess::Completed => Ok(LaunchOutcome::Completed),
-    }
-}
-
-pub fn launch_alias(alias: &AliasConfig) -> io::Result<Child> {
-    match crate::aliases::alias_kind(alias) {
-        AliasKind::Url | AliasKind::File | AliasKind::Folder => {
-            spawn_command(&open_target_command(&alias.target))
-        }
-        AliasKind::Command => {
-            let command = parse_action_command(&alias.target).ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    "alias command is empty or invalid",
-                )
-            })?;
-            spawn_command(&command)
-        }
     }
 }
 
@@ -224,23 +206,50 @@ pub fn open_target_command(target: &str) -> CommandSpec {
     }
 }
 
-pub fn run_utility_action(action: &UtilityAction) -> io::Result<()> {
-    match action {
-        UtilityAction::System(action) => {
-            schedule_command(system_action_command(action.kind), action.delay)
+pub fn run_module_action(action: &ModuleAction) -> io::Result<()> {
+    let command = match action {
+        ModuleAction::OpenUrl(url) => open_target_command(url),
+        ModuleAction::OpenPath(path) => CommandSpec {
+            program: OsString::from("xdg-open"),
+            args: vec![path.as_os_str().to_owned()],
+        },
+        ModuleAction::Notify { title, body } => notification_command(title, body),
+        ModuleAction::RunApprovedCommand(arguments) => command_from_arguments(arguments)?,
+        ModuleAction::ScheduleNotification { title, body, .. } => notification_command(title, body),
+        ModuleAction::ScheduleCommand { command, .. } => command_from_arguments(command)?,
+        ModuleAction::CopyText(_) | ModuleAction::ShowMessage(_) | ModuleAction::None => {
+            return Ok(());
         }
-        UtilityAction::Timer(action) => {
-            schedule_command(timer_notification_command(&action.message), action.delay)
-        }
+    };
+    let delay = match action {
+        ModuleAction::ScheduleNotification { delay, .. }
+        | ModuleAction::ScheduleCommand { delay, .. } => Duration::from_secs(*delay),
+        _ => Duration::ZERO,
+    };
+    schedule_command(command, delay)
+}
+
+fn notification_command(title: &str, body: &str) -> CommandSpec {
+    CommandSpec {
+        program: OsString::from("notify-send"),
+        args: vec![OsString::from(title), OsString::from(body)],
     }
 }
 
-pub fn system_action_command(kind: SystemActionKind) -> CommandSpec {
-    crate::utility_actions::system_action_command(kind)
-}
-
-pub fn timer_notification_command(message: &str) -> CommandSpec {
-    crate::utility_actions::timer_notification_command(message)
+fn command_from_arguments(arguments: &[String]) -> io::Result<CommandSpec> {
+    let (program, args) = arguments
+        .split_first()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "module command is empty"))?;
+    if program.is_empty() || arguments.iter().any(|value| value.contains('\0')) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "module command contains an invalid argument",
+        ));
+    }
+    Ok(CommandSpec {
+        program: OsString::from(program),
+        args: args.iter().map(OsString::from).collect(),
+    })
 }
 
 fn schedule_command(command: CommandSpec, delay: Duration) -> io::Result<()> {

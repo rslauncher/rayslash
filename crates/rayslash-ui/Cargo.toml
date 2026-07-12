@@ -16,7 +16,9 @@ image.workspace = true
 rayslash-core = { path = "../rayslash-core" }
 rfd.workspace = true
 semver.workspace = true
+serde_json.workspace = true
 slint.workspace = true
+toml.workspace = true
 
 [build-dependencies]
 slint-build.workspace = true

@@ -1,6 +1,7 @@
 mod descriptors;
 mod package;
 mod registry;
+mod runtime;
 mod state;
 
 pub use descriptors::{
@@ -19,6 +20,7 @@ pub use registry::{
     RegistryRefresh, RegistryRoot, RegistryVersion, ReviewStatus, load_cached_registry,
     refresh_registry, verify_registry_bytes,
 };
+pub use runtime::{ModuleQueryBatch, query_installed_modules};
 pub use state::{
     InitializeModulesConfigError, LoadModulesConfigError, MODULES_CONFIG_VERSION,
     ModuleEntryConfig, ModulesConfig, ModulesConfigLoadOutcome, SaveModulesConfigError,

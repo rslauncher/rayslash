@@ -20,13 +20,7 @@ pub(crate) fn boosted_score(
     result
         .learning_id()
         .map(|id| {
-            let boost = if title_starts_with_query(&result.title, query)
-                || matches!(
-                    result.kind,
-                    SearchResultKind::UtilityAction {
-                        action: crate::utility_actions::UtilityAction::System(_)
-                    }
-                ) {
+            let boost = if title_starts_with_query(&result.title, query) {
                 ranking.boost_for(&id, query)
             } else {
                 0
@@ -93,20 +87,9 @@ fn title_starts_with_query(title: &str, query: &str) -> bool {
 
 fn result_type_order(kind: &SearchResultKind) -> u8 {
     match kind {
-        SearchResultKind::Calculator { .. } => 0,
-        SearchResultKind::CalculatorError { .. } => 0,
-        SearchResultKind::UnitConversion { .. } => 0,
-        SearchResultKind::CurrencyConversion { .. } => 0,
-        SearchResultKind::CurrencyConversionError { .. } => 0,
-        SearchResultKind::TimeLookup { .. } => 0,
-        SearchResultKind::TimeLookupError { .. } => 0,
-        SearchResultKind::UtilityAction { .. } => 0,
-        SearchResultKind::UtilityActionError { .. } => 0,
-        SearchResultKind::WebSearch { .. } => 0,
-        SearchResultKind::DefaultWebSearch { .. } => 3,
+        SearchResultKind::Module { .. } => 0,
         SearchResultKind::App { .. } => 1,
         SearchResultKind::Project { .. } => 2,
-        SearchResultKind::Alias { .. } => 3,
         SearchResultKind::Placeholder | SearchResultKind::NoResults { .. } => 4,
     }
 }

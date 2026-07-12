@@ -16,7 +16,7 @@ use super::{
     UNITS_MODULE_ID, WEB_SEARCH_MODULE_ID, official_module_descriptors,
 };
 
-pub const MODULES_CONFIG_VERSION: u32 = 1;
+pub const MODULES_CONFIG_VERSION: u32 = 2;
 const STABLE_CHANNEL: &str = "stable";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -381,9 +381,28 @@ pub fn load_or_create_modules_config_from_path_with_migration(
     migrate_legacy: bool,
 ) -> Result<ModulesConfigLoadOutcome, InitializeModulesConfigError> {
     match fs::read_to_string(path) {
-        Ok(contents) => parse_modules_config(path, &contents, legacy_providers)
-            .map(ModulesConfigLoadOutcome::Loaded)
-            .map_err(InitializeModulesConfigError::Load),
+        Ok(contents) => {
+            let was_v1 = toml::from_str::<toml::Value>(&contents)
+                .ok()
+                .and_then(|value| value.get("version")?.as_integer())
+                == Some(1);
+            let config = parse_modules_config(path, &contents, legacy_providers)
+                .map_err(InitializeModulesConfigError::Load)?;
+            if was_v1 {
+                let backup = path.with_extension("toml.v1.bak");
+                if !backup.exists() {
+                    fs::copy(path, &backup).map_err(|source| {
+                        InitializeModulesConfigError::Load(LoadModulesConfigError::Read {
+                            path: backup,
+                            source,
+                        })
+                    })?;
+                }
+                save_modules_config_to_path(path, &config)
+                    .map_err(InitializeModulesConfigError::Save)?;
+            }
+            Ok(ModulesConfigLoadOutcome::Loaded(config))
+        }
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
             let config = if migrate_legacy {
                 ModulesConfig::from_legacy_provider_config(legacy_providers)
@@ -462,7 +481,7 @@ pub fn save_modules_config_to_path(
 }
 
 fn validate_version_for_load(path: &Path, version: u32) -> Result<(), LoadModulesConfigError> {
-    if version == MODULES_CONFIG_VERSION {
+    if matches!(version, 1 | MODULES_CONFIG_VERSION) {
         Ok(())
     } else {
         Err(LoadModulesConfigError::UnsupportedVersion {
@@ -483,7 +502,10 @@ fn parse_modules_config(
             source,
         })?;
     validate_version_for_load(path, config.version)?;
-    config.seed_missing_official_modules(legacy_providers);
+    if config.version == 1 {
+        config.seed_missing_official_modules(legacy_providers);
+        config.version = MODULES_CONFIG_VERSION;
+    }
     Ok(config)
 }
 

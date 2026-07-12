@@ -6,8 +6,7 @@ use crate::{
     config::{AliasConfig, ProviderConfig as LegacyProviderConfig, WebSearchConfig},
     projects::Project,
     ranking::RankingState,
-    search::{SearchResult, SearchResultKind},
-    utility_actions::UtilityAction,
+    search::{ModuleAction, SearchResult, SearchResultKind},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -96,10 +95,6 @@ pub struct ProviderDiagnostics {
 pub enum ProviderAction {
     None,
     Dismiss,
-    CopyText(String),
-    ShowMessage(String),
-    OpenUrl(String),
-    OpenDefaultWebSearch(String),
     OpenFolder(PathBuf),
     LaunchApp {
         id: String,
@@ -108,8 +103,7 @@ pub enum ProviderAction {
         dbus_activatable: bool,
         startup_wm_class: Option<String>,
     },
-    LaunchAlias(AliasConfig),
-    RunUtility(UtilityAction),
+    Module(ModuleAction),
 }
 
 impl ProviderAction {
@@ -117,21 +111,6 @@ impl ProviderAction {
         match &result.kind {
             SearchResultKind::Placeholder => Self::None,
             SearchResultKind::NoResults { .. } => Self::Dismiss,
-            SearchResultKind::Calculator { result, .. }
-            | SearchResultKind::UnitConversion { result, .. }
-            | SearchResultKind::CurrencyConversion { result, .. }
-            | SearchResultKind::TimeLookup { result, .. } => Self::CopyText(result.clone()),
-            SearchResultKind::CalculatorError { message, .. }
-            | SearchResultKind::CurrencyConversionError { message, .. }
-            | SearchResultKind::TimeLookupError { message, .. }
-            | SearchResultKind::UtilityActionError { message, .. } => {
-                Self::ShowMessage(message.clone())
-            }
-            SearchResultKind::UtilityAction { action } => Self::RunUtility(action.clone()),
-            SearchResultKind::WebSearch { url, .. } => Self::OpenUrl(url.clone()),
-            SearchResultKind::DefaultWebSearch { query } => {
-                Self::OpenDefaultWebSearch(query.clone())
-            }
             SearchResultKind::App {
                 id,
                 command,
@@ -146,7 +125,7 @@ impl ProviderAction {
                 startup_wm_class: startup_wm_class.clone(),
             },
             SearchResultKind::Project { path } => Self::OpenFolder(path.clone()),
-            SearchResultKind::Alias { alias } => Self::LaunchAlias(alias.clone()),
+            SearchResultKind::Module { action, .. } => Self::Module(action.clone()),
         }
     }
 }
