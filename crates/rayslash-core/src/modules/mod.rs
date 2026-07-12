@@ -1,4 +1,6 @@
 mod descriptors;
+mod package;
+mod registry;
 mod state;
 
 pub use descriptors::{
@@ -6,6 +8,16 @@ pub use descriptors::{
     ModuleDescriptor, ModuleSource, OFFICIAL_AUTHOR, TIME_MODULE_ID, TIMERS_MODULE_ID,
     UNITS_MODULE_ID, WEB_SEARCH_MODULE_ID, official_module_descriptor, official_module_descriptors,
     validate_descriptors,
+};
+pub use package::{
+    InstalledModule, InstalledModules, ModulePackageManifest, PackageError, PackageKind,
+    PackagePermissions, install_registry_version, installed_modules_file, load_installed_modules,
+    remove_installed_module,
+};
+pub use registry::{
+    DEFAULT_REGISTRY_ROOT_URL, RAW_REGISTRY_ROOT_URL, RegistryIndex, RegistryModule,
+    RegistryRefresh, RegistryRoot, RegistryVersion, ReviewStatus, load_cached_registry,
+    refresh_registry, verify_registry_bytes,
 };
 pub use state::{
     InitializeModulesConfigError, LoadModulesConfigError, MODULES_CONFIG_VERSION,
