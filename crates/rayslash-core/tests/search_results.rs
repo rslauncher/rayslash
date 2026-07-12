@@ -3,21 +3,16 @@ mod fixtures;
 use std::path::{Path, PathBuf};
 
 use fixtures::{app, project};
-use rayslash_core::{
-    config::{ProviderConfig, WebSearchConfig},
-    search,
-};
+use rayslash_core::{config::ProviderConfig, search};
 
 #[test]
 fn placeholder_results_are_available() {
     let results = search::placeholder_results();
 
-    assert_eq!(results.len(), 8);
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].title, "Open applications");
     assert_eq!(results[1].title, "Find folders");
     assert!(results[1].subtitle.contains("folders"));
-    assert_eq!(results[3].title, "Use aliases");
-    assert_eq!(results[4].title, "Search the web");
-    assert_eq!(results[7].title, "Check time");
 }
 
 #[test]
@@ -92,27 +87,6 @@ fn current_result_types_have_stable_ids() {
         .into_iter()
         .next()
         .expect("project result");
-    let calculator_result = search::mixed_results(&[], &[], "2 + 2")
-        .into_iter()
-        .next()
-        .expect("calculator result");
-    let default_web_search = search::mixed_results_with_ranking_and_web_searches(
-        &projects,
-        &[],
-        &[],
-        &[WebSearchConfig {
-            name: "Web Search".to_owned(),
-            keyword: "search".to_owned(),
-            url: "https://www.google.com/search?q=%s".to_owned(),
-            enabled: true,
-        }],
-        "search zzz",
-        &ProviderConfig::default(),
-        None,
-    )
-    .into_iter()
-    .next()
-    .expect("default web search row");
     let no_results = search::mixed_results_with_providers(
         &projects,
         &[],
@@ -142,16 +116,6 @@ fn current_result_types_have_stable_ids() {
         project_result.learning_id(),
         Some("folder:/tmp/rayslash".to_owned())
     );
-    assert_eq!(
-        calculator_result.stable_id(),
-        Some("calculator:2 + 2".to_owned())
-    );
-    assert_eq!(calculator_result.learning_id(), None);
-    assert_eq!(
-        default_web_search.stable_id(),
-        Some("web-search:Web Search:https://www.google.com/search?q=zzz".to_owned())
-    );
-    assert_eq!(default_web_search.learning_id(), None);
     assert_eq!(no_results.stable_id(), Some("no-results:zzz".to_owned()));
     assert_eq!(no_results.learning_id(), None);
 }

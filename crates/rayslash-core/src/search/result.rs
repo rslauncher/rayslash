@@ -2,9 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::{
     actions::CommandSpec,
-    config::AliasConfig,
     providers::{ProviderAction, ProviderId},
-    utility_actions::UtilityAction,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,71 +17,43 @@ pub struct SearchResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchResultIcon {
     Placeholder,
-    Calculator,
-    UnitConversion,
-    CurrencyConversion,
-    TimeLookup,
-    SystemReboot,
-    SystemShutdown,
-    SystemLogout,
-    SystemLock,
-    Timer,
-    WebSearch {
-        label: String,
-        path: Option<PathBuf>,
-    },
     App {
         path: Option<PathBuf>,
     },
     ProjectFolder,
+    Module {
+        label: String,
+        path: Option<PathBuf>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModuleAction {
+    CopyText(String),
+    OpenUrl(String),
+    OpenPath(PathBuf),
+    ShowMessage(String),
+    Notify {
+        title: String,
+        body: String,
+    },
+    RunApprovedCommand(Vec<String>),
+    ScheduleNotification {
+        delay: u64,
+        title: String,
+        body: String,
+    },
+    ScheduleCommand {
+        delay: u64,
+        command: Vec<String>,
+    },
+    None,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SearchResultKind {
     Placeholder,
     NoResults {
-        query: String,
-    },
-    Calculator {
-        expression: String,
-        result: String,
-    },
-    CalculatorError {
-        expression: String,
-        message: String,
-    },
-    UnitConversion {
-        expression: String,
-        result: String,
-    },
-    CurrencyConversion {
-        expression: String,
-        result: String,
-    },
-    CurrencyConversionError {
-        expression: String,
-        message: String,
-    },
-    TimeLookup {
-        expression: String,
-        result: String,
-    },
-    TimeLookupError {
-        expression: String,
-        message: String,
-    },
-    UtilityAction {
-        action: UtilityAction,
-    },
-    UtilityActionError {
-        expression: String,
-        message: String,
-    },
-    WebSearch {
-        name: String,
-        url: String,
-    },
-    DefaultWebSearch {
         query: String,
     },
     App {
@@ -96,8 +66,11 @@ pub enum SearchResultKind {
     Project {
         path: PathBuf,
     },
-    Alias {
-        alias: AliasConfig,
+    Module {
+        module_id: String,
+        result_id: String,
+        action: ModuleAction,
+        score: Option<u32>,
     },
 }
 
@@ -106,21 +79,7 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::App { .. } => ProviderId::CORE_APPS,
             SearchResultKind::Project { .. } => ProviderId::CORE_FOLDERS,
-            SearchResultKind::Calculator { .. } | SearchResultKind::CalculatorError { .. } => {
-                ProviderId::CALCULATOR
-            }
-            SearchResultKind::UnitConversion { .. } => ProviderId::UNITS,
-            SearchResultKind::CurrencyConversion { .. }
-            | SearchResultKind::CurrencyConversionError { .. } => ProviderId::CURRENCY,
-            SearchResultKind::TimeLookup { .. } | SearchResultKind::TimeLookupError { .. } => {
-                ProviderId::TIME
-            }
-            SearchResultKind::UtilityAction { .. }
-            | SearchResultKind::UtilityActionError { .. } => ProviderId::TIMERS,
-            SearchResultKind::WebSearch { .. } | SearchResultKind::DefaultWebSearch { .. } => {
-                ProviderId::WEB_SEARCH
-            }
-            SearchResultKind::Alias { .. } => ProviderId::ALIASES,
+            SearchResultKind::Module { module_id, .. } => ProviderId::new(module_id.clone()),
             SearchResultKind::Placeholder | SearchResultKind::NoResults { .. } => {
                 ProviderId::CORE_FALLBACK
             }
@@ -133,153 +92,20 @@ impl SearchResult {
 
     pub fn project_path(&self) -> Option<&Path> {
         match &self.kind {
-            SearchResultKind::Placeholder => None,
-            SearchResultKind::NoResults { .. } => None,
-            SearchResultKind::Calculator { .. } => None,
-            SearchResultKind::CalculatorError { .. } => None,
-            SearchResultKind::UnitConversion { .. } => None,
-            SearchResultKind::CurrencyConversion { .. } => None,
-            SearchResultKind::CurrencyConversionError { .. } => None,
-            SearchResultKind::TimeLookup { .. } => None,
-            SearchResultKind::TimeLookupError { .. } => None,
-            SearchResultKind::UtilityAction { .. } => None,
-            SearchResultKind::UtilityActionError { .. } => None,
-            SearchResultKind::WebSearch { .. } => None,
-            SearchResultKind::DefaultWebSearch { .. } => None,
-            SearchResultKind::App { .. } => None,
             SearchResultKind::Project { path } => Some(path),
-            SearchResultKind::Alias { .. } => None,
+            _ => None,
         }
     }
 
     pub fn app_command(&self) -> Option<&CommandSpec> {
         match &self.kind {
             SearchResultKind::App { command, .. } => Some(command),
-            SearchResultKind::Placeholder
-            | SearchResultKind::NoResults { .. }
-            | SearchResultKind::Calculator { .. }
-            | SearchResultKind::CalculatorError { .. }
-            | SearchResultKind::UnitConversion { .. }
-            | SearchResultKind::CurrencyConversion { .. }
-            | SearchResultKind::CurrencyConversionError { .. }
-            | SearchResultKind::TimeLookup { .. }
-            | SearchResultKind::TimeLookupError { .. }
-            | SearchResultKind::UtilityAction { .. }
-            | SearchResultKind::UtilityActionError { .. }
-            | SearchResultKind::WebSearch { .. }
-            | SearchResultKind::DefaultWebSearch { .. }
-            | SearchResultKind::Project { .. }
-            | SearchResultKind::Alias { .. } => None,
-        }
-    }
-
-    pub fn calculator_result(&self) -> Option<&str> {
-        match &self.kind {
-            SearchResultKind::Calculator { result, .. } => Some(result),
-            SearchResultKind::Placeholder
-            | SearchResultKind::NoResults { .. }
-            | SearchResultKind::CalculatorError { .. }
-            | SearchResultKind::UnitConversion { .. }
-            | SearchResultKind::CurrencyConversion { .. }
-            | SearchResultKind::CurrencyConversionError { .. }
-            | SearchResultKind::TimeLookup { .. }
-            | SearchResultKind::TimeLookupError { .. }
-            | SearchResultKind::UtilityAction { .. }
-            | SearchResultKind::UtilityActionError { .. }
-            | SearchResultKind::WebSearch { .. }
-            | SearchResultKind::DefaultWebSearch { .. }
-            | SearchResultKind::App { .. }
-            | SearchResultKind::Project { .. }
-            | SearchResultKind::Alias { .. } => None,
-        }
-    }
-
-    pub fn calculator_error_message(&self) -> Option<&str> {
-        match &self.kind {
-            SearchResultKind::CalculatorError { message, .. } => Some(message),
-            SearchResultKind::Placeholder
-            | SearchResultKind::NoResults { .. }
-            | SearchResultKind::Calculator { .. }
-            | SearchResultKind::UnitConversion { .. }
-            | SearchResultKind::CurrencyConversion { .. }
-            | SearchResultKind::CurrencyConversionError { .. }
-            | SearchResultKind::TimeLookup { .. }
-            | SearchResultKind::TimeLookupError { .. }
-            | SearchResultKind::UtilityAction { .. }
-            | SearchResultKind::UtilityActionError { .. }
-            | SearchResultKind::WebSearch { .. }
-            | SearchResultKind::DefaultWebSearch { .. }
-            | SearchResultKind::App { .. }
-            | SearchResultKind::Project { .. }
-            | SearchResultKind::Alias { .. } => None,
+            _ => None,
         }
     }
 
     pub fn is_no_results(&self) -> bool {
         matches!(self.kind, SearchResultKind::NoResults { .. })
-    }
-
-    pub fn unit_conversion_result(&self) -> Option<&str> {
-        match &self.kind {
-            SearchResultKind::UnitConversion { result, .. } => Some(result),
-            _ => None,
-        }
-    }
-
-    pub fn currency_conversion_result(&self) -> Option<&str> {
-        match &self.kind {
-            SearchResultKind::CurrencyConversion { result, .. } => Some(result),
-            _ => None,
-        }
-    }
-
-    pub fn currency_error_message(&self) -> Option<&str> {
-        match &self.kind {
-            SearchResultKind::CurrencyConversionError { message, .. } => Some(message),
-            _ => None,
-        }
-    }
-
-    pub fn time_lookup_result(&self) -> Option<&str> {
-        match &self.kind {
-            SearchResultKind::TimeLookup { result, .. } => Some(result),
-            _ => None,
-        }
-    }
-
-    pub fn time_lookup_error_message(&self) -> Option<&str> {
-        match &self.kind {
-            SearchResultKind::TimeLookupError { message, .. } => Some(message),
-            _ => None,
-        }
-    }
-
-    pub fn utility_action(&self) -> Option<&UtilityAction> {
-        match &self.kind {
-            SearchResultKind::UtilityAction { action } => Some(action),
-            _ => None,
-        }
-    }
-
-    pub fn utility_action_error_message(&self) -> Option<&str> {
-        match &self.kind {
-            SearchResultKind::UtilityActionError { message, .. } => Some(message),
-            _ => None,
-        }
-    }
-
-    pub fn web_search_url(&self) -> Option<&str> {
-        match &self.kind {
-            SearchResultKind::WebSearch { url, .. } => Some(url),
-            _ => None,
-        }
-    }
-
-    pub fn default_web_search_query(&self) -> Option<&str> {
-        match &self.kind {
-            SearchResultKind::DefaultWebSearch { query } => Some(query),
-            _ => None,
-        }
     }
 
     pub fn app_id(&self) -> Option<&str> {
@@ -312,70 +138,19 @@ impl SearchResult {
         match &self.kind {
             SearchResultKind::App { id, .. } => Some(format!("app:{id}")),
             SearchResultKind::Project { path } => Some(format!("folder:{}", path.display())),
-            SearchResultKind::Calculator { expression, .. }
-            | SearchResultKind::CalculatorError { expression, .. } => {
-                Some(format!("calculator:{}", expression.trim()))
-            }
-            SearchResultKind::UnitConversion { expression, .. } => {
-                Some(format!("unit-conversion:{}", expression.trim()))
-            }
-            SearchResultKind::CurrencyConversion { expression, .. }
-            | SearchResultKind::CurrencyConversionError { expression, .. } => {
-                Some(format!("currency-conversion:{}", expression.trim()))
-            }
-            SearchResultKind::TimeLookup { expression, .. }
-            | SearchResultKind::TimeLookupError { expression, .. } => {
-                Some(format!("time-lookup:{}", expression.trim()))
-            }
-            SearchResultKind::UtilityAction { action } => match action {
-                UtilityAction::System(action) => Some(format!(
-                    "system-action:{:?}:{}",
-                    action.kind,
-                    action.expression.trim()
-                )),
-                UtilityAction::Timer(action) => Some(format!("timer:{}", action.expression.trim())),
-            },
-            SearchResultKind::UtilityActionError { expression, .. } => {
-                Some(format!("utility-action-error:{}", expression.trim()))
-            }
-            SearchResultKind::WebSearch { name, url } => Some(format!("web-search:{name}:{url}")),
-            SearchResultKind::DefaultWebSearch { query } => {
-                Some(format!("default-web-search:{}", query.trim()))
-            }
-            SearchResultKind::Alias { alias } => Some(format!("alias:{}", alias.query.trim())),
+            SearchResultKind::Module {
+                module_id,
+                result_id,
+                ..
+            } => Some(format!("module:{module_id}:{result_id}")),
             SearchResultKind::NoResults { query } => Some(format!("no-results:{}", query.trim())),
             SearchResultKind::Placeholder => None,
         }
     }
 
     pub fn learning_id(&self) -> Option<String> {
-        match &self.kind {
+        match self.kind {
             SearchResultKind::App { .. } | SearchResultKind::Project { .. } => self.stable_id(),
-            SearchResultKind::UtilityAction {
-                action: UtilityAction::System(action),
-            } => Some(format!("system-action:{:?}", action.kind)),
-            SearchResultKind::Placeholder
-            | SearchResultKind::NoResults { .. }
-            | SearchResultKind::Calculator { .. }
-            | SearchResultKind::CalculatorError { .. }
-            | SearchResultKind::UnitConversion { .. }
-            | SearchResultKind::CurrencyConversion { .. }
-            | SearchResultKind::CurrencyConversionError { .. }
-            | SearchResultKind::TimeLookup { .. }
-            | SearchResultKind::TimeLookupError { .. }
-            | SearchResultKind::UtilityAction {
-                action: UtilityAction::Timer(_),
-            }
-            | SearchResultKind::UtilityActionError { .. }
-            | SearchResultKind::WebSearch { .. }
-            | SearchResultKind::DefaultWebSearch { .. }
-            | SearchResultKind::Alias { .. } => None,
-        }
-    }
-
-    pub fn alias(&self) -> Option<&AliasConfig> {
-        match &self.kind {
-            SearchResultKind::Alias { alias } => Some(alias),
             _ => None,
         }
     }

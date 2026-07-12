@@ -26,11 +26,9 @@
 
 - Search and launch installed desktop applications
 - Find folders from configurable source directories
-- Evaluate calculations and linear equations
-- Convert units and currencies, and look up local times
-- Open quick links, files, folders, and explicit commands through aliases
-- Search the web with configurable keyword triggers
-- Run timers, reminders, and common system actions
+- Install Calculator, Units, Currency, Time, Web Search, Timers, Aliases, and community modules only when wanted
+- Verify a signed registry and every package digest before activation
+- Run executable modules without WASI in the separately installed sandbox host
 - Learn from app and folder selections using local ranking data
 - Configure providers, appearance, aliases, and search engines from the settings panel
 
@@ -58,9 +56,11 @@ rayslash toggle
 
 Global shortcuts are managed by the desktop environment rather than captured by rayslash. A desktop entry and icon are available under [`packaging/linux`](packaging/linux) for local or package installations.
 
+The core install contains no optional modules. Install them from Settings → Modules. WASM modules also require the optional [`rayslash-module-host`](https://github.com/rslauncher/rayslash-module-host); Fedora and Arch recipes install it separately. Apps and Folders work without the host or registry.
+
 ## Usage
 
-Start typing to search applications, folders, and aliases. The built-in tools use explicit queries such as:
+Start typing to search applications and configured folders. After installing the corresponding modules, queries include:
 
 ```text
 2 * (3 + 4)
@@ -81,7 +81,11 @@ Settings can be changed from the launcher or by editing:
 ~/.config/rayslash/config.toml
 ```
 
-Folder sources, aliases, web searches, enabled providers, appearance, and ranking behavior are configurable. User state and cached data follow the XDG base directory conventions.
+Folder sources, module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
+
+## Modules
+
+Module authors can start with the [SDK quickstart](https://github.com/rslauncher/rayslash-module-sdk/blob/main/docs/AUTHORING.md). The SDK contains the stable WIT contract, manifest schema, validator/packager, and release template. Community submissions are pull requests to the [signed registry](https://github.com/rslauncher/rayslash-registry); no paid service or custom backend is required.
 
 ## Development
 

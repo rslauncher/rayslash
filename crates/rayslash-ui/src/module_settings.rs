@@ -21,7 +21,8 @@ use crate::{
     result_items::IconImageCache,
     runtime_state::{
         ResultRefreshContext, ResultSelection, SearchResultSet, effective_search_query,
-        refresh_result_view, refresh_settings_dependent_ui, search_result_set,
+        query_execution_hint, refresh_result_view, refresh_settings_dependent_ui,
+        search_result_set,
     },
 };
 
@@ -70,6 +71,14 @@ pub(crate) fn module_items(
             let update_available = installed_module
                 .zip(latest)
                 .is_some_and(|(installed, latest)| latest.version > installed.version);
+            let permission_expansion = installed_module.is_some_and(|installed| {
+                std::fs::read_to_string(installed.install_path.join("module.toml"))
+                    .ok()
+                    .and_then(|text| toml::from_str::<modules::ModulePackageManifest>(&text).ok())
+                    .is_some_and(|manifest| {
+                        permissions_expand(&manifest.permissions, &module.permissions)
+                    })
+            });
             let version = installed_module
                 .map(|installed| installed.version.to_string())
                 .or_else(|| latest.map(|latest| latest.version.to_string()))
@@ -88,14 +97,19 @@ pub(crate) fn module_items(
                 installed: installed_module.is_some(),
                 official: module.official,
                 stars: module.github_stars.to_string().into(),
-                action: if update_available {
+                action: if update_available && permission_expansion {
+                    "Review update".into()
+                } else if update_available {
                     "Update".into()
                 } else if installed_module.is_some() {
                     "Remove".into()
+                } else if config.is_enabled(&module.id).is_some() {
+                    "Restore".into()
                 } else {
                     "Install".into()
                 },
                 update_available,
+                permissions: permission_summary(&module.permissions).into(),
                 icon_kind: icon_kind.into(),
                 icon_text: icon_text.into(),
             }
@@ -123,11 +137,14 @@ pub(crate) fn module_items(
             stars: "".into(),
             action: if installed_module.is_some() {
                 "Remove"
+            } else if config.is_enabled(descriptor.id).is_some() {
+                "Restore"
             } else {
                 "Install"
             }
             .into(),
             update_available: false,
+            permissions: "Permissions shown when the verified catalog is available".into(),
             icon_kind: icon_kind.into(),
             icon_text: icon_text.into(),
         });
@@ -139,6 +156,44 @@ pub(crate) fn module_items(
             .then_with(|| left.name.cmp(&right.name))
     });
     items
+}
+
+fn permission_summary(permissions: &modules::PackagePermissions) -> String {
+    let mut values = Vec::new();
+    if !permissions.network.is_empty() {
+        values.push(format!("network ({})", permissions.network.join(", ")));
+    }
+    if permissions.cache {
+        values.push("cache".into());
+    }
+    if permissions.clipboard {
+        values.push("clipboard".into());
+    }
+    if permissions.notifications {
+        values.push("notifications".into());
+    }
+    if permissions.commands {
+        values.push("commands".into());
+    }
+    if values.is_empty() {
+        "Capabilities: none".into()
+    } else {
+        format!("Capabilities: {}", values.join(", "))
+    }
+}
+
+fn permissions_expand(
+    current: &modules::PackagePermissions,
+    next: &modules::PackagePermissions,
+) -> bool {
+    (!current.cache && next.cache)
+        || (!current.clipboard && next.clipboard)
+        || (!current.notifications && next.notifications)
+        || (!current.commands && next.commands)
+        || next
+            .network
+            .iter()
+            .any(|origin| !current.network.contains(origin))
 }
 
 fn latest_compatible_version(
@@ -232,7 +287,7 @@ pub(crate) fn register_module_settings_callback(
             }
             let module_id = module_id.as_str();
             let outcome = match action.as_str() {
-                "Install" | "Update" => {
+                "Install" | "Restore" | "Update" | "Review update" => {
                     let catalog = module_catalog.borrow();
                     let Some(module) = catalog.iter().find(|module| module.id == module_id) else {
                         ui.set_status_text(
@@ -252,11 +307,14 @@ pub(crate) fn register_module_settings_callback(
                         config
                     })
                 }
-                "Remove" => modules::remove_installed_module(module_id, false).map(|_| {
-                    let mut config = module_state.borrow().clone();
-                    config.remove(module_id);
-                    config
-                }),
+                "Remove" | "Remove all" => {
+                    modules::remove_installed_module(module_id, action.as_str() == "Remove all")
+                        .map(|_| {
+                            let mut config = module_state.borrow().clone();
+                            config.remove(module_id);
+                            config
+                        })
+                }
                 _ => {
                     ui.set_status_text(format!("Unknown module action: {action}").into());
                     return;
@@ -278,6 +336,8 @@ pub(crate) fn register_module_settings_callback(
                         );
                         let message = if action.as_str() == "Remove" {
                             "Module code removed; its settings and data were kept".to_owned()
+                        } else if action.as_str() == "Remove all" {
+                            "Module code, settings, state, and cache removed".to_owned()
                         } else {
                             format!("Module {} completed", action.to_ascii_lowercase())
                         };
@@ -362,10 +422,7 @@ pub(crate) fn register_module_settings_callback(
                 ui.get_active_search_keyword().as_str(),
             );
             let needs_remote_lookup = matches!(
-                rayslash_core::search::query_execution_hint(
-                    &effective_query,
-                    &config_state.borrow().providers,
-                ),
+                query_execution_hint(&config_state.borrow()),
                 ProviderExecutionHint::DebouncedNetwork { .. }
             );
 
