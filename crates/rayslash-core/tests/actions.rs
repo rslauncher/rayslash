@@ -2,10 +2,7 @@ mod fixtures;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use rayslash_core::{
-    actions::{self, CommandSpec},
-    config::{AliasConfig, AliasKind},
-};
+use rayslash_core::actions::{self, CommandSpec};
 
 #[test]
 fn open_project_folder_command_uses_xdg_open_with_project_path_argument() {
@@ -68,18 +65,6 @@ fn parse_action_command_preserves_alias_command_arguments() {
 
     assert_eq!(command.program, OsString::from("notify-send"));
     assert_eq!(command.args, vec![OsString::from("Hello world")]);
-}
-
-#[test]
-fn launch_alias_rejects_invalid_quoted_command() {
-    let alias = AliasConfig {
-        name: "Broken".to_owned(),
-        query: "broken".to_owned(),
-        target: r#"notify-send "unfinished"#.to_owned(),
-        kind: Some(AliasKind::Command),
-    };
-
-    assert!(actions::launch_alias(&alias).is_err());
 }
 
 #[test]

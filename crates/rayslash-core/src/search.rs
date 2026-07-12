@@ -16,7 +16,7 @@ use providers::{disabled_providers_result, no_results, placeholder_results_for_p
 pub use providers::{display_path, placeholder_results, project_results};
 #[cfg(test)]
 use providers::{display_path_for_home, project_result_with_subtitle};
-pub use result::{SearchResult, SearchResultIcon, SearchResultKind};
+pub use result::{ModuleAction, SearchResult, SearchResultIcon, SearchResultKind};
 
 pub fn mixed_results(projects: &[Project], apps: &[DesktopApp], query: &str) -> Vec<SearchResult> {
     mixed_results_with_aliases(projects, apps, &[], query)
@@ -95,20 +95,14 @@ pub fn mixed_results_with_ranking_and_web_searches(
     }
 
     let mut outcomes = Vec::with_capacity(provider_registry.len());
-    let mut suppresses_calculator = false;
     for provider in provider_registry {
-        if provider.metadata().id == ProviderId::CALCULATOR && suppresses_calculator {
-            continue;
-        }
         let output = provider.run(&context);
-        suppresses_calculator |= output.suppresses_calculator;
         outcomes.push(output);
     }
 
     let data_sources_empty = (!provider_enabled(&context, &ProviderId::CORE_FOLDERS)
         || projects.is_empty())
-        && (!provider_enabled(&context, &ProviderId::CORE_APPS) || apps.is_empty())
-        && (!provider_enabled(&context, &ProviderId::ALIASES) || aliases.is_empty());
+        && (!provider_enabled(&context, &ProviderId::CORE_APPS) || apps.is_empty());
     if data_sources_empty {
         let results = outcomes
             .into_iter()
@@ -148,9 +142,7 @@ pub fn mixed_results_with_ranking_and_web_searches(
             let ranking_eligible = provider_result.ranking_eligible
                 && matches!(
                     provider_result.action,
-                    ProviderAction::LaunchApp { .. }
-                        | ProviderAction::OpenFolder(_)
-                        | ProviderAction::RunUtility(_)
+                    ProviderAction::LaunchApp { .. } | ProviderAction::OpenFolder(_)
                 );
             let boosted_score = if ranking_eligible {
                 boosted_score(&provider_result.result, score, query, ranking)
@@ -211,7 +203,6 @@ fn is_data_provider(id: &ProviderId) -> bool {
         id,
         id if id == &ProviderId::CORE_APPS
             || id == &ProviderId::CORE_FOLDERS
-            || id == &ProviderId::ALIASES
     )
 }
 

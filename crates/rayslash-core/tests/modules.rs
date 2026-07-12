@@ -273,7 +273,7 @@ fn saved_modules_config_is_complete_and_parseable() {
 
     save_modules_config_to_path(&path, &config).expect("save module config");
     let contents = fs::read_to_string(&path).expect("read saved config");
-    assert!(contents.contains("version = 1"));
+    assert!(contents.contains(&format!("version = {MODULES_CONFIG_VERSION}")));
 
     let loaded = load_modules_config_from_path(&path, &ProviderConfig::default())
         .expect("load saved config");
@@ -327,6 +327,9 @@ fn fresh_install_creates_an_empty_optional_module_config() {
 
     assert!(outcome.was_created());
     assert!(outcome.config().modules.is_empty());
+    let reloaded = load_modules_config_from_path(&path, &ProviderConfig::default())
+        .expect("reload fresh module config");
+    assert!(reloaded.modules.is_empty());
 }
 
 #[test]

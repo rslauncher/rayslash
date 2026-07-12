@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    collections::BTreeSet,
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -14,20 +15,22 @@ use rayslash_core::{
     app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking, search,
 };
 use semver::Version;
-use slint::{ComponentHandle, VecModel};
+use slint::{ComponentHandle, Timer, TimerMode, VecModel};
 
 use crate::{
     AppWindow, ModuleItem, ResultItem,
     result_items::IconImageCache,
     runtime_state::{
         ResultRefreshContext, ResultSelection, SearchResultSet, effective_search_query,
-        refresh_result_view, refresh_settings_dependent_ui, search_result_set,
+        query_execution_hint, refresh_result_view, refresh_settings_dependent_ui,
+        search_result_set,
     },
 };
 
 pub(crate) struct RuntimeModules {
     pub config: modules::ModulesConfig,
     pub writes_blocked: bool,
+    pub migration_pending: bool,
 }
 
 pub(crate) fn load_runtime_modules(
@@ -39,19 +42,26 @@ pub(crate) fn load_runtime_modules(
         return RuntimeModules {
             config: modules::ModulesConfig::from_legacy_provider_config(legacy_providers),
             writes_blocked: true,
+            migration_pending: false,
         };
     }
 
     match modules::load_or_create_modules_config_with_migration(legacy_providers, migrate_legacy) {
-        Ok(outcome) => RuntimeModules {
-            config: outcome.into_config(),
-            writes_blocked: false,
-        },
+        Ok(outcome) => {
+            let migration_pending =
+                outcome.was_migrated() || (migrate_legacy && outcome.was_created());
+            RuntimeModules {
+                config: outcome.into_config(),
+                writes_blocked: false,
+                migration_pending,
+            }
+        }
         Err(error) => {
             eprintln!("{error}; using legacy provider settings and disabling module writes");
             RuntimeModules {
                 config: modules::ModulesConfig::from_legacy_provider_config(legacy_providers),
                 writes_blocked: true,
+                migration_pending: false,
             }
         }
     }
@@ -66,10 +76,23 @@ pub(crate) fn module_items(
         .iter()
         .map(|module| {
             let installed_module = installed.modules.get(&module.id);
+            let installed_manifest = installed_module.and_then(|installed| {
+                std::fs::read_to_string(installed.install_path.join("module.toml"))
+                    .ok()
+                    .and_then(|text| toml::from_str::<modules::ModulePackageManifest>(&text).ok())
+                    .filter(|manifest| {
+                        manifest.id == module.id
+                            && installed.install_path.join("module.wasm").is_file()
+                    })
+            });
+            let installed_healthy = installed_module.is_none() || installed_manifest.is_some();
             let latest = latest_compatible_version(module);
             let update_available = installed_module
                 .zip(latest)
                 .is_some_and(|(installed, latest)| latest.version > installed.version);
+            let permission_expansion = installed_manifest.as_ref().is_some_and(|manifest| {
+                permissions_expand(&manifest.permissions, &module.permissions)
+            });
             let version = installed_module
                 .map(|installed| installed.version.to_string())
                 .or_else(|| latest.map(|latest| latest.version.to_string()))
@@ -88,14 +111,40 @@ pub(crate) fn module_items(
                 installed: installed_module.is_some(),
                 official: module.official,
                 stars: module.github_stars.to_string().into(),
-                action: if update_available {
+                action: if !installed_healthy {
+                    "Repair".into()
+                } else if update_available && permission_expansion {
+                    "Review update".into()
+                } else if update_available {
                     "Update".into()
                 } else if installed_module.is_some() {
                     "Remove".into()
+                } else if config.is_enabled(&module.id).is_some() {
+                    "Restore".into()
                 } else {
                     "Install".into()
                 },
                 update_available,
+                permissions: permission_summary(&module.permissions).into(),
+                repository: module.repository.clone().into(),
+                license: module.license.clone().into(),
+                review_status: match module.review_status {
+                    modules::ReviewStatus::Reviewed => "Reviewed",
+                    modules::ReviewStatus::LimitedReview => "Limited review",
+                    modules::ReviewStatus::Blocked => "Blocked",
+                }
+                .into(),
+                status: if !installed_healthy {
+                    "Installed · Broken".into()
+                } else if installed_module.is_some() {
+                    if config.is_enabled(&module.id).unwrap_or(true) {
+                        "Installed · Enabled".into()
+                    } else {
+                        "Installed · Disabled".into()
+                    }
+                } else {
+                    "Not installed".into()
+                },
                 icon_kind: icon_kind.into(),
                 icon_text: icon_text.into(),
             }
@@ -123,11 +172,22 @@ pub(crate) fn module_items(
             stars: "".into(),
             action: if installed_module.is_some() {
                 "Remove"
+            } else if config.is_enabled(descriptor.id).is_some() {
+                "Restore"
             } else {
                 "Install"
             }
             .into(),
             update_available: false,
+            permissions: "Permissions shown when the verified catalog is available".into(),
+            repository: "".into(),
+            license: "".into(),
+            review_status: "Catalog unavailable".into(),
+            status: if installed_module.is_some() {
+                "Installed".into()
+            } else {
+                "Not installed".into()
+            },
             icon_kind: icon_kind.into(),
             icon_text: icon_text.into(),
         });
@@ -141,9 +201,73 @@ pub(crate) fn module_items(
     items
 }
 
+fn permission_summary(permissions: &modules::PackagePermissions) -> String {
+    let mut values = Vec::new();
+    if !permissions.network.is_empty() {
+        values.push(format!("network ({})", permissions.network.join(", ")));
+    }
+    if permissions.cache {
+        values.push("cache".into());
+    }
+    if permissions.clipboard {
+        values.push("clipboard".into());
+    }
+    if permissions.notifications {
+        values.push("notifications".into());
+    }
+    if permissions.commands {
+        values.push("commands".into());
+    }
+    if values.is_empty() {
+        "Capabilities: none".into()
+    } else {
+        format!("Capabilities: {}", values.join(", "))
+    }
+}
+
+fn permissions_expand(
+    current: &modules::PackagePermissions,
+    next: &modules::PackagePermissions,
+) -> bool {
+    (!current.cache && next.cache)
+        || (!current.clipboard && next.clipboard)
+        || (!current.notifications && next.notifications)
+        || (!current.commands && next.commands)
+        || next
+            .network
+            .iter()
+            .any(|origin| !current.network.contains(origin))
+}
+
+fn permission_expansion_summary(
+    current: &modules::PackagePermissions,
+    next: &modules::PackagePermissions,
+) -> String {
+    let mut added = next
+        .network
+        .iter()
+        .filter(|origin| !current.network.contains(origin))
+        .map(|origin| format!("network {origin}"))
+        .collect::<Vec<_>>();
+    for (was_enabled, is_enabled, label) in [
+        (current.cache, next.cache, "cache"),
+        (current.clipboard, next.clipboard, "clipboard"),
+        (current.notifications, next.notifications, "notifications"),
+        (current.commands, next.commands, "commands"),
+    ] {
+        if !was_enabled && is_enabled {
+            added.push(label.into());
+        }
+    }
+    added.join(", ")
+}
+
 fn latest_compatible_version(
     module: &modules::RegistryModule,
 ) -> Option<&modules::RegistryVersion> {
+    if module.review_status == modules::ReviewStatus::Blocked {
+        return None;
+    }
     let api = Version::new(1, 0, 0);
     module
         .versions
@@ -195,7 +319,7 @@ pub(crate) struct ModuleSettingsCallbackContext {
 pub(crate) fn register_module_settings_callback(
     ui: &AppWindow,
     context: ModuleSettingsCallbackContext,
-) {
+) -> Timer {
     let ModuleSettingsCallbackContext {
         module_state,
         module_catalog,
@@ -215,11 +339,62 @@ pub(crate) fn register_module_settings_callback(
         profile,
     } = context;
 
+    let (install_tx, install_rx) =
+        mpsc::channel::<(String, String, Result<modules::InstalledModule, String>)>();
+    let pending_permission_approvals = Rc::new(RefCell::new(BTreeSet::<String>::new()));
+    let install_timer = Timer::default();
+    install_timer.start(TimerMode::Repeated, std::time::Duration::from_millis(50), {
+        let weak = ui.as_weak();
+        let module_state = module_state.clone();
+        let module_catalog = module_catalog.clone();
+        let module_model = module_model.clone();
+        move || {
+            let completions = install_rx.try_iter().collect::<Vec<_>>();
+            if completions.is_empty() {
+                return;
+            }
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            for (module_id, action, result) in completions {
+                match result {
+                    Ok(installed) => {
+                        let mut config = module_state.borrow().clone();
+                        config.set_installed(&module_id, &installed.version.to_string(), true);
+                        if let Err(error) = modules::save_modules_config(&config) {
+                            ui.set_status_text(
+                                format!(
+                                    "Module installed, but its setting could not be saved: {error}"
+                                )
+                                .into(),
+                            );
+                        } else {
+                            *module_state.borrow_mut() = config;
+                            refresh_module_items(
+                                &module_model,
+                                &module_state.borrow(),
+                                &module_catalog.borrow(),
+                            );
+                            ui.set_status_text(
+                                format!("Module {} completed", action.to_ascii_lowercase()).into(),
+                            );
+                        }
+                    }
+                    Err(error) => ui.set_status_text(
+                        format!("Could not {} module: {error}", action.to_ascii_lowercase()).into(),
+                    ),
+                }
+            }
+        }
+    });
+
     ui.on_settings_module_action_requested({
         let weak = ui.as_weak();
         let module_state = module_state.clone();
         let module_catalog = module_catalog.clone();
         let module_model = module_model.clone();
+        let install_tx = install_tx.clone();
+        let pending_permission_approvals = pending_permission_approvals.clone();
         move |module_id, action| {
             let Some(ui) = weak.upgrade() else {
                 return;
@@ -231,8 +406,26 @@ pub(crate) fn register_module_settings_callback(
                 return;
             }
             let module_id = module_id.as_str();
+            if action.as_str() == "Source" {
+                let repository = module_catalog
+                    .borrow()
+                    .iter()
+                    .find(|module| module.id == module_id)
+                    .map(|module| module.repository.clone());
+                match repository {
+                    Some(repository) => {
+                        if let Err(error) = rayslash_core::actions::run_module_action(
+                            &search::ModuleAction::OpenUrl(repository),
+                        ) {
+                            ui.set_status_text(format!("Could not open module source: {error}").into());
+                        }
+                    }
+                    None => ui.set_status_text("Module source is unavailable offline.".into()),
+                }
+                return;
+            }
             let outcome = match action.as_str() {
-                "Install" | "Update" => {
+                "Install" | "Restore" | "Repair" | "Update" | "Review update" => {
                     let catalog = module_catalog.borrow();
                     let Some(module) = catalog.iter().find(|module| module.id == module_id) else {
                         ui.set_status_text(
@@ -245,18 +438,60 @@ pub(crate) fn register_module_settings_callback(
                         ui.set_status_text("No compatible module version is available.".into());
                         return;
                     };
+                    if action.as_str() == "Review update" {
+                        let current_permissions = modules::load_installed_modules()
+                            .ok()
+                            .and_then(|installed| installed.modules.get(module_id).cloned())
+                            .and_then(|installed| {
+                                std::fs::read_to_string(
+                                    installed.install_path.join("module.toml"),
+                                )
+                                .ok()
+                            })
+                            .and_then(|text| {
+                                toml::from_str::<modules::ModulePackageManifest>(&text).ok()
+                            })
+                            .map(|manifest| manifest.permissions)
+                            .unwrap_or_default();
+                        let changes = permission_expansion_summary(
+                            &current_permissions,
+                            &module.permissions,
+                        );
+                        let mut approvals = pending_permission_approvals.borrow_mut();
+                        if !approvals.remove(module_id) {
+                            approvals.insert(module_id.to_owned());
+                            ui.set_status_text(
+                                format!(
+                                    "New capabilities: {changes}. Click Review update again to approve."
+                                )
+                                .into(),
+                            );
+                            return;
+                        }
+                    } else {
+                        pending_permission_approvals.borrow_mut().remove(module_id);
+                    }
                     ui.set_status_text(format!("{} {}…", action, module.name).into());
-                    modules::install_registry_version(module, version).map(|installed| {
-                        let mut config = module_state.borrow().clone();
-                        config.set_installed(module_id, &installed.version.to_string(), true);
-                        config
-                    })
+                    let module = module.clone();
+                    let version = version.clone();
+                    let module_id = module_id.to_owned();
+                    let action = action.to_string();
+                    let install_tx = install_tx.clone();
+                    thread::spawn(move || {
+                        let result = modules::install_registry_version(&module, &version)
+                            .map_err(|error| error.to_string());
+                        let _ = install_tx.send((module_id, action, result));
+                    });
+                    return;
                 }
-                "Remove" => modules::remove_installed_module(module_id, false).map(|_| {
-                    let mut config = module_state.borrow().clone();
-                    config.remove(module_id);
-                    config
-                }),
+                "Remove" | "Remove all" => {
+                    modules::remove_installed_module(module_id, action.as_str() == "Remove all")
+                        .map(|_| {
+                            let mut config = module_state.borrow().clone();
+                            config.remove(module_id);
+                            config
+                        })
+                }
                 _ => {
                     ui.set_status_text(format!("Unknown module action: {action}").into());
                     return;
@@ -278,6 +513,8 @@ pub(crate) fn register_module_settings_callback(
                         );
                         let message = if action.as_str() == "Remove" {
                             "Module code removed; its settings and data were kept".to_owned()
+                        } else if action.as_str() == "Remove all" {
+                            "Module code, settings, state, and cache removed".to_owned()
                         } else {
                             format!("Module {} completed", action.to_ascii_lowercase())
                         };
@@ -362,10 +599,7 @@ pub(crate) fn register_module_settings_callback(
                 ui.get_active_search_keyword().as_str(),
             );
             let needs_remote_lookup = matches!(
-                rayslash_core::search::query_execution_hint(
-                    &effective_query,
-                    &config_state.borrow().providers,
-                ),
+                query_execution_hint(&config_state.borrow()),
                 ProviderExecutionHint::DebouncedNetwork { .. }
             );
 
@@ -435,6 +669,8 @@ pub(crate) fn register_module_settings_callback(
             }
         }
     });
+
+    install_timer
 }
 
 #[cfg(test)]
@@ -486,6 +722,25 @@ mod tests {
                 .config
                 .is_enabled(rayslash_core::modules::TIMERS_MODULE_ID),
             Some(false)
+        );
+    }
+
+    #[test]
+    fn permission_expansion_lists_only_new_capabilities() {
+        let current = modules::PackagePermissions {
+            network: vec!["https://old.example".into()],
+            cache: true,
+            ..Default::default()
+        };
+        let next = modules::PackagePermissions {
+            network: vec!["https://old.example".into(), "https://new.example".into()],
+            cache: true,
+            notifications: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            permission_expansion_summary(&current, &next),
+            "network https://new.example, notifications"
         );
     }
 }

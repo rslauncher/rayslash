@@ -45,7 +45,7 @@ fn subtitle_tooltip(result: &search::SearchResult) -> String {
         search::SearchResultKind::NoResults { query } => {
             format!("No enabled provider matched \"{query}\"")
         }
-        search::SearchResultKind::TimeLookup { .. } => result.subtitle.clone(),
+        search::SearchResultKind::Module { .. } => result.subtitle.clone(),
         _ => String::new(),
     }
 }
@@ -134,6 +134,23 @@ struct RowIcon {
 
 fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache) -> RowIcon {
     match icon {
+        search::SearchResultIcon::Module {
+            path: Some(path), ..
+        } => {
+            if let Some(image) = load_icon_image(path, icon_cache) {
+                RowIcon {
+                    image,
+                    has_image: true,
+                    kind: "module",
+                    text: String::new(),
+                }
+            } else {
+                fallback_icon("module", "")
+            }
+        }
+        search::SearchResultIcon::Module { label, path: None } => {
+            fallback_icon_owned("module", label.clone())
+        }
         search::SearchResultIcon::App { path: Some(path) } => {
             if let Some(image) = load_icon_image(path, icon_cache) {
                 RowIcon {
@@ -147,30 +164,6 @@ fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache)
             }
         }
         search::SearchResultIcon::App { path: None } => fallback_icon("app", ""),
-        search::SearchResultIcon::Calculator => fallback_icon("calculator", ""),
-        search::SearchResultIcon::UnitConversion => fallback_icon("text", "U"),
-        search::SearchResultIcon::CurrencyConversion => fallback_icon("text", "$"),
-        search::SearchResultIcon::TimeLookup => fallback_icon("time", ""),
-        search::SearchResultIcon::SystemReboot => fallback_icon("reboot", ""),
-        search::SearchResultIcon::SystemShutdown => fallback_icon("power", ""),
-        search::SearchResultIcon::SystemLogout => fallback_icon("logout", ""),
-        search::SearchResultIcon::SystemLock => fallback_icon("lock", ""),
-        search::SearchResultIcon::Timer => fallback_icon("stopwatch", ""),
-        search::SearchResultIcon::WebSearch {
-            label,
-            path: Some(path),
-        } => load_icon_image(path, icon_cache).map_or_else(
-            || fallback_icon_owned("text", label.clone()),
-            |image| RowIcon {
-                image,
-                has_image: true,
-                kind: "web-search",
-                text: String::new(),
-            },
-        ),
-        search::SearchResultIcon::WebSearch { label, path: None } => {
-            fallback_icon_owned("text", label.clone())
-        }
         search::SearchResultIcon::ProjectFolder => fallback_icon("folder", ""),
         search::SearchResultIcon::Placeholder => fallback_icon("placeholder", ""),
     }

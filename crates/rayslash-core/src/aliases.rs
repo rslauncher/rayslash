@@ -2,21 +2,6 @@ use std::path::PathBuf;
 
 use crate::config::{AliasConfig, AliasKind};
 
-pub fn alias_kind(alias: &AliasConfig) -> AliasKind {
-    alias
-        .kind
-        .unwrap_or_else(|| infer_alias_kind(&alias.target))
-}
-
-pub fn alias_subtitle(alias: &AliasConfig) -> String {
-    match alias_kind(alias) {
-        AliasKind::Url => format!("Quick link - {}", alias.target),
-        AliasKind::File => format!("File - {}", alias.target),
-        AliasKind::Folder => format!("Folder - {}", alias.target),
-        AliasKind::Command => format!("Command - {}", alias.target),
-    }
-}
-
 pub fn normalize_aliases(aliases: Vec<AliasConfig>) -> Vec<AliasConfig> {
     aliases
         .into_iter()

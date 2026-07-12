@@ -37,7 +37,8 @@ use result_items::{IconImageCache, to_result_items};
 use runtime_state::{
     ResultRefreshContext, ResultSelection, SearchResultSet, effective_search_query,
     load_runtime_app_state, load_runtime_ranking_state, profile_enabled, profile_stage,
-    refresh_result_view, refresh_settings_dependent_ui, search_result_set, sync_app_install_state,
+    query_execution_hint, refresh_result_view, refresh_settings_dependent_ui, search_result_set,
+    sync_app_install_state,
 };
 use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
@@ -159,6 +160,7 @@ fn run_gui(
         .config
         .apply_to_provider_config(&mut config.providers);
     let module_writes_blocked = runtime_modules.writes_blocked;
+    let module_migration_pending = runtime_modules.migration_pending;
     let module_state = Rc::new(RefCell::new(runtime_modules.config));
     let module_catalog = Rc::new(RefCell::new(
         modules::load_cached_registry()
@@ -295,6 +297,12 @@ fn run_gui(
         &module_catalog.borrow(),
     )));
     ui.set_settings_modules(module_model.clone().into());
+    if module_migration_pending {
+        ui.set_status_text(
+            "Optional providers were migrated without downloading code. Open Settings → Modules and choose Restore for each module you want."
+                .into(),
+        );
+    }
 
     let (registry_tx, registry_rx) = mpsc::channel();
     thread::spawn(move || {
@@ -426,6 +434,7 @@ fn run_gui(
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
+        let module_state = module_state.clone();
         move |keyword| {
             let Some(ui) = weak.upgrade() else {
                 return false;
@@ -433,7 +442,15 @@ fn run_gui(
 
             let trigger = {
                 let config = config_state.borrow();
-                if !config.providers.web_search {
+                let installed = modules::load_installed_modules()
+                    .ok()
+                    .is_some_and(|state| state.modules.contains_key(modules::WEB_SEARCH_MODULE_ID));
+                if !installed
+                    || module_state
+                        .borrow()
+                        .is_enabled(modules::WEB_SEARCH_MODULE_ID)
+                        != Some(true)
+                {
                     None
                 } else {
                     web_search::trigger_from_input(&config.web_searches, keyword.as_str()).map(
@@ -548,10 +565,7 @@ fn run_gui(
             if let Some(ui) = weak.upgrade() {
                 let effective_query =
                     effective_search_query(query.as_str(), ui.get_active_search_keyword().as_str());
-                let execution_hint = rayslash_core::search::query_execution_hint(
-                    &effective_query,
-                    &config_state.borrow().providers,
-                );
+                let execution_hint = query_execution_hint(&config_state.borrow());
 
                 if let ProviderExecutionHint::DebouncedNetwork { debounce_ms } = execution_hint {
                     let generation = remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
@@ -648,7 +662,7 @@ fn run_gui(
         },
     );
 
-    register_module_settings_callback(
+    let _module_install_timer = register_module_settings_callback(
         &ui,
         ModuleSettingsCallbackContext {
             module_state: module_state.clone(),

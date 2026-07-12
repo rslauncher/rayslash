@@ -106,7 +106,7 @@ component ModuleCard inherits Rectangle {
     callback toggle-requested(string, bool);
     callback action-requested(string, string);
 
-    height: root.shown ? 118px : 0px;
+    height: root.shown ? 136px : 0px;
     visible: root.shown;
     border-radius: 10px;
     background: root.light ? #ffffff : #202020;
@@ -173,6 +173,15 @@ component ModuleCard inherits Rectangle {
                 vertical-alignment: center;
             }
 
+            Text {
+                height: 16px;
+                text: root.item.permissions;
+                color: root.light ? #6d5a38 : #c5aa78;
+                font-size: 9px;
+                overflow: elide;
+                vertical-alignment: center;
+            }
+
             HorizontalLayout {
                 height: 18px;
                 spacing: 6px;
@@ -200,13 +209,19 @@ component ModuleCard inherits Rectangle {
                     horizontal-stretch: 0;
                     vertical-alignment: center;
                 }
+
+                Text {
+                    text: root.item.license == "" ? "" : root.item.license + " · " + root.item.review_status;
+                    color: root.light ? #777777 : #888888;
+                    font-size: 9px;
+                    horizontal-stretch: 0;
+                    vertical-alignment: center;
+                }
             }
 
             Text {
                 height: 18px;
-                text: root.item.installed
-                    ? root.item.enabled ? "Installed · Enabled" : "Installed · Disabled"
-                    : "Not installed";
+                text: root.item.status;
                 color: root.item.installed && root.item.enabled
                     ? root.light ? #2f6a43 : #86c99d
                     : root.light ? #777777 : #969696;
@@ -262,6 +277,38 @@ component ModuleCard inherits Rectangle {
                 action-touch := TouchArea {
                     mouse-cursor: pointer;
                     clicked => { root.action-requested(root.item.id, root.item.action); }
+                }
+            }
+
+            Text {
+                height: root.item.installed ? 14px : 0px;
+                visible: root.item.installed;
+                text: "Remove + data";
+                color: remove-all-touch.has-hover
+                    ? root.light ? #8a2f2f : #ef9a9a
+                    : root.light ? #777777 : #999999;
+                font-size: 8px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                remove-all-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.action-requested(root.item.id, "Remove all"); }
+                }
+            }
+
+            Text {
+                height: root.item.repository == "" ? 0px : 14px;
+                visible: root.item.repository != "";
+                text: "Source";
+                color: source-touch.has-hover
+                    ? root.light ? #222222 : #eeeeee
+                    : root.light ? #666666 : #aaaaaa;
+                font-size: 9px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                source-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.action-requested(root.item.id, "Source"); }
                 }
             }
         }
@@ -338,7 +385,7 @@ export component ModulesPanel inherits FocusScope {
             min-height: 0px;
             vertical-stretch: 1;
             viewport-width: self.width;
-            viewport-height: root.modules.length * 112px + 72px;
+            viewport-height: root.modules.length * 144px + 72px;
             interactive: true;
 
             VerticalLayout {
