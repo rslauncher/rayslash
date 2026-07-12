@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     rc::Rc,
     sync::{
@@ -31,6 +31,29 @@ pub(crate) struct RuntimeModules {
     pub config: modules::ModulesConfig,
     pub writes_blocked: bool,
     pub migration_pending: bool,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct ModuleOperationState {
+    pending: bool,
+    label: String,
+    summary: String,
+    details: String,
+    failed: bool,
+    details_expanded: bool,
+}
+
+type ModuleOperationResult = Result<Option<modules::InstalledModule>, String>;
+
+fn concise_feedback(details: &str) -> String {
+    details
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("The module operation failed.")
+        .chars()
+        .take(120)
+        .collect()
 }
 
 pub(crate) fn load_runtime_modules(
@@ -71,6 +94,14 @@ pub(crate) fn module_items(
     config: &modules::ModulesConfig,
     catalog: &[modules::RegistryModule],
 ) -> Vec<ModuleItem> {
+    module_items_with_operations(config, catalog, &BTreeMap::new())
+}
+
+fn module_items_with_operations(
+    config: &modules::ModulesConfig,
+    catalog: &[modules::RegistryModule],
+    operations: &BTreeMap<String, ModuleOperationState>,
+) -> Vec<ModuleItem> {
     let installed = modules::load_installed_modules().unwrap_or_default();
     let mut items = catalog
         .iter()
@@ -98,6 +129,7 @@ pub(crate) fn module_items(
                 .or_else(|| latest.map(|latest| latest.version.to_string()))
                 .unwrap_or_default();
             let (icon_kind, icon_text) = module_icon(&module.id);
+            let operation = operations.get(&module.id).cloned().unwrap_or_default();
             ModuleItem {
                 id: module.id.clone().into(),
                 name: module.name.clone().into(),
@@ -145,6 +177,12 @@ pub(crate) fn module_items(
                 } else {
                     "Not installed".into()
                 },
+                operation_pending: operation.pending,
+                operation_label: operation.label.into(),
+                operation_summary: operation.summary.into(),
+                operation_details: operation.details.into(),
+                operation_failed: operation.failed,
+                operation_details_expanded: operation.details_expanded,
                 icon_kind: icon_kind.into(),
                 icon_text: icon_text.into(),
             }
@@ -156,6 +194,7 @@ pub(crate) fn module_items(
         }
         let installed_module = installed.modules.get(descriptor.id);
         let (icon_kind, icon_text) = module_icon(descriptor.id);
+        let operation = operations.get(descriptor.id).cloned().unwrap_or_default();
         items.push(ModuleItem {
             id: descriptor.id.into(),
             name: descriptor.name.into(),
@@ -188,6 +227,12 @@ pub(crate) fn module_items(
             } else {
                 "Not installed".into()
             },
+            operation_pending: operation.pending,
+            operation_label: operation.label.into(),
+            operation_summary: operation.summary.into(),
+            operation_details: operation.details.into(),
+            operation_failed: operation.failed,
+            operation_details_expanded: operation.details_expanded,
             icon_kind: icon_kind.into(),
             icon_text: icon_text.into(),
         });
@@ -297,6 +342,15 @@ pub(crate) fn refresh_module_items(
     model.set_vec(module_items(config, catalog));
 }
 
+fn refresh_module_items_with_operations(
+    model: &Rc<VecModel<ModuleItem>>,
+    config: &modules::ModulesConfig,
+    catalog: &[modules::RegistryModule],
+    operations: &BTreeMap<String, ModuleOperationState>,
+) {
+    model.set_vec(module_items_with_operations(config, catalog, operations));
+}
+
 pub(crate) struct ModuleSettingsCallbackContext {
     pub module_state: Rc<RefCell<modules::ModulesConfig>>,
     pub module_catalog: Rc<RefCell<Vec<modules::RegistryModule>>>,
@@ -339,8 +393,8 @@ pub(crate) fn register_module_settings_callback(
         profile,
     } = context;
 
-    let (install_tx, install_rx) =
-        mpsc::channel::<(String, String, Result<modules::InstalledModule, String>)>();
+    let (install_tx, install_rx) = mpsc::channel::<(String, String, ModuleOperationResult)>();
+    let operations = Rc::new(RefCell::new(BTreeMap::<String, ModuleOperationState>::new()));
     let pending_permission_approvals = Rc::new(RefCell::new(BTreeSet::<String>::new()));
     let install_timer = Timer::default();
     install_timer.start(TimerMode::Repeated, std::time::Duration::from_millis(50), {
@@ -348,6 +402,7 @@ pub(crate) fn register_module_settings_callback(
         let module_state = module_state.clone();
         let module_catalog = module_catalog.clone();
         let module_model = module_model.clone();
+        let operations = operations.clone();
         move || {
             let completions = install_rx.try_iter().collect::<Vec<_>>();
             if completions.is_empty() {
@@ -360,30 +415,68 @@ pub(crate) fn register_module_settings_callback(
                 match result {
                     Ok(installed) => {
                         let mut config = module_state.borrow().clone();
-                        config.set_installed(&module_id, &installed.version.to_string(), true);
+                        if let Some(installed) = installed {
+                            config.set_installed(&module_id, &installed.version.to_string(), true);
+                        } else {
+                            config.remove(&module_id);
+                        }
                         if let Err(error) = modules::save_modules_config(&config) {
-                            ui.set_status_text(
-                                format!(
-                                    "Module installed, but its setting could not be saved: {error}"
-                                )
-                                .into(),
+                            let details = format!(
+                                "Module changed, but its setting could not be saved: {error}"
                             );
+                            operations.borrow_mut().insert(
+                                module_id.clone(),
+                                ModuleOperationState {
+                                    summary: concise_feedback(&details),
+                                    details: details.clone(),
+                                    failed: true,
+                                    ..Default::default()
+                                },
+                            );
+                            ui.set_status_text(details.into());
                         } else {
                             *module_state.borrow_mut() = config;
-                            refresh_module_items(
-                                &module_model,
-                                &module_state.borrow(),
-                                &module_catalog.borrow(),
+                            let message = match action.as_str() {
+                                "Remove" => {
+                                    "Module code removed; settings and data were kept".to_owned()
+                                }
+                                "Remove all" => {
+                                    "Module code, settings, state, and cache removed".to_owned()
+                                }
+                                _ => format!("Module {} completed", action.to_ascii_lowercase()),
+                            };
+                            operations.borrow_mut().insert(
+                                module_id.clone(),
+                                ModuleOperationState {
+                                    summary: message.clone(),
+                                    details: message.clone(),
+                                    ..Default::default()
+                                },
                             );
-                            ui.set_status_text(
-                                format!("Module {} completed", action.to_ascii_lowercase()).into(),
-                            );
+                            ui.set_status_text(message.into());
                         }
                     }
-                    Err(error) => ui.set_status_text(
-                        format!("Could not {} module: {error}", action.to_ascii_lowercase()).into(),
-                    ),
+                    Err(error) => {
+                        let details =
+                            format!("Could not {} module: {error}", action.to_ascii_lowercase());
+                        operations.borrow_mut().insert(
+                            module_id.clone(),
+                            ModuleOperationState {
+                                summary: concise_feedback(&details),
+                                details: details.clone(),
+                                failed: true,
+                                ..Default::default()
+                            },
+                        );
+                        ui.set_status_text(details.into());
+                    }
                 }
+                refresh_module_items_with_operations(
+                    &module_model,
+                    &module_state.borrow(),
+                    &module_catalog.borrow(),
+                    &operations.borrow(),
+                );
             }
         }
     });
@@ -395,6 +488,7 @@ pub(crate) fn register_module_settings_callback(
         let module_model = module_model.clone();
         let install_tx = install_tx.clone();
         let pending_permission_approvals = pending_permission_approvals.clone();
+        let operations = operations.clone();
         move |module_id, action| {
             let Some(ui) = weak.upgrade() else {
                 return;
@@ -406,6 +500,18 @@ pub(crate) fn register_module_settings_callback(
                 return;
             }
             let module_id = module_id.as_str();
+            if action.as_str() == "Details" {
+                if let Some(operation) = operations.borrow_mut().get_mut(module_id) {
+                    operation.details_expanded = !operation.details_expanded;
+                }
+                refresh_module_items_with_operations(
+                    &module_model,
+                    &module_state.borrow(),
+                    &module_catalog.borrow(),
+                    &operations.borrow(),
+                );
+                return;
+            }
             if action.as_str() == "Source" {
                 let repository = module_catalog
                     .borrow()
@@ -417,25 +523,64 @@ pub(crate) fn register_module_settings_callback(
                         if let Err(error) = rayslash_core::actions::run_module_action(
                             &search::ModuleAction::OpenUrl(repository),
                         ) {
-                            ui.set_status_text(format!("Could not open module source: {error}").into());
+                            ui.set_status_text(
+                                format!("Could not open module source: {error}").into(),
+                            );
                         }
                     }
                     None => ui.set_status_text("Module source is unavailable offline.".into()),
                 }
                 return;
             }
-            let outcome = match action.as_str() {
+            if operations
+                .borrow()
+                .get(module_id)
+                .is_some_and(|state| state.pending)
+            {
+                return;
+            }
+            match action.as_str() {
                 "Install" | "Restore" | "Repair" | "Update" | "Review update" => {
                     let catalog = module_catalog.borrow();
                     let Some(module) = catalog.iter().find(|module| module.id == module_id) else {
-                        ui.set_status_text(
-                            "The verified registry has no installable record for this module."
-                                .into(),
+                        let details =
+                            "The verified registry has no installable record for this module.";
+                        operations.borrow_mut().insert(
+                            module_id.to_owned(),
+                            ModuleOperationState {
+                                summary: details.into(),
+                                details: details.into(),
+                                failed: true,
+                                ..Default::default()
+                            },
                         );
+                        refresh_module_items_with_operations(
+                            &module_model,
+                            &module_state.borrow(),
+                            &module_catalog.borrow(),
+                            &operations.borrow(),
+                        );
+                        ui.set_status_text(details.into());
                         return;
                     };
                     let Some(version) = latest_compatible_version(module) else {
-                        ui.set_status_text("No compatible module version is available.".into());
+                        let details = "No compatible module version is available.";
+                        operations.borrow_mut().insert(
+                            module_id.to_owned(),
+                            ModuleOperationState {
+                                summary: details.into(),
+                                details: details.into(),
+                                failed: true,
+                                ..Default::default()
+                            },
+                        );
+                        refresh_module_items_with_operations(
+                            &module_model,
+                            &module_state.borrow(),
+                            &module_catalog.borrow(),
+                            &operations.borrow(),
+                        );
+                        ui.set_status_text(details.into());
                         return;
                     };
                     if action.as_str() == "Review update" {
@@ -443,34 +588,58 @@ pub(crate) fn register_module_settings_callback(
                             .ok()
                             .and_then(|installed| installed.modules.get(module_id).cloned())
                             .and_then(|installed| {
-                                std::fs::read_to_string(
-                                    installed.install_path.join("module.toml"),
-                                )
-                                .ok()
+                                std::fs::read_to_string(installed.install_path.join("module.toml"))
+                                    .ok()
                             })
                             .and_then(|text| {
                                 toml::from_str::<modules::ModulePackageManifest>(&text).ok()
                             })
                             .map(|manifest| manifest.permissions)
                             .unwrap_or_default();
-                        let changes = permission_expansion_summary(
-                            &current_permissions,
-                            &module.permissions,
-                        );
+                        let changes =
+                            permission_expansion_summary(&current_permissions, &module.permissions);
                         let mut approvals = pending_permission_approvals.borrow_mut();
                         if !approvals.remove(module_id) {
                             approvals.insert(module_id.to_owned());
-                            ui.set_status_text(
-                                format!(
-                                    "New capabilities: {changes}. Click Review update again to approve."
-                                )
-                                .into(),
+                            let details = format!(
+                                "New capabilities: {changes}. Click Review update again to approve."
                             );
+                            operations.borrow_mut().insert(
+                                module_id.to_owned(),
+                                ModuleOperationState {
+                                    summary: concise_feedback(&details),
+                                    details: details.clone(),
+                                    ..Default::default()
+                                },
+                            );
+                            refresh_module_items_with_operations(
+                                &module_model,
+                                &module_state.borrow(),
+                                &module_catalog.borrow(),
+                                &operations.borrow(),
+                            );
+                            ui.set_status_text(details.into());
                             return;
                         }
                     } else {
                         pending_permission_approvals.borrow_mut().remove(module_id);
                     }
+                    let label = format!("{}…", action.trim_end_matches(" update"));
+                    operations.borrow_mut().insert(
+                        module_id.to_owned(),
+                        ModuleOperationState {
+                            pending: true,
+                            label: label.clone(),
+                            summary: format!("{} {}…", action, module.name),
+                            ..Default::default()
+                        },
+                    );
+                    refresh_module_items_with_operations(
+                        &module_model,
+                        &module_state.borrow(),
+                        &module_catalog.borrow(),
+                        &operations.borrow(),
+                    );
                     ui.set_status_text(format!("{} {}…", action, module.name).into());
                     let module = module.clone();
                     let version = version.clone();
@@ -479,51 +648,41 @@ pub(crate) fn register_module_settings_callback(
                     let install_tx = install_tx.clone();
                     thread::spawn(move || {
                         let result = modules::install_registry_version(&module, &version)
+                            .map(Some)
                             .map_err(|error| error.to_string());
                         let _ = install_tx.send((module_id, action, result));
                     });
-                    return;
                 }
                 "Remove" | "Remove all" => {
-                    modules::remove_installed_module(module_id, action.as_str() == "Remove all")
-                        .map(|_| {
-                            let mut config = module_state.borrow().clone();
-                            config.remove(module_id);
-                            config
-                        })
+                    let module_id = module_id.to_owned();
+                    let action = action.to_string();
+                    operations.borrow_mut().insert(
+                        module_id.clone(),
+                        ModuleOperationState {
+                            pending: true,
+                            label: "Removing…".into(),
+                            summary: "Removing module…".into(),
+                            ..Default::default()
+                        },
+                    );
+                    refresh_module_items_with_operations(
+                        &module_model,
+                        &module_state.borrow(),
+                        &module_catalog.borrow(),
+                        &operations.borrow(),
+                    );
+                    let install_tx = install_tx.clone();
+                    thread::spawn(move || {
+                        let result =
+                            modules::remove_installed_module(&module_id, action == "Remove all")
+                                .map(|_| None)
+                                .map_err(|error| error.to_string());
+                        let _ = install_tx.send((module_id, action, result));
+                    });
                 }
                 _ => {
                     ui.set_status_text(format!("Unknown module action: {action}").into());
-                    return;
                 }
-            };
-            match outcome {
-                Ok(config) => {
-                    if let Err(error) = modules::save_modules_config(&config) {
-                        ui.set_status_text(
-                            format!("Module changed, but its setting could not be saved: {error}")
-                                .into(),
-                        );
-                    } else {
-                        *module_state.borrow_mut() = config;
-                        refresh_module_items(
-                            &module_model,
-                            &module_state.borrow(),
-                            &module_catalog.borrow(),
-                        );
-                        let message = if action.as_str() == "Remove" {
-                            "Module code removed; its settings and data were kept".to_owned()
-                        } else if action.as_str() == "Remove all" {
-                            "Module code, settings, state, and cache removed".to_owned()
-                        } else {
-                            format!("Module {} completed", action.to_ascii_lowercase())
-                        };
-                        ui.set_status_text(message.into());
-                    }
-                }
-                Err(error) => ui.set_status_text(
-                    format!("Could not {} module: {error}", action.to_ascii_lowercase()).into(),
-                ),
             }
         }
     });
@@ -742,5 +901,42 @@ mod tests {
             permission_expansion_summary(&current, &next),
             "network https://new.example, notifications"
         );
+    }
+
+    #[test]
+    fn module_operation_state_is_scoped_to_its_card() {
+        let mut operations = BTreeMap::new();
+        operations.insert(
+            CALCULATOR_MODULE_ID.to_owned(),
+            ModuleOperationState {
+                pending: true,
+                label: "Installing…".into(),
+                summary: "Installing Calculator…".into(),
+                ..Default::default()
+            },
+        );
+
+        let items =
+            module_items_with_operations(&modules::ModulesConfig::empty(), &[], &operations);
+        let calculator = items
+            .iter()
+            .find(|item| item.id == CALCULATOR_MODULE_ID)
+            .unwrap();
+        assert!(calculator.operation_pending);
+        assert_eq!(calculator.operation_label.as_str(), "Installing…");
+        assert!(items.iter().filter(|item| item.operation_pending).count() == 1);
+    }
+
+    #[test]
+    fn long_operation_errors_keep_full_details_and_a_concise_summary() {
+        let details = format!(
+            "Could not install module: invalid module package:\n{}",
+            "module failed its startup probe: host missing; ".repeat(20)
+        );
+        let summary = concise_feedback(&details);
+
+        assert!(summary.len() <= 120);
+        assert_eq!(summary, "Could not install module: invalid module package:");
+        assert!(details.len() > summary.len());
     }
 }
