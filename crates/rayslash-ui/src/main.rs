@@ -30,7 +30,9 @@ use module_settings::{
     register_module_settings_callback,
 };
 use opener_visual::{accent_color_for_icon, to_app_choice_items};
-use rayslash_core::{apps, config, projects, providers::ProviderExecutionHint, web_search};
+use rayslash_core::{
+    apps, config, modules, projects, providers::ProviderExecutionHint, web_search,
+};
 use result_items::{IconImageCache, to_result_items};
 use runtime_state::{
     ResultRefreshContext, ResultSelection, SearchResultSet, effective_search_query,
@@ -143,6 +145,7 @@ fn run_gui(
     let suppress_next_focus_hide = Rc::new(Cell::new(false));
 
     let stage_started = Instant::now();
+    let existing_config = config::config_file().is_some_and(|path| path.is_file());
     let (mut config, settings_save_blocked) = match config::load_config() {
         Ok(config) => (config, false),
         Err(error) => {
@@ -150,12 +153,18 @@ fn run_gui(
             (config::Config::default(), true)
         }
     };
-    let runtime_modules = load_runtime_modules(&config.providers, !settings_save_blocked);
+    let runtime_modules =
+        load_runtime_modules(&config.providers, !settings_save_blocked, existing_config);
     runtime_modules
         .config
         .apply_to_provider_config(&mut config.providers);
     let module_writes_blocked = runtime_modules.writes_blocked;
     let module_state = Rc::new(RefCell::new(runtime_modules.config));
+    let module_catalog = Rc::new(RefCell::new(
+        modules::load_cached_registry()
+            .map(|registry| registry.index.modules)
+            .unwrap_or_default(),
+    ));
     let config_state = Rc::new(RefCell::new(config));
     let favicon_searches = config_state.borrow().web_searches.clone();
     thread::spawn(move || {
@@ -281,8 +290,44 @@ fn run_gui(
     ui.set_results(results_model.clone().into());
     ui.set_selected_index(-1);
 
-    let module_model = Rc::new(VecModel::from(module_items(&module_state.borrow())));
+    let module_model = Rc::new(VecModel::from(module_items(
+        &module_state.borrow(),
+        &module_catalog.borrow(),
+    )));
     ui.set_settings_modules(module_model.clone().into());
+
+    let (registry_tx, registry_rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _ = registry_tx.send(modules::refresh_registry().map_err(|error| error.to_string()));
+    });
+    let registry_timer = Timer::default();
+    registry_timer.start(TimerMode::Repeated, Duration::from_millis(100), {
+        let weak = ui.as_weak();
+        let module_catalog = module_catalog.clone();
+        let module_state = module_state.clone();
+        let module_model = module_model.clone();
+        move || match registry_rx.try_recv() {
+            Ok(Ok(registry)) => {
+                *module_catalog.borrow_mut() = registry.index.modules;
+                module_model.set_vec(module_items(
+                    &module_state.borrow(),
+                    &module_catalog.borrow(),
+                ));
+                if let Some(ui) = weak.upgrade()
+                    && registry.from_cache
+                {
+                    ui.set_status_text("Using the last verified module catalog.".into());
+                }
+            }
+            Ok(Err(error)) => {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_status_text(format!("Could not refresh module catalog: {error}").into());
+                }
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {}
+        }
+    });
 
     let alternate_opener_choices = Rc::new(VecModel::from(to_app_choice_items(
         &apps.borrow(),
@@ -607,6 +652,7 @@ fn run_gui(
         &ui,
         ModuleSettingsCallbackContext {
             module_state: module_state.clone(),
+            module_catalog: module_catalog.clone(),
             module_model: module_model.clone(),
             module_writes_blocked,
             config_state: config_state.clone(),

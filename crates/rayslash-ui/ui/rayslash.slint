@@ -206,6 +206,7 @@ export component AppWindow inherits Window {
     callback settings-web-search-add-requested();
     callback settings-web-search-remove-requested(int);
     callback settings-module-toggle-requested(string, bool);
+    callback settings-module-action-requested(string, string);
     callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     public function focus-search() {
@@ -440,6 +441,7 @@ export component AppWindow inherits Window {
                         web-search-add-requested => { root.settings-web-search-add-requested(); }
                         web-search-remove-requested(index) => { root.settings-web-search-remove-requested(index); }
                         module-toggle-requested(id, enabled) => { root.settings-module-toggle-requested(id, enabled); }
+                        module-action-requested(id, action) => { root.settings-module-action-requested(id, action); }
                         save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, provider-utility-actions, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {
                             root.settings-save-requested(
                                 folder-sources,

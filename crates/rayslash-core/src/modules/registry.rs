@@ -11,6 +11,8 @@ use sha2::{Digest, Sha256};
 
 use crate::{APP_NAME, atomic_write};
 
+use super::{PackageKind, PackagePermissions};
+
 pub const DEFAULT_REGISTRY_ROOT_URL: &str =
     "https://rslauncher.github.io/rayslash-registry/v1/root.json";
 pub const RAW_REGISTRY_ROOT_URL: &str =
@@ -42,6 +44,12 @@ pub struct RegistryIndex {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryModule {
     pub id: String,
+    pub name: String,
+    pub description: String,
+    pub author: String,
+    pub license: String,
+    pub kind: PackageKind,
+    pub permissions: PackagePermissions,
     pub repository: String,
     pub official: bool,
     pub review_status: ReviewStatus,
@@ -255,7 +263,13 @@ fn validate_index(index: &RegistryIndex) -> Result<(), RegistryError> {
                 module.id
             )));
         }
-        if !module.repository.starts_with("https://github.com/") || module.versions.is_empty() {
+        if module.name.is_empty()
+            || module.description.is_empty()
+            || module.author.is_empty()
+            || module.license.is_empty()
+            || !module.repository.starts_with("https://github.com/")
+            || module.versions.is_empty()
+        {
             return Err(RegistryError::Invalid(format!(
                 "invalid source or empty versions for {}",
                 module.id
