@@ -81,6 +81,7 @@ pub enum SaveModulesConfigError {
 pub enum ModulesConfigLoadOutcome {
     Loaded(ModulesConfig),
     Created(ModulesConfig),
+    Migrated(ModulesConfig),
 }
 
 #[derive(Debug)]
@@ -165,18 +166,22 @@ impl std::error::Error for SaveModulesConfigError {
 impl ModulesConfigLoadOutcome {
     pub fn config(&self) -> &ModulesConfig {
         match self {
-            Self::Loaded(config) | Self::Created(config) => config,
+            Self::Loaded(config) | Self::Created(config) | Self::Migrated(config) => config,
         }
     }
 
     pub fn into_config(self) -> ModulesConfig {
         match self {
-            Self::Loaded(config) | Self::Created(config) => config,
+            Self::Loaded(config) | Self::Created(config) | Self::Migrated(config) => config,
         }
     }
 
     pub fn was_created(&self) -> bool {
         matches!(self, Self::Created(_))
+    }
+
+    pub fn was_migrated(&self) -> bool {
+        matches!(self, Self::Migrated(_))
     }
 }
 
@@ -401,7 +406,11 @@ pub fn load_or_create_modules_config_from_path_with_migration(
                 save_modules_config_to_path(path, &config)
                     .map_err(InitializeModulesConfigError::Save)?;
             }
-            Ok(ModulesConfigLoadOutcome::Loaded(config))
+            Ok(if was_v1 {
+                ModulesConfigLoadOutcome::Migrated(config)
+            } else {
+                ModulesConfigLoadOutcome::Loaded(config)
+            })
         }
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
             let config = if migrate_legacy {

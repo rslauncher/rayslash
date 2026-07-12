@@ -3,6 +3,9 @@ runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 command: rayslash
+# This base manifest intentionally contains no official modules or WASM host. A future
+# separately reviewed Flatpak extension must provide /app/libexec/rayslash-module-host;
+# native host packages are not visible inside the sandbox.
 finish-args:
   - --share=ipc
   - --socket=wayland
