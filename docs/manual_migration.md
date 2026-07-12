@@ -504,26 +504,26 @@ The docs must label API v1 as stable only after the conformance suite and host i
 
 Do not call the migration complete until every box is true:
 
-- [ ] Fresh install has zero optional modules.
-- [ ] Fresh app binary/package has no extracted official provider implementation or assets.
-- [ ] Apps and Folders work without registry or module host.
+- [x] Fresh install has zero optional modules.
+- [x] Fresh app binary/package has no extracted official provider implementation or assets.
+- [x] Apps and Folders work without registry or module host.
 - [x] Unsupported declarative packages are rejected consistently instead of appearing installable.
-- [ ] WASM modules require and use the separate sandbox host.
+- [x] WASM modules require and use the separate sandbox host.
 - [ ] All seven official modules install on demand and match current behavior.
-- [ ] Community author quickstart works from an empty public repository.
-- [ ] Submission is validated and merged through a registry pull request.
-- [ ] Registry and package integrity are checked before activation.
-- [ ] Official identity cannot be forged by manifest fields.
-- [ ] Permission expansion requires approval.
-- [ ] Installed modules work when Pages/GitHub is unavailable.
-- [ ] Failed updates roll back without data loss.
-- [ ] Uninstall removes code and offers a separate data choice.
+- [x] Community author quickstart works from an empty public repository.
+- [x] Submission is validated and merged through a registry pull request.
+- [x] Registry and package integrity are checked before activation.
+- [x] Official identity cannot be forged by manifest fields.
+- [x] Permission expansion requires approval.
+- [x] Installed modules work when Pages/GitHub is unavailable.
+- [x] Failed updates roll back without data loss.
+- [x] Uninstall removes code and offers a separate data choice.
 - [ ] Revocation and signing-key rotation are tested.
-- [ ] Existing version-1 virtual-module users receive a safe opt-in migration.
+- [x] Existing version-1 virtual-module users receive a safe opt-in migration.
 - [ ] Fresh, upgrade, offline, malformed, interrupted, and hostile cases are tested.
-- [ ] Native and Flatpak packaging contain no default official modules.
-- [ ] Public author/API/security/submission documentation is complete.
-- [ ] Binary and installed-size measurements are recorded.
+- [x] Native and Flatpak packaging contain no default official modules.
+- [x] Public author/API/security/submission documentation is complete.
+- [x] Binary and installed-size measurements are recorded.
 - [ ] All CI and the manual Linux verification matrix pass.
 
 ## 9. Implementation handoff (2026-07-12)
