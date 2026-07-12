@@ -7,6 +7,10 @@ use std::{
 };
 
 pub(crate) fn write(path: &Path, contents: &str) -> io::Result<()> {
+    write_bytes(path, contents.as_bytes())
+}
+
+pub(crate) fn write_bytes(path: &Path, contents: &[u8]) -> io::Result<()> {
     let temp_path = create_temp_file_path(path);
     let mut temp_file = OpenOptions::new()
         .write(true)
@@ -14,7 +18,7 @@ pub(crate) fn write(path: &Path, contents: &str) -> io::Result<()> {
         .open(&temp_path)?;
 
     let result = (|| {
-        temp_file.write_all(contents.as_bytes())?;
+        temp_file.write_all(contents)?;
         temp_file.sync_all()?;
         drop(temp_file);
         fs::rename(&temp_path, path)
