@@ -211,15 +211,28 @@ impl ModuleEntryConfig {
             extra: BTreeMap::new(),
         }
     }
+
+    pub fn installed(version: &str, enabled: bool) -> Self {
+        Self {
+            enabled,
+            version: Some(version.to_owned()),
+            channel: Some(STABLE_CHANNEL.to_owned()),
+            extra: BTreeMap::new(),
+        }
+    }
 }
 
 impl ModulesConfig {
-    pub fn from_legacy_provider_config(providers: &ProviderConfig) -> Self {
-        let mut config = Self {
+    pub fn empty() -> Self {
+        Self {
             version: MODULES_CONFIG_VERSION,
             modules: BTreeMap::new(),
             extra: BTreeMap::new(),
-        };
+        }
+    }
+
+    pub fn from_legacy_provider_config(providers: &ProviderConfig) -> Self {
+        let mut config = Self::empty();
         config.seed_missing_official_modules(providers);
         config
     }
@@ -258,6 +271,33 @@ impl ModulesConfig {
         let changed = entry.enabled != enabled;
         entry.enabled = enabled;
         Ok(changed)
+    }
+
+    pub fn set_installed_enabled(
+        &mut self,
+        module_id: &str,
+        enabled: bool,
+    ) -> Result<bool, UnknownModuleError> {
+        let entry = self
+            .modules
+            .get_mut(module_id)
+            .ok_or_else(|| UnknownModuleError {
+                module_id: module_id.to_owned(),
+            })?;
+        let changed = entry.enabled != enabled;
+        entry.enabled = enabled;
+        Ok(changed)
+    }
+
+    pub fn set_installed(&mut self, module_id: &str, version: &str, enabled: bool) {
+        self.modules.insert(
+            module_id.to_owned(),
+            ModuleEntryConfig::installed(version, enabled),
+        );
+    }
+
+    pub fn remove(&mut self, module_id: &str) -> bool {
+        self.modules.remove(module_id).is_some()
     }
 
     pub fn enable(&mut self, module_id: &str) -> Result<bool, UnknownModuleError> {
@@ -317,20 +357,39 @@ pub fn load_modules_config(
 pub fn load_or_create_modules_config(
     legacy_providers: &ProviderConfig,
 ) -> Result<ModulesConfigLoadOutcome, InitializeModulesConfigError> {
+    load_or_create_modules_config_with_migration(legacy_providers, true)
+}
+
+pub fn load_or_create_modules_config_with_migration(
+    legacy_providers: &ProviderConfig,
+    migrate_legacy: bool,
+) -> Result<ModulesConfigLoadOutcome, InitializeModulesConfigError> {
     let path = modules_config_file().ok_or(InitializeModulesConfigError::ConfigDirUnavailable)?;
-    load_or_create_modules_config_from_path(&path, legacy_providers)
+    load_or_create_modules_config_from_path_with_migration(&path, legacy_providers, migrate_legacy)
 }
 
 pub fn load_or_create_modules_config_from_path(
     path: &Path,
     legacy_providers: &ProviderConfig,
 ) -> Result<ModulesConfigLoadOutcome, InitializeModulesConfigError> {
+    load_or_create_modules_config_from_path_with_migration(path, legacy_providers, true)
+}
+
+pub fn load_or_create_modules_config_from_path_with_migration(
+    path: &Path,
+    legacy_providers: &ProviderConfig,
+    migrate_legacy: bool,
+) -> Result<ModulesConfigLoadOutcome, InitializeModulesConfigError> {
     match fs::read_to_string(path) {
         Ok(contents) => parse_modules_config(path, &contents, legacy_providers)
             .map(ModulesConfigLoadOutcome::Loaded)
             .map_err(InitializeModulesConfigError::Load),
         Err(source) if source.kind() == io::ErrorKind::NotFound => {
-            let config = ModulesConfig::from_legacy_provider_config(legacy_providers);
+            let config = if migrate_legacy {
+                ModulesConfig::from_legacy_provider_config(legacy_providers)
+            } else {
+                ModulesConfig::empty()
+            };
             save_modules_config_to_path(path, &config)
                 .map_err(InitializeModulesConfigError::Save)?;
             Ok(ModulesConfigLoadOutcome::Created(config))

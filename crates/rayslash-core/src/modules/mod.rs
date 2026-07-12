@@ -23,6 +23,8 @@ pub use state::{
     InitializeModulesConfigError, LoadModulesConfigError, MODULES_CONFIG_VERSION,
     ModuleEntryConfig, ModulesConfig, ModulesConfigLoadOutcome, SaveModulesConfigError,
     UnknownModuleError, load_modules_config, load_modules_config_from_path,
-    load_or_create_modules_config, load_or_create_modules_config_from_path, modules_config_file,
-    save_modules_config, save_modules_config_to_path,
+    load_or_create_modules_config, load_or_create_modules_config_from_path,
+    load_or_create_modules_config_from_path_with_migration,
+    load_or_create_modules_config_with_migration, modules_config_file, save_modules_config,
+    save_modules_config_to_path,
 };
