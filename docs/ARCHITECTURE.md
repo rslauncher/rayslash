@@ -195,7 +195,7 @@ The first internal provider boundary lives under `crates/rayslash-core/src/provi
 
 The public module boundary is the separately versioned SDK WIT contract. Registry signatures, pinned package digests, safe atomic extraction, no-WASI execution, capability checks, and typed activation keep third-party code outside the launcher process.
 
-The Phase 13 target keeps Apps and Folders in core, distributes module versions as immutable `.tar.zst` GitHub Release assets, and verifies their digests through a signed static registry served by GitHub Pages with raw-GitHub and last-verified-cache fallbacks. Declarative modules contain no code. Executable modules use a versioned WIT contract through a separately installed `rayslash-module-host` process with no ambient WASI capabilities, so a fresh app does not bundle official modules or the WASM engine. See [manual_migration.md](../manual_migration.md) for the authoritative prerequisites and acceptance criteria.
+Phase 13 keeps Apps and Folders in core, distributes API v1 WASM modules as immutable `.tar.zst` GitHub Release assets, and verifies their digests through a signed static registry served by GitHub Pages with raw-GitHub and last-verified-cache fallbacks. Modules use the versioned WIT contract through a separately installed `rayslash-module-host` process with no ambient WASI capabilities, so a fresh app bundles neither official modules nor the WASM engine. The declarative manifest value is reserved and rejected in API v1. See [manual_migration.md](manual_migration.md) for the authoritative prerequisites and acceptance criteria.
 
 ## Config and state model
 

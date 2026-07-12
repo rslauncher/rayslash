@@ -4,6 +4,8 @@ This document plans a module system for `rayslash`. It is intentionally a strate
 
 The implementation target was refined on 2026-07-11. [manual_migration.md](manual_migration.md) is the authoritative owner runbook and completion checklist. In particular, the final system uses deterministic GitHub Release assets, a signed static GitHub Pages registry with raw-GitHub and verified-cache fallbacks, and an optional separately installed WASM host. Older alternatives retained as prior-art discussion do not override those decisions.
 
+Final API v1 correction: only sandboxed WASM modules are supported. The declarative-first sections below are retained as design history; no declarative format was sufficiently specified to publish reliably, so the SDK, registry, and app reject that reserved kind in API v1.
+
 ## Goal
 
 Move selected toggleable features behind installable modules so the launcher can stay small while users can search, install, update, remove, and open/star extra capabilities from Settings.

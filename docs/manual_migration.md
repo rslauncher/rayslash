@@ -430,8 +430,8 @@ Exit criteria: malicious/looping/oversized test modules are terminated without f
 - Port Calculator and Units to WASM with no permissions.
 - Port Currency to WASM with only the declared HTTPS service origin and cache permission.
 - Port Time to WASM with only the declared HTTPS service origin and cache permission; package timezone data deliberately rather than assuming host files.
-- Port Web Search as declarative configuration plus typed explicit-open actions.
-- Port Aliases as declarative/user-owned config plus typed actions; command aliases require a high-risk permission and never use a shell.
+- Port Web Search to WASM with user-owned settings plus typed explicit-open actions.
+- Port Aliases to WASM with user-owned settings plus typed actions; command aliases require a high-risk permission and never use a shell.
 - Split Timers into safe notification/timer behavior and privileged power actions with explicit activation/permission messaging.
 - Preserve current query syntax, ordering, stable IDs where possible, error behavior, caching, and settings.
 - Publish each module through the same registry path as community modules.
