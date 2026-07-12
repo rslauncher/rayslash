@@ -10,8 +10,9 @@ use rayslash_core::{
         LoadModulesConfigError, MODULES_CONFIG_VERSION, ModuleDescriptor, ModuleSource,
         ModulesConfig, ModulesConfigLoadOutcome, OFFICIAL_AUTHOR, TIME_MODULE_ID, TIMERS_MODULE_ID,
         UNITS_MODULE_ID, WEB_SEARCH_MODULE_ID, load_modules_config_from_path,
-        load_or_create_modules_config_from_path, modules_config_file, official_module_descriptors,
-        save_modules_config_to_path, validate_descriptors,
+        load_or_create_modules_config_from_path,
+        load_or_create_modules_config_from_path_with_migration, modules_config_file,
+        official_module_descriptors, save_modules_config_to_path, validate_descriptors,
     },
 };
 
@@ -311,6 +312,21 @@ fn load_or_create_writes_migrated_config_only_on_first_run() {
         fs::read_to_string(&path).expect("reread module config"),
         first_contents
     );
+}
+
+#[test]
+fn fresh_install_creates_an_empty_optional_module_config() {
+    let dir = TempDir::new("rayslash-modules-fresh");
+    let path = dir.join("modules.toml");
+    let outcome = load_or_create_modules_config_from_path_with_migration(
+        &path,
+        &ProviderConfig::default(),
+        false,
+    )
+    .expect("create fresh module config");
+
+    assert!(outcome.was_created());
+    assert!(outcome.config().modules.is_empty());
 }
 
 #[test]

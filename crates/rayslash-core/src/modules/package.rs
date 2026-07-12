@@ -356,6 +356,12 @@ fn validate_manifest(
     root: &Path,
 ) -> Result<(), PackageError> {
     if manifest.id != module.id
+        || manifest.name != module.name
+        || manifest.description != module.description
+        || manifest.author != module.author
+        || manifest.license != module.license
+        || manifest.kind != module.kind
+        || manifest.permissions != module.permissions
         || manifest.version != version.version
         || manifest.api_version != version.api_version
         || manifest.source != module.repository

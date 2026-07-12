@@ -13,6 +13,7 @@ use std::{
 use rayslash_core::{
     app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking, search,
 };
+use semver::Version;
 use slint::{ComponentHandle, VecModel};
 
 use crate::{
@@ -32,6 +33,7 @@ pub(crate) struct RuntimeModules {
 pub(crate) fn load_runtime_modules(
     legacy_providers: &config::ProviderConfig,
     main_config_loaded_successfully: bool,
+    migrate_legacy: bool,
 ) -> RuntimeModules {
     if !main_config_loaded_successfully {
         return RuntimeModules {
@@ -40,7 +42,7 @@ pub(crate) fn load_runtime_modules(
         };
     }
 
-    match modules::load_or_create_modules_config(legacy_providers) {
+    match modules::load_or_create_modules_config_with_migration(legacy_providers, migrate_legacy) {
         Ok(outcome) => RuntimeModules {
             config: outcome.into_config(),
             writes_blocked: false,
@@ -55,25 +57,99 @@ pub(crate) fn load_runtime_modules(
     }
 }
 
-pub(crate) fn module_items(config: &modules::ModulesConfig) -> Vec<ModuleItem> {
-    modules::official_module_descriptors()
+pub(crate) fn module_items(
+    config: &modules::ModulesConfig,
+    catalog: &[modules::RegistryModule],
+) -> Vec<ModuleItem> {
+    let installed = modules::load_installed_modules().unwrap_or_default();
+    let mut items = catalog
         .iter()
-        .map(|descriptor| {
-            let (icon_kind, icon_text) = module_icon(descriptor.id);
+        .map(|module| {
+            let installed_module = installed.modules.get(&module.id);
+            let latest = latest_compatible_version(module);
+            let update_available = installed_module
+                .zip(latest)
+                .is_some_and(|(installed, latest)| latest.version > installed.version);
+            let version = installed_module
+                .map(|installed| installed.version.to_string())
+                .or_else(|| latest.map(|latest| latest.version.to_string()))
+                .unwrap_or_default();
+            let (icon_kind, icon_text) = module_icon(&module.id);
             ModuleItem {
-                id: descriptor.id.into(),
-                name: descriptor.name.into(),
-                description: descriptor.description.into(),
-                author: descriptor.author.into(),
-                version: descriptor.version.into(),
-                enabled: config.is_official_enabled(descriptor.id).unwrap_or(true),
-                installed: true,
-                official: true,
+                id: module.id.clone().into(),
+                name: module.name.clone().into(),
+                description: module.description.clone().into(),
+                author: module.author.clone().into(),
+                version: version.into(),
+                enabled: installed_module.is_some()
+                    && config
+                        .is_enabled(&module.id)
+                        .unwrap_or(installed_module.is_some_and(|m| m.enabled)),
+                installed: installed_module.is_some(),
+                official: module.official,
+                stars: module.github_stars.to_string().into(),
+                action: if update_available {
+                    "Update".into()
+                } else if installed_module.is_some() {
+                    "Remove".into()
+                } else {
+                    "Install".into()
+                },
+                update_available,
                 icon_kind: icon_kind.into(),
                 icon_text: icon_text.into(),
             }
         })
-        .collect()
+        .collect::<Vec<_>>();
+    for descriptor in modules::official_module_descriptors() {
+        if items.iter().any(|item| item.id.as_str() == descriptor.id) {
+            continue;
+        }
+        let installed_module = installed.modules.get(descriptor.id);
+        let (icon_kind, icon_text) = module_icon(descriptor.id);
+        items.push(ModuleItem {
+            id: descriptor.id.into(),
+            name: descriptor.name.into(),
+            description: descriptor.description.into(),
+            author: descriptor.author.into(),
+            version: installed_module
+                .map(|module| module.version.to_string())
+                .unwrap_or_default()
+                .into(),
+            enabled: installed_module.is_some()
+                && config.is_enabled(descriptor.id).unwrap_or(false),
+            installed: installed_module.is_some(),
+            official: true,
+            stars: "".into(),
+            action: if installed_module.is_some() {
+                "Remove"
+            } else {
+                "Install"
+            }
+            .into(),
+            update_available: false,
+            icon_kind: icon_kind.into(),
+            icon_text: icon_text.into(),
+        });
+    }
+    items.sort_by(|left, right| {
+        right
+            .official
+            .cmp(&left.official)
+            .then_with(|| left.name.cmp(&right.name))
+    });
+    items
+}
+
+fn latest_compatible_version(
+    module: &modules::RegistryModule,
+) -> Option<&modules::RegistryVersion> {
+    let api = Version::new(1, 0, 0);
+    module
+        .versions
+        .iter()
+        .filter(|version| !version.yanked && version.api_version.matches(&api))
+        .max_by(|left, right| left.version.cmp(&right.version))
 }
 
 fn module_icon(module_id: &str) -> (&'static str, &'static str) {
@@ -92,12 +168,14 @@ fn module_icon(module_id: &str) -> (&'static str, &'static str) {
 pub(crate) fn refresh_module_items(
     model: &Rc<VecModel<ModuleItem>>,
     config: &modules::ModulesConfig,
+    catalog: &[modules::RegistryModule],
 ) {
-    model.set_vec(module_items(config));
+    model.set_vec(module_items(config, catalog));
 }
 
 pub(crate) struct ModuleSettingsCallbackContext {
     pub module_state: Rc<RefCell<modules::ModulesConfig>>,
+    pub module_catalog: Rc<RefCell<Vec<modules::RegistryModule>>>,
     pub module_model: Rc<VecModel<ModuleItem>>,
     pub module_writes_blocked: bool,
     pub config_state: Rc<RefCell<config::Config>>,
@@ -120,6 +198,7 @@ pub(crate) fn register_module_settings_callback(
 ) {
     let ModuleSettingsCallbackContext {
         module_state,
+        module_catalog,
         module_model,
         module_writes_blocked,
         config_state,
@@ -136,6 +215,82 @@ pub(crate) fn register_module_settings_callback(
         profile,
     } = context;
 
+    ui.on_settings_module_action_requested({
+        let weak = ui.as_weak();
+        let module_state = module_state.clone();
+        let module_catalog = module_catalog.clone();
+        let module_model = module_model.clone();
+        move |module_id, action| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            if module_writes_blocked {
+                ui.set_status_text(
+                    "Module state is read-only until the configuration error is fixed.".into(),
+                );
+                return;
+            }
+            let module_id = module_id.as_str();
+            let outcome = match action.as_str() {
+                "Install" | "Update" => {
+                    let catalog = module_catalog.borrow();
+                    let Some(module) = catalog.iter().find(|module| module.id == module_id) else {
+                        ui.set_status_text(
+                            "The verified registry has no installable record for this module."
+                                .into(),
+                        );
+                        return;
+                    };
+                    let Some(version) = latest_compatible_version(module) else {
+                        ui.set_status_text("No compatible module version is available.".into());
+                        return;
+                    };
+                    ui.set_status_text(format!("{} {}…", action, module.name).into());
+                    modules::install_registry_version(module, version).map(|installed| {
+                        let mut config = module_state.borrow().clone();
+                        config.set_installed(module_id, &installed.version.to_string(), true);
+                        config
+                    })
+                }
+                "Remove" => modules::remove_installed_module(module_id, false).map(|_| {
+                    let mut config = module_state.borrow().clone();
+                    config.remove(module_id);
+                    config
+                }),
+                _ => {
+                    ui.set_status_text(format!("Unknown module action: {action}").into());
+                    return;
+                }
+            };
+            match outcome {
+                Ok(config) => {
+                    if let Err(error) = modules::save_modules_config(&config) {
+                        ui.set_status_text(
+                            format!("Module changed, but its setting could not be saved: {error}")
+                                .into(),
+                        );
+                    } else {
+                        *module_state.borrow_mut() = config;
+                        refresh_module_items(
+                            &module_model,
+                            &module_state.borrow(),
+                            &module_catalog.borrow(),
+                        );
+                        let message = if action.as_str() == "Remove" {
+                            "Module code removed; its settings and data were kept".to_owned()
+                        } else {
+                            format!("Module {} completed", action.to_ascii_lowercase())
+                        };
+                        ui.set_status_text(message.into());
+                    }
+                }
+                Err(error) => ui.set_status_text(
+                    format!("Could not {} module: {error}", action.to_ascii_lowercase()).into(),
+                ),
+            }
+        }
+    });
+
     ui.on_settings_module_toggle_requested({
         let weak = ui.as_weak();
         move |module_id, enabled| {
@@ -144,7 +299,7 @@ pub(crate) fn register_module_settings_callback(
             };
 
             if module_writes_blocked {
-                refresh_module_items(&module_model, &module_state.borrow());
+                refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow());
                 ui.set_status_text(
                     "Could not save module settings: fix config.toml or modules.toml and restart rayslash."
                         .into(),
@@ -153,17 +308,21 @@ pub(crate) fn register_module_settings_callback(
             }
 
             let module_id = module_id.as_str();
-            let Some(descriptor) = modules::official_module_descriptor(module_id) else {
-                refresh_module_items(&module_model, &module_state.borrow());
-                ui.set_status_text(format!("Unknown module: {module_id}").into());
-                return;
-            };
-
+            let module_name = module_catalog
+                .borrow()
+                .iter()
+                .find(|module| module.id == module_id)
+                .map(|module| module.name.clone())
+                .or_else(|| {
+                    modules::official_module_descriptor(module_id)
+                        .map(|module| module.name.to_owned())
+                })
+                .unwrap_or_else(|| module_id.to_owned());
             let mut next_modules = module_state.borrow().clone();
-            let changed = match next_modules.set_enabled(module_id, enabled) {
+            let changed = match next_modules.set_installed_enabled(module_id, enabled) {
                 Ok(changed) => changed,
                 Err(error) => {
-                    refresh_module_items(&module_model, &module_state.borrow());
+                    refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow());
                     ui.set_status_text(format!("Could not update module: {error}").into());
                     return;
                 }
@@ -174,13 +333,13 @@ pub(crate) fn register_module_settings_callback(
 
             if let Err(error) = modules::save_modules_config(&next_modules) {
                 eprintln!("{error}");
-                refresh_module_items(&module_model, &module_state.borrow());
+                refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow());
                 ui.set_status_text(format!("Could not save module setting: {error}").into());
                 return;
             }
 
             *module_state.borrow_mut() = next_modules.clone();
-            refresh_module_items(&module_model, &next_modules);
+            refresh_module_items(&module_model, &next_modules, &module_catalog.borrow());
 
             let compatibility_config = {
                 let mut next_config = config_state.borrow().clone();
@@ -267,12 +426,12 @@ pub(crate) fn register_module_settings_callback(
                 ui.set_status_text(
                     format!(
                         "{} {state_label}; config.toml compatibility mirror failed.",
-                        descriptor.name
+                        module_name
                     )
                     .into(),
                 );
             } else {
-                ui.set_status_text(format!("{} {state_label}.", descriptor.name).into());
+                ui.set_status_text(format!("{module_name} {state_label}.").into());
             }
         }
     });
@@ -292,9 +451,9 @@ mod tests {
             .disable(CALCULATOR_MODULE_ID)
             .expect("disable calculator");
 
-        let items = module_items(&config);
+        let items = module_items(&config, &[]);
         assert_eq!(items.len(), modules::official_module_descriptors().len());
-        assert!(items.iter().all(|item| item.official && item.installed));
+        assert!(items.iter().all(|item| item.official));
         assert!(
             items
                 .iter()
@@ -308,7 +467,6 @@ mod tests {
         assert_eq!(calculator.name.as_str(), "Calculator");
         assert!(!calculator.enabled);
         assert!(!calculator.description.is_empty());
-        assert!(!calculator.version.is_empty());
     }
 
     #[test]
@@ -319,7 +477,7 @@ mod tests {
             ..ProviderConfig::default()
         };
 
-        let runtime = load_runtime_modules(&legacy, false);
+        let runtime = load_runtime_modules(&legacy, false, true);
 
         assert!(runtime.writes_blocked);
         assert_eq!(runtime.config.is_enabled(CALCULATOR_MODULE_ID), Some(false));

@@ -104,8 +104,9 @@ component ModuleCard inherits Rectangle {
     in property <bool> shown;
     in property <bool> light;
     callback toggle-requested(string, bool);
+    callback action-requested(string, string);
 
-    height: root.shown ? 104px : 0px;
+    height: root.shown ? 118px : 0px;
     visible: root.shown;
     border-radius: 10px;
     background: root.light ? #ffffff : #202020;
@@ -191,6 +192,14 @@ component ModuleCard inherits Rectangle {
                     horizontal-stretch: 0;
                     vertical-alignment: center;
                 }
+
+                Text {
+                    text: root.item.stars == "" ? "" : "★ " + root.item.stars;
+                    color: root.light ? #777777 : #888888;
+                    font-size: 10px;
+                    horizontal-stretch: 0;
+                    vertical-alignment: center;
+                }
             }
 
             Text {
@@ -233,6 +242,28 @@ component ModuleCard inherits Rectangle {
                 font-size: 9px;
                 horizontal-alignment: center;
             }
+
+            Rectangle {
+                height: 24px;
+                border-radius: 6px;
+                background: action-touch.has-hover
+                    ? root.light ? #d6d6d6 : #444444
+                    : root.light ? #e7e7e7 : #343434;
+                border-width: 1px;
+                border-color: root.light ? #bdbdbd : #555555;
+
+                Text {
+                    width: 100%; height: 100%;
+                    text: root.item.action;
+                    color: root.light ? #333333 : #dddddd;
+                    font-size: 9px; font-weight: 700;
+                    horizontal-alignment: center; vertical-alignment: center;
+                }
+                action-touch := TouchArea {
+                    mouse-cursor: pointer;
+                    clicked => { root.action-requested(root.item.id, root.item.action); }
+                }
+            }
         }
     }
 }
@@ -241,6 +272,7 @@ export component ModulesPanel inherits FocusScope {
     in property <[ModuleItem]> modules;
     in property <bool> light;
     callback module-toggle-requested(string, bool);
+    callback module-action-requested(string, string);
 
     private property <string> selected-tab: "installed";
 
@@ -289,6 +321,16 @@ export component ModulesPanel inherits FocusScope {
                         root.reset-scroll();
                     }
                 }
+
+                ModuleTab {
+                    label: "Community";
+                    selected: root.selected-tab == "community";
+                    light: root.light;
+                    clicked => {
+                        root.selected-tab = "community";
+                        root.reset-scroll();
+                    }
+                }
             }
         }
 
@@ -305,10 +347,15 @@ export component ModulesPanel inherits FocusScope {
 
                 for item in root.modules: ModuleCard {
                     item: item;
-                    shown: root.selected-tab == "installed" ? item.installed : item.official;
+                    shown: root.selected-tab == "installed"
+                        ? item.installed
+                        : root.selected-tab == "official" ? item.official : !item.official;
                     light: root.light;
                     toggle-requested(id, enabled) => {
                         root.module-toggle-requested(id, enabled);
+                    }
+                    action-requested(id, action) => {
+                        root.module-action-requested(id, action);
                     }
                 }
 
@@ -334,7 +381,7 @@ export component ModulesPanel inherits FocusScope {
                         }
 
                         Text {
-                            text: "Registry search and third-party installs are planned for a later phase.";
+                            text: "Community modules are loaded from the verified registry.";
                             color: root.light ? #707070 : #929292;
                             font-size: 10px;
                             overflow: elide;
