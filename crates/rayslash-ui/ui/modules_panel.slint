@@ -106,7 +106,10 @@ component ModuleCard inherits Rectangle {
     callback toggle-requested(string, bool);
     callback action-requested(string, string);
 
-    height: root.shown ? 136px : 0px;
+    private property <bool> has-feedback: root.item.operation_summary != "";
+    private property <length> feedback-height: !root.has-feedback ? 0px
+        : root.item.operation_details_expanded ? 94px : 38px;
+    height: root.shown ? 136px + root.feedback-height : 0px;
     visible: root.shown;
     border-radius: 10px;
     background: root.light ? #ffffff : #202020;
@@ -221,13 +224,56 @@ component ModuleCard inherits Rectangle {
 
             Text {
                 height: 18px;
-                text: root.item.status;
-                color: root.item.installed && root.item.enabled
+                text: root.item.operation_pending ? root.item.operation_label : root.item.status;
+                color: root.item.operation_failed
+                    ? root.light ? #9b3030 : #f29a9a
+                    : root.item.operation_pending ? root.light ? #765b18 : #e4c46b
+                    : root.item.installed && root.item.enabled
                     ? root.light ? #2f6a43 : #86c99d
                     : root.light ? #777777 : #969696;
                 font-size: 10px;
                 font-weight: 600;
                 vertical-alignment: center;
+            }
+
+            if root.has-feedback: Rectangle {
+                height: root.feedback-height;
+                border-radius: 6px;
+                background: root.item.operation_failed
+                    ? root.light ? #fff0f0 : #3b2424
+                    : root.light ? #eef5ef : #243329;
+
+                VerticalLayout {
+                    padding-left: 7px; padding-right: 7px; padding-top: 4px; padding-bottom: 4px;
+                    spacing: 2px;
+                    Text {
+                        text: root.item.operation_summary;
+                        color: root.item.operation_failed
+                            ? root.light ? #852828 : #f0aaaa
+                            : root.light ? #315f3d : #9bcba7;
+                        font-size: 9px; font-weight: 600;
+                        wrap: word-wrap;
+                    }
+                    if root.item.operation_details_expanded: Text {
+                        text: root.item.operation_details;
+                        color: root.light ? #555555 : #c0c0c0;
+                        font-size: 9px;
+                        wrap: word-wrap;
+                        overflow: elide;
+                    }
+                    if root.item.operation_details != root.item.operation_summary: Text {
+                        text: root.item.operation_details_expanded ? "Hide details" : "Show details";
+                        color: details-touch.has-hover
+                            ? root.light ? #111111 : #ffffff
+                            : root.light ? #555555 : #bcbcbc;
+                        font-size: 8px;
+                        details-touch := TouchArea {
+                            enabled: !root.item.operation_pending;
+                            mouse-cursor: pointer;
+                            clicked => { root.action-requested(root.item.id, "Details"); }
+                        }
+                    }
+                }
             }
         }
 
@@ -243,7 +289,7 @@ component ModuleCard inherits Rectangle {
                 ModuleSwitch {
                     x: (parent.width - self.width) / 2;
                     checked: root.item.enabled;
-                    available: root.item.installed;
+                    available: root.item.installed && !root.item.operation_pending;
                     light: root.light;
                     toggled(enabled) => {
                         root.toggle-requested(root.item.id, enabled);
@@ -269,13 +315,14 @@ component ModuleCard inherits Rectangle {
 
                 Text {
                     width: 100%; height: 100%;
-                    text: root.item.action;
+                    text: root.item.operation_pending ? root.item.operation_label : root.item.action;
                     color: root.light ? #333333 : #dddddd;
                     font-size: 9px; font-weight: 700;
                     horizontal-alignment: center; vertical-alignment: center;
                 }
                 action-touch := TouchArea {
-                    mouse-cursor: pointer;
+                    enabled: !root.item.operation_pending;
+                    mouse-cursor: root.item.operation_pending ? default : pointer;
                     clicked => { root.action-requested(root.item.id, root.item.action); }
                 }
             }
@@ -291,7 +338,8 @@ component ModuleCard inherits Rectangle {
                 horizontal-alignment: center;
                 vertical-alignment: center;
                 remove-all-touch := TouchArea {
-                    mouse-cursor: pointer;
+                    enabled: !root.item.operation_pending;
+                    mouse-cursor: root.item.operation_pending ? default : pointer;
                     clicked => { root.action-requested(root.item.id, "Remove all"); }
                 }
             }
@@ -385,7 +433,7 @@ export component ModulesPanel inherits FocusScope {
             min-height: 0px;
             vertical-stretch: 1;
             viewport-width: self.width;
-            viewport-height: root.modules.length * 144px + 72px;
+            viewport-height: root.modules.length * 246px + 72px;
             interactive: true;
 
             VerticalLayout {

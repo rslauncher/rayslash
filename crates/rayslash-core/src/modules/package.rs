@@ -4,7 +4,7 @@ use std::{
     io::{self, Cursor, Read},
     path::{Component, Path, PathBuf},
     process,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use semver::{Version, VersionReq};
@@ -21,6 +21,8 @@ const MAX_EXTRACTED_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_ENTRY_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_ENTRIES: usize = 256;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
+const DOWNLOAD_ATTEMPTS: usize = 3;
+const DOWNLOAD_DEADLINE: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -156,20 +158,7 @@ pub fn install_registry_version(
             "registry package size is outside limits".into(),
         ));
     }
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(30)))
-        .build()
-        .into();
-    let bytes = agent
-        .get(&version.asset_url)
-        .header("User-Agent", "rayslash/0.1 module-installer")
-        .call()
-        .map_err(|error| PackageError::Network(error.to_string()))?
-        .into_body()
-        .with_config()
-        .limit(MAX_COMPRESSED_BYTES)
-        .read_to_vec()
-        .map_err(|error| PackageError::Network(error.to_string()))?;
+    let bytes = download_package(&version.asset_url)?;
     if bytes.len() as u64 != version.size || sha256(&bytes) != version.sha256.to_ascii_lowercase() {
         return Err(PackageError::Invalid(
             "downloaded package size or digest does not match the signed registry".into(),
@@ -272,8 +261,75 @@ pub fn install_registry_version(
     })();
     if result.is_err() {
         let _ = fs::remove_dir_all(&staging);
+        remove_dir_if_empty(&modules_dir.join(&module.id));
     }
     result
+}
+
+fn download_package(url: &str) -> Result<Vec<u8>, PackageError> {
+    let deadline = Instant::now() + DOWNLOAD_DEADLINE;
+    let mut last_error = String::new();
+    for attempt in 0..DOWNLOAD_ATTEMPTS {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(remaining))
+            .build()
+            .into();
+        let response = agent
+            .get(url)
+            .header("User-Agent", "rayslash/0.1 module-installer")
+            .call();
+        let result = match response {
+            Ok(response) => response
+                .into_body()
+                .with_config()
+                .limit(MAX_COMPRESSED_BYTES)
+                .read_to_vec()
+                .map_err(|error| {
+                    let transient = is_transient_network_error(&error);
+                    (error.to_string(), transient)
+                }),
+            Err(error) => {
+                let transient = is_transient_network_error(&error);
+                Err((error.to_string(), transient))
+            }
+        };
+        match result {
+            Ok(bytes) => return Ok(bytes),
+            Err((message, transient)) => {
+                last_error = message;
+                if !transient || attempt + 1 == DOWNLOAD_ATTEMPTS {
+                    break;
+                }
+                let backoff = Duration::from_millis(if attempt == 0 { 100 } else { 250 });
+                if Instant::now() + backoff >= deadline {
+                    break;
+                }
+                std::thread::sleep(backoff);
+            }
+        }
+    }
+    Err(PackageError::Network(last_error))
+}
+
+fn is_transient_network_error(error: &ureq::Error) -> bool {
+    matches!(
+        error,
+        ureq::Error::Io(_)
+            | ureq::Error::Timeout(_)
+            | ureq::Error::HostNotFound
+            | ureq::Error::ConnectionFailed
+            | ureq::Error::Protocol(_)
+    )
+}
+
+fn remove_dir_if_empty(path: &Path) {
+    if path.is_dir() && fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_none()) {
+        let _ = fs::remove_dir(path);
+    }
 }
 
 struct InstallLock {
@@ -338,6 +394,12 @@ fn remove_abandoned_staging(modules_dir: &Path) -> Result<(), PackageError> {
             }
         }
     }
+    for entry in fs::read_dir(modules_dir).map_err(|source| io_error(modules_dir, source))? {
+        let path = entry
+            .map_err(|source| io_error(modules_dir, source))?
+            .path();
+        remove_dir_if_empty(&path);
+    }
     Ok(())
 }
 
@@ -370,6 +432,9 @@ pub fn remove_installed_module(module_id: &str, remove_data: bool) -> Result<boo
     if installed.install_path.exists() {
         fs::remove_dir_all(&installed.install_path)
             .map_err(|source| io_error(&installed.install_path, source))?;
+    }
+    if let Some(parent) = installed.install_path.parent() {
+        remove_dir_if_empty(parent);
     }
     if remove_data {
         for directory in [
@@ -597,11 +662,70 @@ fn io_error(path: &Path, source: io::Error) -> PackageError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        io::Write as _,
+        net::TcpListener,
+        sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        },
+        thread,
+    };
 
     #[test]
     fn safe_extractor_rejects_parent_traversal() {
         assert!(!safe_archive_path(Path::new("root/../escape")));
         assert!(!safe_archive_path(Path::new("/absolute")));
         assert!(safe_archive_path(Path::new("root/module.toml")));
+    }
+
+    #[test]
+    fn download_retries_a_disconnect_then_succeeds() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind test server");
+        let address = listener.local_addr().expect("server address");
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let observed = attempts.clone();
+        let server = thread::spawn(move || {
+            for index in 0..2 {
+                let (mut stream, _) = listener.accept().expect("accept request");
+                let mut request = [0_u8; 1024];
+                let _ = stream.read(&mut request);
+                observed.fetch_add(1, Ordering::SeqCst);
+                if index == 0 {
+                    stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\nfail")
+                        .expect("partial response");
+                } else {
+                    stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 8\r\nConnection: close\r\n\r\ncomplete")
+                        .expect("complete response");
+                }
+            }
+        });
+
+        let bytes =
+            download_package(&format!("http://{address}/module.tar.zst")).expect("retry succeeds");
+        server.join().expect("server exits");
+        assert_eq!(bytes, b"complete");
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn empty_directory_cleanup_preserves_non_empty_directories() {
+        let root = std::env::temp_dir().join(format!(
+            "rayslash-package-cleanup-{}-{}",
+            process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let empty = root.join("empty");
+        let occupied = root.join("occupied");
+        fs::create_dir_all(&empty).expect("create empty directory");
+        fs::create_dir_all(&occupied).expect("create occupied directory");
+        fs::write(occupied.join("keep"), b"data").expect("write preserved file");
+
+        remove_dir_if_empty(&empty);
+        remove_dir_if_empty(&occupied);
+
+        assert!(!empty.exists());
+        assert!(occupied.join("keep").is_file());
+        fs::remove_dir_all(root).expect("clean fixture");
     }
 }
