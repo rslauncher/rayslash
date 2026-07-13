@@ -142,7 +142,7 @@ pub fn query_installed_modules(
             continue;
         }
         let manifest_path = installed.install_path.join("module.toml");
-        let manifest = match fs::read_to_string(&manifest_path)
+        let mut manifest = match fs::read_to_string(&manifest_path)
             .ok()
             .and_then(|text| toml::from_str::<ModulePackageManifest>(&text).ok())
         {
@@ -154,6 +154,14 @@ pub fn query_installed_modules(
                 continue;
             }
         };
+        if manifest.permissions != installed.permissions {
+            batch.errors.push(format!(
+                "{module_id}: installed manifest permissions no longer match verified state"
+            ));
+            continue;
+        }
+        // Capability grants always come from the verified installed-state snapshot.
+        manifest.permissions = installed.permissions;
         if manifest.kind != PackageKind::Wasm {
             batch
                 .errors

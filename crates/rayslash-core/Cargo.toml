@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+registry-dev-override = []
+
 [dependencies]
 base64.workspace = true
 chrono.workspace = true
