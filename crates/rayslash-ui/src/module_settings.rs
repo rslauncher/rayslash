@@ -121,9 +121,13 @@ fn module_items_with_operations(
             let update_available = installed_module
                 .zip(latest)
                 .is_some_and(|(installed, latest)| latest.version > installed.version);
-            let permission_expansion = installed_manifest.as_ref().is_some_and(|manifest| {
-                permissions_expand(&manifest.permissions, &module.permissions)
-            });
+            let target_permissions = latest.map(|version| &version.permissions);
+            let permission_expansion =
+                installed_module
+                    .zip(target_permissions)
+                    .is_some_and(|(installed, target)| {
+                        permissions_expand(&installed.permissions, target)
+                    });
             let version = installed_module
                 .map(|installed| installed.version.to_string())
                 .or_else(|| latest.map(|latest| latest.version.to_string()))
@@ -157,7 +161,10 @@ fn module_items_with_operations(
                     "Install".into()
                 },
                 update_available,
-                permissions: permission_summary(&module.permissions).into(),
+                permissions: target_permissions
+                    .map(permission_summary)
+                    .unwrap_or_else(|| "No compatible version".into())
+                    .into(),
                 repository: module.repository.clone().into(),
                 license: module.license.clone().into(),
                 review_status: match module.review_status {
@@ -587,17 +594,12 @@ pub(crate) fn register_module_settings_callback(
                         let current_permissions = modules::load_installed_modules()
                             .ok()
                             .and_then(|installed| installed.modules.get(module_id).cloned())
-                            .and_then(|installed| {
-                                std::fs::read_to_string(installed.install_path.join("module.toml"))
-                                    .ok()
-                            })
-                            .and_then(|text| {
-                                toml::from_str::<modules::ModulePackageManifest>(&text).ok()
-                            })
-                            .map(|manifest| manifest.permissions)
+                            .map(|installed| installed.permissions)
                             .unwrap_or_default();
-                        let changes =
-                            permission_expansion_summary(&current_permissions, &module.permissions);
+                        let changes = permission_expansion_summary(
+                            &current_permissions,
+                            &version.permissions,
+                        );
                         let mut approvals = pending_permission_approvals.borrow_mut();
                         if !approvals.remove(module_id) {
                             approvals.insert(module_id.to_owned());

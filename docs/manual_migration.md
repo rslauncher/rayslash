@@ -557,6 +557,12 @@ No additional design, repository, signing, or source-code work is required from 
 6. Record the distribution, desktop/session, architecture, package versions, and pass/fail result in the release notes. Report any failure with the exact command, log, and environment; do not work around it by bundling modules into the app.
 7. Treat the Flatpak manifest as a prototype until a separately reviewed `/app/libexec/rayslash/rayslash-module-host` extension and host-app launching behavior pass real Flatpak testing. The base Flatpak intentionally contains neither the host nor official modules.
 
+### Local signed-registry verification
+
+Development builds can use an isolated registry only when `rayslash-core/registry-dev-override` is compiled in and debug assertions are enabled. Start a loopback HTTP server for a locally built and signed registry, then set `RAYSLASH_DEV_REGISTRY_ROOT`, `RAYSLASH_DEV_REGISTRY_KEY_ID`, and `RAYSLASH_DEV_REGISTRY_PUBLIC_KEY` before launching. The root, index, revocations, signature, digests, and package manifests are still verified normally. Loopback HTTP is accepted only in this gated mode.
+
+For example, build the registry with a loopback base URL, sign `public/v1/root.json` with a disposable development key, serve `public/` on `127.0.0.1`, and run `cargo run -p rayslash --features rayslash-core/registry-dev-override`. Release builds and ordinary debug builds do not compile this override path; their URLs and trusted keys remain the production constants.
+
 ## 10. Current free-service verification
 
 These assumptions were checked on 2026-07-11 and must be rechecked before a public launch:
