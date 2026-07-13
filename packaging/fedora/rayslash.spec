@@ -5,7 +5,7 @@ Summary:        Fast native Linux desktop launcher
 
 License:        MIT
 URL:            https://github.com/rslauncher/rayslash
-Suggests:       rayslash-module-host
+Requires:       rayslash-module-host >= 0.1.2
 Source0:        %{name}-%{version}.tar.gz
 
 BuildRequires:  cargo

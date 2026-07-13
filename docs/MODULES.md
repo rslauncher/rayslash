@@ -2,7 +2,7 @@
 
 This document plans a module system for `rayslash`. It is intentionally a strategy document, not an implementation spec. The goal is to make optional features installable and community-extensible without weakening the launcher's current performance, privacy, packaging, or security model.
 
-The implementation target was refined on 2026-07-11. [manual_migration.md](manual_migration.md) is the authoritative owner runbook and completion checklist. In particular, the final system uses deterministic GitHub Release assets, a signed static GitHub Pages registry with raw-GitHub and verified-cache fallbacks, and an optional separately installed WASM host. Older alternatives retained as prior-art discussion do not override those decisions.
+The implementation target was refined on 2026-07-13. [manual_migration.md](manual_migration.md) is the authoritative owner runbook and completion checklist. In particular, the final system uses deterministic GitHub Release assets, a signed static GitHub Pages registry with raw-GitHub and verified-cache fallbacks, and a required WASM host delivered automatically with the app package. Older alternatives retained as prior-art discussion do not override those decisions.
 
 Final API v1 correction: only sandboxed WASM modules are supported. The declarative-first sections below are retained as design history; no declarative format was sufficiently specified to publish reliably, so the SDK, registry, and app reject that reserved kind in API v1.
 
@@ -572,15 +572,15 @@ This phase gives the UI and config shape without remote execution risk.
 - Add moderation flags and reserved author enforcement.
 - Add optional checksums/signatures for reviewed tags or release assets.
 
-### Phase E: Optional WASM Host
+### Phase E: WASM Host
 
-- Add the sandboxed executable module runtime as a separately installed host process so a fresh core installation does not carry the runtime cost.
+- Add the sandboxed executable module runtime as a separately maintained host process and deliver it automatically with supported app packages.
 - Start with official WASM modules.
 - Expand to reviewed community modules after permissions, timeouts, crash handling, and tests are reliable.
 
 ## Implementation Status
 
-The production implementation uses the signed registry, verified atomic package installer, optional no-WASI host, and separately released official modules described above. Fresh installs contain only Apps and Folders. Version-1 virtual entries are retained only as opt-in `Restore` choices; they do not represent bundled code and do not download automatically. Current repository/release details and the remaining owner merge/deployment steps are recorded in [manual_migration.md](manual_migration.md).
+The production implementation uses the signed registry, verified atomic package installer, required no-WASI host, and separately released official modules described above. Fresh installs contain the launcher infrastructure and only Apps and Folders as providers. Version-1 virtual entries are retained only as opt-in `Restore` choices; they do not represent bundled code and do not download automatically. Current repository/release details and the remaining owner merge/deployment steps are recorded in [manual_migration.md](manual_migration.md).
 
 ## Testing Strategy
 
@@ -624,15 +624,15 @@ Security tests:
 - Permanent GitHub owner and repository URLs.
 - Registry signing public key/key ID after the repository key-generation script exists.
 - Maintainers, support/security contacts, and any changes to the recommended moderation policy.
-- Initial architecture/package targets for the optional module host.
+- Initial architecture/package targets for the module host.
 
 Package delivery, hosting, ratings, executable review, and default-install behavior are no longer open: packages use `.tar.zst` GitHub Release assets, the signed catalog uses GitHub Pages with raw/cache fallbacks, GitHub stars remain the initial weak popularity signal, WASM submissions receive manual permission/source review, and fresh installations contain no optional modules.
 
 ## Next Implementation Slice
 
-The provider boundary and virtual Modules settings surface are complete. The next slice begins after the owner supplies the permanent repository URLs and policy inputs from [manual_migration.md](manual_migration.md): freeze API/package schemas, scaffold the SDK/registry/host repositories, add the registry key-generation script and unsigned pull-request validation, then pause only for the owner to install the protected signing secret and enable Pages.
+The provider boundary, signed registry, package lifecycle, Modules catalog, SDK, host, and extracted official modules are complete. Only the real package/desktop verification matrix in [manual_migration.md](manual_migration.md) remains.
 
-After that bootstrap is verified, implement declarative package install/update/remove with atomic rollback before accepting executable community modules through the optional sandbox host.
+After that bootstrap is verified, implement declarative package install/update/remove with atomic rollback before accepting executable community modules through the sandbox host.
 
 ## Hosting References Checked
 

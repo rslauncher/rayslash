@@ -152,7 +152,7 @@ The first Phase 12 provider pass implements default-enabled explicit default-bro
 Goal: complete the migration from virtual bundled modules to optional, verified packages that community authors can build against a stable API.
 
 - Keep only Apps, Folders, the module manager/runtime integration, ranking, config/state, IPC, and UI infrastructure in a fresh core install.
-- Build the signed static registry, local package manager, complete Modules catalog UI, author SDK/docs, and optional sandboxed WASM host.
+- Build the signed static registry, local package manager, complete Modules catalog UI, author SDK/docs, and sandboxed WASM host delivered with supported app packages.
 - Extract Calculator, Units, Currency, Time, Web Search, Timers, and Aliases into independently released official repositories.
 - Install no optional module on a fresh configuration and provide a confirmed one-time path for existing virtual-module users.
 - Complete integrity, permission, rollback, revocation, offline, adversarial, packaging, performance, and Linux matrix verification.

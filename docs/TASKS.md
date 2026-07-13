@@ -231,7 +231,7 @@ These tasks come from [CLEANUP_AUDIT.md](CLEANUP_AUDIT.md) and are intentionally
 - [x] Implement the signed static registry and GitHub pull-request submission pipeline.
 - [ ] Implement safe local install, update, rollback, remove, cache, revocation, and key-rotation behavior.
 - [ ] Complete the Modules catalog/details/permission/offline UI.
-- [x] Implement and package the optional sandboxed WASM host.
+- [x] Implement the sandboxed WASM host and make supported app packages deliver it automatically.
 - [x] Extract and independently release all seven official modules.
 - [x] Migrate existing version-1 virtual-module users as explicit Restore choices without installing optional modules for fresh users.
 - [ ] Update native and Flatpak packaging so fresh packages contain no official optional modules.

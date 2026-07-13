@@ -3,9 +3,8 @@ runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 command: rayslash
-# This base manifest intentionally contains no official modules or WASM host. A future
-# separately reviewed Flatpak extension must provide /app/libexec/rayslash-module-host;
-# native host packages are not visible inside the sandbox.
+# The host is required launcher infrastructure, not a module. No official or community
+# module package is bundled; users still choose every module from Settings -> Modules.
 finish-args:
   - --share=ipc
   - --socket=wayland
@@ -16,6 +15,21 @@ finish-args:
   - --filesystem=~/.local/share/applications:ro
   - --filesystem=/usr/share/applications:ro
 modules:
+  - name: rayslash-module-host
+    buildsystem: simple
+    build-commands:
+      - install -Dm0755 rayslash-module-host /app/libexec/rayslash/rayslash-module-host
+    sources:
+      - type: archive
+        url: https://github.com/rslauncher/rayslash-module-host/releases/download/v0.1.2/rayslash-module-host-v0.1.2-x86_64-unknown-linux-gnu.tar.xz
+        sha256: 9bb6a9ad524a302032e44ead67ef2541cd36d786d9322a03a4ac2ba84a9994f8
+        only-arches:
+          - x86_64
+      - type: archive
+        url: https://github.com/rslauncher/rayslash-module-host/releases/download/v0.1.2/rayslash-module-host-v0.1.2-aarch64-unknown-linux-gnu.tar.xz
+        sha256: e86423363a104077f5c101fc29cd1476fd3c1ed626fe271a4ed0bf293912e155
+        only-arches:
+          - aarch64
   - name: rayslash
     buildsystem: simple
     build-commands:

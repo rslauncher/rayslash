@@ -8,7 +8,7 @@ The instructions separate work that requires repository/account ownership from w
 
 The migration is complete only when all of the following are true:
 
-- A fresh rayslash installation contains only the launcher core, module manager, and core Apps/Folders providers.
+- A fresh rayslash installation contains only the launcher core, module manager, sandbox host, and core Apps/Folders providers.
 - Calculator, Units, Currency, Time, Web Search, Timers, and Aliases are not installed or compiled into a fresh installation.
 - Official and community modules are downloaded only when a user chooses to install them.
 - Removing a module removes its package code. Keeping or deleting its config/state is a separate user choice.
@@ -56,21 +56,21 @@ Version 1 supports `wasm` packages using the rayslash WIT API. They run in a sep
 
 Do not add native dynamic libraries, Python processes, shell extensions, or arbitrary executable scripts to the default registry.
 
-### 2.4 Optional runtime host
+### 2.4 Required runtime host
 
-`rayslash-module-host` is a separately released and separately installable component:
+`rayslash-module-host` is separately maintained and released, but it is required installation infrastructure:
 
-- It is not part of a fresh rayslash package.
-- Installing a module requires the separately packaged host and reports a clear startup-probe error when it is absent.
-- Native distro packages may expose it as an optional subpackage.
+- A supported rayslash package must require the matching host package or include the host executable, so a normal app installation can install modules immediately.
+- The host is not a module and does not provide Calculator, Units, Currency, Time, Web Search, Timers, Aliases, or any community feature by itself.
+- Native distro packages keep the host as a separate artifact and pull it in through a mandatory dependency.
 - Local/development installs may use a verified official GitHub Release asset.
-- Flatpak must use a packaged extension or a host bundled by the Flatpak build; it must not execute a newly downloaded native binary. This is a packaging exception, not permission to bundle official modules.
+- Flatpak bundles the digest-pinned host release in the app build; it must not execute a newly downloaded native binary. This is not permission to bundle official modules.
 - The host uses Wasmtime's component model and the rayslash WIT world, but does not link WASI command/filesystem/network interfaces.
 - The launcher and host communicate using a versioned local IPC protocol.
 - The launcher owns permissions, network requests, action execution, ranking, timeouts, and result caps.
 - The host is disposable. A crash or timeout terminates/restarts it without terminating rayslash.
 
-Keeping this runtime optional prevents the WASM engine from increasing the fresh install for users who install no modules.
+Keeping the host in a separate repository and native package preserves its security and release boundary. Delivering it automatically with rayslash ensures that module browsing and installation are complete app features rather than optional setup.
 
 ### 2.5 Trust model
 
@@ -83,9 +83,9 @@ Keeping this runtime optional prevents the WASM engine from increasing the fresh
 - The signing key is not the GitHub account password, SSH key, GPG key, or code-signing key. It is dedicated to the registry.
 - If the signing key is exposed, stop registry publishing, revoke the workflow secret, remove the affected key in the next client release, and regenerate the catalog with a new key.
 
-## 3. What already exists
+## 3. Historical pre-migration baseline
 
-Do not redo these items:
+This was the starting state used to plan the migration; it is retained only to explain the version-1 compatibility path:
 
 - An internal `Provider` trait and stable built-in `ProviderId` values exist.
 - Provider outcomes, execution hints, diagnostics, permissions metadata, and typed activation actions exist.
@@ -94,7 +94,7 @@ Do not redo these items:
 - Legacy provider booleans are mirrored for compatibility.
 - Core integration tests cover the current virtual-module state migration.
 
-These are transitional only. Optional provider implementations are still Rust modules compiled into `rayslash-core`, all seven virtual modules are seeded as installed/enabled on a fresh config, the UI has no remote catalog lifecycle, and the action/result model still contains built-in-specific variants.
+That transitional implementation has been replaced. Optional provider implementations now live in separate module repositories, fresh configurations are empty, and the UI uses the remote verified catalog lifecycle.
 
 ## 4. Work only the owner can do
 
@@ -109,7 +109,7 @@ The owner must be able to host these public repositories:
 - `rayslash` — this app repository.
 - `rayslash-registry` — catalog source, validation, generated index, and Pages site.
 - `rayslash-module-sdk` — WIT contract, Rust SDK, validator CLI, templates, and author docs.
-- `rayslash-module-host` — optional sandbox host and IPC implementation.
+- `rayslash-module-host` — required sandbox host and IPC implementation, delivered automatically with the app package.
 - `rayslash-module-calculator`.
 - `rayslash-module-units`.
 - `rayslash-module-currency`.
@@ -411,7 +411,7 @@ Exit criteria: interruption, corrupt download, bad signature/hash, disk-full, in
 
 Exit criteria: every lifecycle state is operable without editing files.
 
-### Phase 5 — Build the optional WASM host
+### Phase 5 — Build the WASM host
 
 - Implement `rayslash-module-host` as a separate process and release artifact.
 - Use the component model with only rayslash WIT imports; do not provide ambient WASI.
@@ -456,11 +456,11 @@ Exit criteria: fresh, upgraded-online, upgraded-offline, partially migrated, can
 ### Phase 8 — Packaging and release integration
 
 - Update Cargo metadata and all docs to permanent repository URLs.
-- Make the optional module host a separate RPM/Arch artifact or optional subpackage.
-- Define the Flatpak extension/packaged-host solution and test its execution boundary.
+- Make the module host a separate RPM/Arch artifact required by the app package.
+- Bundle the pinned host artifact in Flatpak and test its execution boundary.
 - Ensure no official module packages enter the app RPM, Arch package, Flatpak base app, or source install.
 - Add reproducible release/build provenance where supported without making it the only trust mechanism.
-- Measure fresh installed size and release binary size before/after; document both the core and optional host cost.
+- Measure fresh installed size and release binary size before/after; document both the core and host cost.
 - Add upgrade/rollback release notes and emergency registry-key rotation steps.
 
 Exit criteria: package inventories prove that the fresh app contains no official optional module code/assets.
@@ -507,6 +507,7 @@ Do not call the migration complete until every box is true:
 - [x] Fresh install has zero optional modules.
 - [x] Fresh app binary/package has no extracted official provider implementation or assets.
 - [x] Apps and Folders work without registry or module host.
+- [x] Supported app packages automatically install or include the module host.
 - [x] Unsupported declarative packages are rejected consistently instead of appearing installable.
 - [x] WASM modules require and use the separate sandbox host.
 - [ ] All seven official modules install on demand and match current behavior.
@@ -550,12 +551,12 @@ Do not delete module release tags or replace their assets. Do not place the regi
 No additional design, repository, signing, or source-code work is required from the owner. Before publishing the first end-user app release:
 
 1. Build the Fedora RPM and Arch package on clean x86_64 builders; repeat on aarch64 hardware or builders.
-2. Install the app without `rayslash-module-host`. Confirm Apps and Folders work, Settings lists modules, and no official module package exists under the XDG data directory.
-3. Install the separate host package, then install and exercise all seven official modules from Settings. Confirm enable/disable, update, Remove, and Remove + data.
+2. Install the app package and confirm its transaction automatically installs `rayslash-module-host` (or, for Flatpak, that `/app/libexec/rayslash/rayslash-module-host` is included). Confirm Settings lists Installed, Official, and Community modules while no module package exists under the XDG data directory.
+3. Install and exercise all seven official modules from Settings without any additional runtime setup. Confirm enable/disable, update, Remove, and Remove + data.
 4. Repeat the launcher/window/shortcut checks on GNOME Wayland and KDE Plasma Wayland. Test X11 sessions where the distribution still provides them.
 5. Disconnect networking after a successful catalog refresh. Confirm installed modules execute and the verified cached catalog remains visible.
 6. Record the distribution, desktop/session, architecture, package versions, and pass/fail result in the release notes. Report any failure with the exact command, log, and environment; do not work around it by bundling modules into the app.
-7. Treat the Flatpak manifest as a prototype until a separately reviewed `/app/libexec/rayslash/rayslash-module-host` extension and host-app launching behavior pass real Flatpak testing. The base Flatpak intentionally contains neither the host nor official modules.
+7. Treat the Flatpak manifest as a prototype until its bundled `/app/libexec/rayslash/rayslash-module-host` and host-app launching behavior pass real Flatpak testing. The Flatpak contains the runtime host but no official or community modules.
 
 ### Local signed-registry verification
 

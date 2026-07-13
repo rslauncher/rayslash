@@ -74,7 +74,7 @@ The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflow
 
 ## Public Distribution Strategy
 
-The first public package targets are Fedora RPM and Arch/AUR on x86_64 and aarch64. Flatpak remains a prototype because its optional host must be supplied by a separately reviewed extension. A local prototype manifest lives at:
+The first public package targets are Fedora RPM and Arch/AUR on x86_64 and aarch64. Their app packages require the separately maintained host package, so module installation needs no additional user setup. Flatpak remains a prototype and bundles the digest-pinned host executable. A local prototype manifest lives at:
 
 ```sh
 packaging/flatpak/dev.rayan6ms.rayslash.yml
@@ -88,7 +88,7 @@ Suggested order:
 2. Add validation for desktop entry and AppStream metadata.
 3. Build and verify Fedora RPM packaging in `packaging/fedora/rayslash.spec`.
 4. Build and verify Arch/AUR packaging in `packaging/arch/PKGBUILD`.
-5. Evaluate and harden the Flatpak prototype and optional-host extension.
+5. Evaluate and harden the Flatpak prototype and bundled-host boundary.
 6. Keep AppImage deferred until update, desktop integration, and shortcut documentation expectations are clear.
 
 This order can change if the project chooses distro-native packages as the first public path.
@@ -115,6 +115,7 @@ Expected install outputs:
 - Binary: `/usr/bin/rayslash`
 - Desktop entry: `/usr/share/applications/dev.rayan6ms.rayslash.desktop`
 - Icon: `/usr/share/icons/hicolor/scalable/apps/dev.rayan6ms.rayslash.svg`
+- Required module host: `/usr/libexec/rayslash/rayslash-module-host`, supplied by the `rayslash-module-host` dependency.
 
 The desktop entry should keep `Exec=rayslash toggle` unless the runtime model changes.
 
@@ -137,10 +138,13 @@ Expected package behavior:
 - Install `icons/rayslash-icon.svg` into `/usr/share/icons/hicolor/scalable/apps/dev.rayan6ms.rayslash.svg`.
 - Preserve `Exec=rayslash toggle` so desktop-managed shortcuts and desktop metadata use the resident toggle path.
 - Install AppStream/metainfo metadata.
+- Require `rayslash-module-host`, supplied directly or through the `rayslash-module-host-bin` provider.
 
 ## Flatpak
 
 Flatpak packaging has a prototype manifest at `packaging/flatpak/dev.rayan6ms.rayslash.yml`. It should be evaluated before broad public release because it can provide a single distribution path across many Linux distros.
+
+The manifest installs the pinned host release at `/app/libexec/rayslash/rayslash-module-host`. It contains no official or community module package.
 
 Open questions:
 

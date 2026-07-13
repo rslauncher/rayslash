@@ -20,13 +20,13 @@ These commands are useful while developing, but desktop shortcuts should not use
 
 ## Local User Install
 
-Install the UI crate as the `rayslash` binary:
+Install the UI crate and the required, digest-pinned module host:
 
 ```sh
-cargo install --path crates/rayslash-ui
+packaging/install-user.sh
 ```
 
-Cargo installs the binary into Cargo's user binary directory, usually `~/.cargo/bin`. That directory must be on your `PATH` for desktop shortcuts and shell commands to find `rayslash`.
+The script installs `rayslash` into Cargo's user binary directory, usually `~/.cargo/bin`, and the host into `~/.local/libexec/rayslash`. It does not install any official or community module. Cargo's binary directory must be on your `PATH` for desktop shortcuts and shell commands to find `rayslash`.
 
 ## Verify PATH
 
