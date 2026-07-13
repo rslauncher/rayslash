@@ -15,7 +15,7 @@ use crate::{APP_NAME, atomic_write, config};
 
 use super::{RegistryModule, RegistryVersion};
 
-const INSTALLED_STATE_VERSION: u32 = 1;
+const INSTALLED_STATE_VERSION: u32 = 2;
 const MAX_COMPRESSED_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_EXTRACTED_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_ENTRY_BYTES: u64 = 16 * 1024 * 1024;
@@ -86,6 +86,24 @@ pub struct InstalledModule {
     pub source_commit: String,
     pub install_path: PathBuf,
     pub enabled: bool,
+    pub permissions: PackagePermissions,
+}
+
+#[derive(Deserialize)]
+struct LegacyInstalledModules {
+    version: u32,
+    #[serde(default)]
+    modules: BTreeMap<String, LegacyInstalledModule>,
+}
+
+#[derive(Deserialize)]
+struct LegacyInstalledModule {
+    version: Version,
+    digest: String,
+    source: String,
+    source_commit: String,
+    install_path: PathBuf,
+    enabled: bool,
 }
 
 impl Default for InstalledModules {
@@ -253,6 +271,7 @@ pub fn install_registry_version(
             source_commit: version.source_commit.clone(),
             install_path: destination,
             enabled: true,
+            permissions: manifest.permissions.clone(),
         };
         let mut state = load_installed_modules()?;
         state.modules.insert(module.id.clone(), installed.clone());
@@ -407,18 +426,89 @@ pub fn load_installed_modules() -> Result<InstalledModules, PackageError> {
     let path = installed_modules_file().ok_or(PackageError::DirectoryUnavailable)?;
     match fs::read_to_string(&path) {
         Ok(contents) => {
-            let state: InstalledModules = toml::from_str(&contents).map_err(PackageError::Parse)?;
-            if state.version != INSTALLED_STATE_VERSION {
-                return Err(PackageError::Invalid(format!(
-                    "unsupported installed state version {}",
-                    state.version
-                )));
+            let version = toml::from_str::<toml::Value>(&contents)
+                .map_err(PackageError::Parse)?
+                .get("version")
+                .and_then(toml::Value::as_integer)
+                .unwrap_or_default();
+            match version {
+                2 => toml::from_str(&contents).map_err(PackageError::Parse),
+                1 => migrate_installed_state(&path, &contents),
+                _ => Err(PackageError::Invalid(format!(
+                    "unsupported installed state version {version}"
+                ))),
             }
-            Ok(state)
         }
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(InstalledModules::default()),
         Err(source) => Err(io_error(&path, source)),
     }
+}
+
+fn migrate_installed_state(path: &Path, contents: &str) -> Result<InstalledModules, PackageError> {
+    let legacy: LegacyInstalledModules = toml::from_str(contents).map_err(PackageError::Parse)?;
+    if legacy.version != 1 {
+        return Err(PackageError::Invalid(
+            "invalid legacy installed state".into(),
+        ));
+    }
+    let registry = super::load_cached_registry().map_err(|error| PackageError::Invalid(format!(
+        "installed state v1 needs a verified cached registry for safe permission migration: {error}"
+    )))?;
+    let mut migrated = InstalledModules::default();
+    for (id, old) in legacy.modules {
+        let module = registry
+            .index
+            .modules
+            .iter()
+            .find(|module| module.id == id)
+            .ok_or_else(|| {
+                PackageError::Invalid(format!(
+                    "cannot migrate {id}: missing from verified registry"
+                ))
+            })?;
+        let version = module
+            .versions
+            .iter()
+            .find(|version| {
+                version.version == old.version && version.sha256.eq_ignore_ascii_case(&old.digest)
+            })
+            .ok_or_else(|| {
+                PackageError::Invalid(format!(
+                    "cannot migrate {id}: installed digest is absent from verified registry"
+                ))
+            })?;
+        let manifest: ModulePackageManifest = toml::from_str(
+            &fs::read_to_string(old.install_path.join("module.toml"))
+                .map_err(|source| io_error(&old.install_path, source))?,
+        )
+        .map_err(PackageError::Parse)?;
+        if manifest.id != id
+            || manifest.version != old.version
+            || manifest.permissions != version.permissions
+        {
+            return Err(PackageError::Invalid(format!(
+                "cannot migrate {id}: installed manifest does not match verified version permissions"
+            )));
+        }
+        migrated.modules.insert(
+            id,
+            InstalledModule {
+                version: old.version,
+                digest: old.digest,
+                source: old.source,
+                source_commit: old.source_commit,
+                install_path: old.install_path,
+                enabled: old.enabled,
+                permissions: version.permissions.clone(),
+            },
+        );
+    }
+    let backup = path.with_extension("toml.v1-backup");
+    if !backup.exists() {
+        fs::copy(path, &backup).map_err(|source| io_error(&backup, source))?;
+    }
+    save_installed_modules(&migrated)?;
+    Ok(migrated)
 }
 
 pub fn remove_installed_module(module_id: &str, remove_data: bool) -> Result<bool, PackageError> {
@@ -578,7 +668,7 @@ fn validate_manifest(
         || manifest.author != module.author
         || manifest.license != module.license
         || manifest.kind != module.kind
-        || manifest.permissions != module.permissions
+        || manifest.permissions != version.permissions
         || manifest.version != version.version
         || manifest.api_version != version.api_version
         || manifest.source != module.repository
@@ -727,5 +817,73 @@ mod tests {
         assert!(!empty.exists());
         assert!(occupied.join("keep").is_file());
         fs::remove_dir_all(root).expect("clean fixture");
+    }
+
+    #[test]
+    fn manifest_permissions_must_match_selected_version_exactly() {
+        let root =
+            std::env::temp_dir().join(format!("rayslash-version-permissions-{}", process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("icon.svg"), "<svg/>").unwrap();
+        fs::write(root.join("module.wasm"), b"wasm").unwrap();
+        let old = PackagePermissions {
+            network: vec!["https://old.example".into()],
+            ..Default::default()
+        };
+        let target = PackagePermissions {
+            network: vec!["https://new.example".into()],
+            ..Default::default()
+        };
+        let version = RegistryVersion {
+            version: Version::new(1, 0, 2),
+            api_version: VersionReq::parse("^1").unwrap(),
+            source_commit: "a".repeat(40),
+            asset_url: "https://github.com/example/module/releases/download/v1.0.2/module.tar.zst"
+                .into(),
+            sha256: "b".repeat(64),
+            size: 1,
+            yanked: false,
+            permissions: target.clone(),
+        };
+        let module = RegistryModule {
+            id: "io.github.example.module".into(),
+            name: "Example".into(),
+            description: "Example module".into(),
+            author: "example".into(),
+            license: "MIT".into(),
+            kind: PackageKind::Wasm,
+            legacy_permissions: None,
+            repository: "https://github.com/example/module".into(),
+            official: false,
+            review_status: super::super::ReviewStatus::Reviewed,
+            github_stars: 0,
+            updated_at: "now".into(),
+            versions: vec![version.clone()],
+        };
+        let mut manifest = ModulePackageManifest {
+            id: module.id.clone(),
+            name: module.name.clone(),
+            description: module.description.clone(),
+            author: module.author.clone(),
+            version: version.version.clone(),
+            api_version: version.api_version.clone(),
+            license: module.license.clone(),
+            source: module.repository.clone(),
+            homepage: None,
+            icon: "icon.svg".into(),
+            kind: PackageKind::Wasm,
+            permissions: target,
+            providers: vec![PackageProvider {
+                id: "example".into(),
+                name: "Example".into(),
+                description: "Example".into(),
+                triggers: vec![],
+            }],
+        };
+        assert!(validate_manifest(&manifest, &module, &version, &root).is_ok());
+        manifest.permissions = old;
+        assert!(validate_manifest(&manifest, &module, &version, &root).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 }

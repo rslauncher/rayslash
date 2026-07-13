@@ -28,6 +28,7 @@ fn official_calculator_installs_and_runs_through_the_host() {
         sha256: "8fc6398816f89ab20c39b61768c912056c8030855243f7e145a1a664fe364b94".into(),
         size: 257746,
         yanked: false,
+        permissions: PackagePermissions::default(),
     };
     let module = RegistryModule {
         id: "rayslash.calculator".into(),
@@ -36,7 +37,7 @@ fn official_calculator_installs_and_runs_through_the_host() {
         author: "rayslash".into(),
         license: "MIT".into(),
         kind: PackageKind::Wasm,
-        permissions: PackagePermissions::default(),
+        legacy_permissions: None,
         repository: "https://github.com/rslauncher/rayslash-module-calculator".into(),
         official: true,
         review_status: ReviewStatus::Reviewed,

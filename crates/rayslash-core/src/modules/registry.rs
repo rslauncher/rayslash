@@ -72,7 +72,13 @@ pub struct RegistryModule {
     pub author: String,
     pub license: String,
     pub kind: PackageKind,
-    pub permissions: PackagePermissions,
+    /// Present only in schema 1 catalogs. It is expanded onto every version while loading.
+    #[serde(
+        default,
+        rename = "permissions",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub legacy_permissions: Option<PackagePermissions>,
     pub repository: String,
     pub official: bool,
     pub review_status: ReviewStatus,
@@ -98,6 +104,8 @@ pub struct RegistryVersion {
     pub sha256: String,
     pub size: u64,
     pub yanked: bool,
+    #[serde(default)]
+    pub permissions: PackagePermissions,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -150,8 +158,8 @@ impl std::error::Error for RegistryError {}
 
 pub fn refresh_registry() -> Result<RegistryRefresh, RegistryError> {
     let mut errors = Vec::new();
-    for root_url in [DEFAULT_REGISTRY_ROOT_URL, RAW_REGISTRY_ROOT_URL] {
-        match fetch_registry(root_url) {
+    for root_url in registry_root_urls() {
+        match fetch_registry(&root_url) {
             Ok(fetched) => {
                 reject_registry_rollback(&fetched.root)?;
                 save_cache(
@@ -164,7 +172,7 @@ pub fn refresh_registry() -> Result<RegistryRefresh, RegistryError> {
                     root: fetched.root,
                     index: fetched.index,
                     revocations: fetched.revocations,
-                    source_url: root_url.to_owned(),
+                    source_url: root_url,
                     from_cache: false,
                 });
             }
@@ -178,6 +186,40 @@ pub fn refresh_registry() -> Result<RegistryRefresh, RegistryError> {
             errors.join("; ")
         ),
     })
+}
+
+fn registry_root_urls() -> Vec<String> {
+    #[cfg(all(debug_assertions, feature = "registry-dev-override"))]
+    if let Ok(url) = std::env::var("RAYSLASH_DEV_REGISTRY_ROOT") {
+        return vec![url];
+    }
+    vec![
+        DEFAULT_REGISTRY_ROOT_URL.into(),
+        RAW_REGISTRY_ROOT_URL.into(),
+    ]
+}
+
+fn trusted_key(key_id: &str) -> Option<String> {
+    #[cfg(all(debug_assertions, feature = "registry-dev-override"))]
+    if std::env::var("RAYSLASH_DEV_REGISTRY_ROOT").is_ok()
+        && std::env::var("RAYSLASH_DEV_REGISTRY_KEY_ID").as_deref() == Ok(key_id)
+    {
+        return std::env::var("RAYSLASH_DEV_REGISTRY_PUBLIC_KEY").ok();
+    }
+    TRUSTED_REGISTRY_KEYS
+        .iter()
+        .find_map(|(id, key)| (*id == key_id).then(|| (*key).into()))
+}
+
+fn registry_url_allowed(url: &str) -> bool {
+    if url.starts_with("https://") {
+        return true;
+    }
+    #[cfg(all(debug_assertions, feature = "registry-dev-override"))]
+    return std::env::var("RAYSLASH_DEV_REGISTRY_ROOT").is_ok()
+        && url.starts_with("http://127.0.0.1:");
+    #[cfg(not(all(debug_assertions, feature = "registry-dev-override")))]
+    false
 }
 
 fn reject_registry_rollback(new_root: &RegistryRoot) -> Result<(), RegistryError> {
@@ -266,15 +308,13 @@ pub fn verify_registry_bytes(
     }
     let root: RegistryRoot = serde_json::from_slice(root_bytes)
         .map_err(|error| RegistryError::Invalid(format!("root JSON: {error}")))?;
-    if root.schema_version != 1 {
+    if !matches!(root.schema_version, 1 | 2) {
         return Err(RegistryError::Invalid("unsupported root schema".into()));
     }
-    let encoded_key = TRUSTED_REGISTRY_KEYS
-        .iter()
-        .find_map(|(id, key)| (*id == root.key_id).then_some(*key))
+    let encoded_key = trusted_key(&root.key_id)
         .ok_or_else(|| RegistryError::Invalid("untrusted registry signing key".into()))?;
     let key: [u8; 32] = STANDARD
-        .decode(encoded_key)
+        .decode(&encoded_key)
         .map_err(|error| RegistryError::Invalid(format!("embedded public key: {error}")))?
         .try_into()
         .map_err(|_| RegistryError::Invalid("embedded public key length".into()))?;
@@ -293,14 +333,20 @@ pub fn verify_registry_bytes(
     if sha256(revocations_bytes) != root.revocations_sha256.to_ascii_lowercase() {
         return Err(RegistryError::Invalid("revocations digest mismatch".into()));
     }
-    let index: RegistryIndex = serde_json::from_slice(index_bytes)
+    let mut index: RegistryIndex = serde_json::from_slice(index_bytes)
         .map_err(|error| RegistryError::Invalid(format!("index JSON: {error}")))?;
-    if index.schema_version != 1 {
+    if index.schema_version != root.schema_version || !matches!(index.schema_version, 1 | 2) {
         return Err(RegistryError::Invalid("unsupported index schema".into()));
     }
+    normalize_permissions(&mut index)?;
     validate_index(&index)?;
     let revocations: RegistryRevocations = serde_json::from_slice(revocations_bytes)
         .map_err(|error| RegistryError::Invalid(format!("revocations JSON: {error}")))?;
+    if revocations.schema_version != root.schema_version {
+        return Err(RegistryError::Invalid(
+            "registry component schema mismatch".into(),
+        ));
+    }
     validate_revocations(&revocations)?;
     Ok((root, index, revocations))
 }
@@ -311,10 +357,10 @@ fn fetch_registry(root_url: &str) -> Result<FetchedRegistry, RegistryError> {
     let signature_bytes = fetch_limited(&signature_url, MAX_SIGNATURE_BYTES)?;
     let unsigned_root: RegistryRoot = serde_json::from_slice(&root_bytes)
         .map_err(|error| RegistryError::Invalid(format!("root JSON: {error}")))?;
-    if !unsigned_root.index_url.starts_with("https://") {
+    if !registry_url_allowed(&unsigned_root.index_url) {
         return Err(RegistryError::Invalid("index URL must use HTTPS".into()));
     }
-    if !unsigned_root.revocations_url.starts_with("https://") {
+    if !registry_url_allowed(&unsigned_root.revocations_url) {
         return Err(RegistryError::Invalid(
             "revocations URL must use HTTPS".into(),
         ));
@@ -400,22 +446,22 @@ fn validate_index(index: &RegistryIndex) -> Result<(), RegistryError> {
                 module.id
             )));
         }
-        for origin in &module.permissions.network {
-            let Some(authority) = origin.strip_prefix("https://") else {
-                return Err(RegistryError::Invalid(format!(
-                    "invalid network origin for {}",
-                    module.id
-                )));
-            };
-            if authority.is_empty() || authority.contains(['/', '?', '#', '@']) {
-                return Err(RegistryError::Invalid(format!(
-                    "invalid network origin for {}",
-                    module.id
-                )));
-            }
-        }
         let mut versions = std::collections::BTreeSet::new();
         for version in &module.versions {
+            for origin in &version.permissions.network {
+                let Some(authority) = origin.strip_prefix("https://") else {
+                    return Err(RegistryError::Invalid(format!(
+                        "invalid network origin for {} {}",
+                        module.id, version.version
+                    )));
+                };
+                if authority.is_empty() || authority.contains(['/', '?', '#', '@']) {
+                    return Err(RegistryError::Invalid(format!(
+                        "invalid network origin for {} {}",
+                        module.id, version.version
+                    )));
+                }
+            }
             if !versions.insert(&version.version)
                 || version.source_commit.len() != 40
                 || !version
@@ -441,8 +487,35 @@ fn validate_index(index: &RegistryIndex) -> Result<(), RegistryError> {
     Ok(())
 }
 
+fn normalize_permissions(index: &mut RegistryIndex) -> Result<(), RegistryError> {
+    for module in &mut index.modules {
+        match index.schema_version {
+            1 => {
+                let permissions = module.legacy_permissions.clone().ok_or_else(|| {
+                    RegistryError::Invalid(format!(
+                        "schema 1 module {} has no permissions",
+                        module.id
+                    ))
+                })?;
+                for version in &mut module.versions {
+                    version.permissions = permissions.clone();
+                }
+            }
+            2 if module.legacy_permissions.is_some() => {
+                return Err(RegistryError::Invalid(format!(
+                    "schema 2 module {} has module-level permissions",
+                    module.id
+                )));
+            }
+            2 => {}
+            _ => unreachable!(),
+        }
+    }
+    Ok(())
+}
+
 fn validate_revocations(revocations: &RegistryRevocations) -> Result<(), RegistryError> {
-    if revocations.schema_version != 1 {
+    if !matches!(revocations.schema_version, 1 | 2) {
         return Err(RegistryError::Invalid(
             "unsupported revocations schema".into(),
         ));
@@ -598,6 +671,40 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(not(feature = "registry-dev-override"))]
+    fn development_registry_override_is_not_compiled_by_default() {
+        unsafe { std::env::set_var("RAYSLASH_DEV_REGISTRY_ROOT", "http://127.0.0.1:9/root.json") };
+        assert_eq!(
+            registry_root_urls(),
+            vec![DEFAULT_REGISTRY_ROOT_URL, RAW_REGISTRY_ROOT_URL]
+        );
+        assert!(!registry_url_allowed("http://127.0.0.1:9/index.json"));
+        unsafe { std::env::remove_var("RAYSLASH_DEV_REGISTRY_ROOT") };
+    }
+
+    #[test]
+    fn schema_one_permissions_are_explicitly_expanded_per_version() {
+        let mut index: RegistryIndex = serde_json::from_str(r#"{"schema_version":1,"generated_at":"now","modules":[{"id":"x","name":"x","description":"x","author":"x","license":"MIT","kind":"wasm","permissions":{"network":["https://old.example"]},"repository":"https://github.com/x/x","official":false,"review_status":"reviewed","github_stars":0,"updated_at":"now","versions":[{"version":"1.0.0","api_version":"^1","source_commit":"0000000000000000000000000000000000000000","asset_url":"https://github.com/x/x/releases/download/v1/x.tar.zst","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":1,"yanked":true}]}]}"#).unwrap();
+        normalize_permissions(&mut index).unwrap();
+        assert_eq!(
+            index.modules[0].versions[0].permissions.network,
+            ["https://old.example"]
+        );
+        assert!(index.modules[0].versions[0].yanked);
+    }
+
+    #[test]
+    fn schema_two_keeps_different_exact_origins_per_version() {
+        let mut index: RegistryIndex = serde_json::from_str(r#"{"schema_version":2,"generated_at":"now","modules":[{"id":"x","name":"x","description":"x","author":"x","license":"MIT","kind":"wasm","repository":"https://github.com/x/x","official":false,"review_status":"reviewed","github_stars":0,"updated_at":"now","versions":[{"version":"1.0.0","api_version":"^1","source_commit":"0000000000000000000000000000000000000000","asset_url":"https://github.com/x/x/releases/download/v1/x.tar.zst","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":1,"yanked":false,"permissions":{"network":["https://old.example"]}},{"version":"1.0.1","api_version":"^1","source_commit":"1111111111111111111111111111111111111111","asset_url":"https://github.com/x/x/releases/download/v1.0.1/x.tar.zst","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","size":1,"yanked":false,"permissions":{"network":["https://new.example"]}}]}]}"#).unwrap();
+        normalize_permissions(&mut index).unwrap();
+        validate_index(&index).unwrap();
+        assert_ne!(
+            index.modules[0].versions[0].permissions,
+            index.modules[0].versions[1].permissions
+        );
+    }
+
+    #[test]
     fn rejects_invalid_signatures_before_index_use() {
         let root = br#"{"schema_version":1,"generated_at":"now","key_id":"registry-2026-01","index_url":"https://example.test/index.json","index_sha256":"00","revocations_url":"https://example.test/revocations.json","revocations_sha256":"00"}"#;
         assert!(matches!(
@@ -641,7 +748,7 @@ mod tests {
                 author: "example".into(),
                 license: "MIT".into(),
                 kind: PackageKind::Wasm,
-                permissions: PackagePermissions::default(),
+                legacy_permissions: Some(PackagePermissions::default()),
                 repository: "https://github.com/example/module".into(),
                 official: false,
                 review_status: ReviewStatus::Reviewed,
@@ -657,6 +764,7 @@ mod tests {
                     sha256: "a".repeat(64),
                     size: 1,
                     yanked: false,
+                    permissions: PackagePermissions::default(),
                 }],
             }],
         };
