@@ -24,3 +24,27 @@ jobs:
         run: cargo build --workspace
       - name: Validate packaging metadata
         run: packaging/validate-metadata.sh
+
+  fedora-rpm-offline:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - name: Install packaging tools
+        run: dnf install -y appstream cargo desktop-file-utils fontconfig-devel gcc git rpm-build rust xz
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Prepare source and vendor archives
+        run: packaging/fedora/prepare-sources.sh "$RUNNER_TEMP/sources" "$GITHUB_SHA"
+      - name: Build source RPM
+        run: |
+          mkdir -p "$RUNNER_TEMP/rpmbuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          cp "$RUNNER_TEMP/sources"/* "$RUNNER_TEMP/rpmbuild/SOURCES/"
+          cp packaging/fedora/rayslash.spec "$RUNNER_TEMP/rpmbuild/SPECS/"
+          rpmbuild -bs \
+            --define "_topdir $RUNNER_TEMP/rpmbuild" \
+            "$RUNNER_TEMP/rpmbuild/SPECS/rayslash.spec"
+      - name: Rebuild without Cargo network access
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: rpmbuild --rebuild "$RUNNER_TEMP/rpmbuild/SRPMS/rayslash-0.1.0-2.fc44.src.rpm"

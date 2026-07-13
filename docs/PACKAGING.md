@@ -101,7 +101,7 @@ Fedora RPM packaging lives at:
 packaging/fedora/rayslash.spec
 ```
 
-The spec builds the Rust workspace and installs the UI crate binary as `rayslash`.
+The spec builds the Rust workspace and installs the UI crate binary as `rayslash`. Fedora/mock builds have no network access, so the SRPM contains a deterministic vendor archive generated from the committed `Cargo.lock`; the generated dependency tree is not committed to Git.
 
 Known build requirements discovered during local development:
 
@@ -109,6 +109,45 @@ Known build requirements discovered during local development:
 - `pkgconfig(fontconfig)`
 
 Rust and Cargo are required to build the project. The current spec keeps the build direct and should be adjusted to Fedora Rust packaging conventions if submitted to Fedora proper.
+
+### Preparing an offline Fedora SRPM
+
+Run the source-preparation helper from a clean checkout. It accepts an output directory and an optional committed Git reference:
+
+```sh
+sources_dir="$(mktemp -d)"
+packaging/fedora/prepare-sources.sh "$sources_dir" HEAD
+```
+
+The helper runs `cargo vendor --locked --versioned-dirs`, creates `rayslash-0.1.0.tar.gz` from the selected commit, and creates a deterministic `rayslash-0.1.0-vendor.tar.xz`. It prints both SHA-256 hashes. Network access is allowed only during this source-preparation step so Cargo can populate missing registry packages. `Cargo.lock` remains authoritative and source preparation fails if its dependency graph cannot be vendored.
+
+Build the SRPM from a literal copy of the checked-in spec in a fresh top directory:
+
+```sh
+topdir="$(mktemp -d)"
+mkdir -p "$topdir"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+cp "$sources_dir"/* "$topdir/SOURCES/"
+cp packaging/fedora/rayslash.spec "$topdir/SPECS/"
+rpmbuild -bs \
+  --define "_topdir $topdir" \
+  "$topdir/SPECS/rayslash.spec"
+```
+
+Do not write `rpmspec -P` output into `SPECS`; preprocessing expands machine-specific paths. The literal spec plus explicit `_topdir` keeps the SRPM portable.
+
+Rebuild in a clean Fedora 44 chroot:
+
+```sh
+resultdir="$(mktemp -d)"
+mock \
+  -r fedora-44-x86_64 \
+  --resultdir="$resultdir" \
+  --rebuild "$topdir/SRPMS/rayslash-0.1.0-2.fc44.src.rpm"
+```
+
+The spec installs `packaging/fedora/cargo-config.toml`, which replaces crates.io with the unpacked `vendor` directory and enables Cargo offline mode. Both `%build` and `%check` use `--frozen`, so a missing/stale vendor entry or lockfile change fails instead of accessing the registry. They cap Cargo at two jobs because clean Slint release and test builds can otherwise run enough concurrent compiler processes to exhaust a 16 GiB workstation.
+
+Mock 6.7 on Fedora 44 may log repeated `unknown tag: "pkgid"` messages while its `package_state` plugin runs an RPM query containing `%{pkgid}`. This occurs before project build commands and comes from `/usr/lib/python3.14/site-packages/mockbuild/plugins/package_state.py`; RPM 6.0.1 no longer recognizes that query tag. It is harmless mock/plugin compatibility noise, not a rayslash spec or source error.
 
 Expected install outputs:
 
@@ -130,6 +169,8 @@ packaging/arch/PKGBUILD
 ```
 
 The `PKGBUILD` builds the Rust workspace and installs the resulting binary as `rayslash`.
+
+`pkgrel` is `2` because the mandatory module-host dependency materially changed package metadata after the `0.1.0-1` package. This ensures an ordinary Arch upgrade delivers the corrected dependency contract without changing the upstream application version.
 
 Expected package behavior:
 
