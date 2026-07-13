@@ -167,67 +167,32 @@ Folder discovery is intentionally shallow for now:
 - Hidden directories, such as `.git` or `.cache`, are ignored.
 - Nested directories are not scanned yet.
 
-## Bundled Module Config
+## Module Config
 
-The first module-system slice stores official-module enablement separately at:
+Installed module state is stored separately at:
 
 ```sh
 ~/.config/rayslash/modules.toml
 ```
 
-The file is versioned and currently contains seven installed, official, built-in modules:
+The file uses version 2. A fresh installation starts empty because no official or community module is installed by default:
 
 ```toml
-version = 1
-
-[modules."rayslash.calculator"]
-enabled = true
-version = "0.1.0"
-channel = "stable"
-
-[modules."rayslash.units"]
-enabled = true
-version = "0.1.0"
-channel = "stable"
-
-[modules."rayslash.currency"]
-enabled = true
-version = "0.1.0"
-channel = "stable"
-
-[modules."rayslash.time"]
-enabled = true
-version = "0.1.0"
-channel = "stable"
-
-[modules."rayslash.web-search"]
-enabled = true
-version = "0.1.0"
-channel = "stable"
-
-[modules."rayslash.timers"]
-enabled = true
-version = "0.1.0"
-channel = "stable"
-
-[modules."rayslash.aliases"]
-enabled = true
-version = "0.1.0"
-channel = "stable"
+version = 2
 ```
 
-The stored version for each bundled descriptor follows the rayslash package version. Apps and Folders are core providers, remain controlled by `providers.apps` and `providers.folders`, and do not receive module entries.
+After installing a module, its entry records the installed version, channel, and enabled state. Apps and Folders are core providers, remain controlled by `providers.apps` and `providers.folders`, and never receive module entries.
 
-Migration and precedence are intentional:
+Version-1 migration is opt-in and never downloads code:
 
-- On the first startup with a valid `config.toml` and no `modules.toml`, rayslash creates `modules.toml` once and seeds the seven `enabled` values from `providers.calculator`, `providers.aliases`, `providers.web_search`, `providers.unit_conversion`, `providers.currency_conversion`, `providers.time_lookup`, and `providers.utility_actions`.
-- Once `modules.toml` exists, its official-module entries take precedence over those compatibility booleans at startup. A missing official entry is seeded in memory from the corresponding legacy value.
-- Toggling a module writes `modules.toml` first, applies the state immediately, and mirrors all seven values back into `config.toml` for compatibility with older rayslash versions and manual tooling. The Timers mirror is `providers.utility_actions`.
-- General settings saves continue carrying the hidden compatibility values, so changing folder, appearance, alias, or search-engine settings does not reset module state.
+- Existing version-1 entries are backed up to `modules.toml.v1.bak`, converted to version 2, and shown as `Restore` choices.
+- A fresh user with no earlier `config.toml` receives an empty version-2 file.
+- Restoring or installing a module creates its version-2 entry only after its verified package passes the startup probe.
+- Enabling, disabling, updating, or removing a module updates this file atomically.
 
-`modules.toml` uses same-directory temporary-file-and-rename atomic writes. Unlike `config.toml`, it does not need a pre-save backup to preserve unrecognized data: unknown top-level fields, unknown fields inside module entries, and unknown module entries are retained during load/save round trips. Unknown modules are not treated as installed official modules and cannot be toggled through the first-slice UI.
+`modules.toml` uses same-directory temporary-file-and-rename atomic writes. Unknown top-level fields, fields inside module entries, and module entries are retained during load/save round trips.
 
-If `modules.toml` is unreadable, malformed, or has an unsupported top-level `version`, rayslash uses a legacy-derived in-memory module view and blocks module writes for that process. It does not replace the bad file with defaults. Fix the file and restart rayslash before changing module state. If the main `config.toml` could not be read or parsed, both normal settings writes and module writes are blocked so fallback defaults cannot overwrite user-authored configuration.
+If `modules.toml` is unreadable, malformed, or has an unsupported top-level `version`, rayslash blocks module writes for that process and does not replace the bad file. Fix the file and restart rayslash before changing module state. A main `config.toml` read/parse failure similarly blocks settings and module writes so fallback defaults cannot overwrite user-authored configuration.
 
 ## Defaults
 
@@ -235,7 +200,7 @@ When no config file exists, the default folder source is:
 
 - `~`
 
-Current baseline provider toggles for apps, folders, calculator, aliases, web search, unit conversion, currency conversion, time lookup, and utility actions default to `true`. The seven bundled module entries therefore default to enabled when no legacy preference says otherwise. Config normalization always keeps `Web Search` as the first template with keyword `search`; its initial URL is Google. The alternate folder opener is enabled by default and defaults to `xdg-terminal-exec`. `theme` defaults to `dark`, `density` defaults to `comfortable`, `max_results` defaults to `36`, `show_tooltips` defaults to `true`, learned ranking defaults to enabled, and shortcut hints are always shown when no status message is active.
+Apps and Folders default to enabled. Legacy provider booleans remain readable for version-1 migration but do not install module packages on a fresh setup. Config normalization keeps `Web Search` as the first legacy template with keyword `search`; its initial URL is Google. The alternate folder opener is enabled by default and defaults to `xdg-terminal-exec`. `theme` defaults to `dark`, `density` defaults to `comfortable`, `max_results` defaults to `36`, `show_tooltips` defaults to `true`, learned ranking defaults to enabled, and shortcut hints are always shown when no status message is active.
 
 The previous `project_roots`, `providers.projects`, and `actions.project_editor_command` keys are still accepted for compatibility. Autosaving from the settings UI writes the current public keys.
 
@@ -257,7 +222,7 @@ General can edit:
 - Learned ranking on/off.
 - Clear learned ranking history.
 
-Modules has `Installed` and `Official` tabs. Both currently show the same seven bundled rows with module ID-backed metadata: name, description, `rayslash` author, package version, official/installed status, enabled state, and an enable/disable switch. A non-interactive notice makes clear that community registry search and third-party installation are deferred; there is no Community tab or remote installer in this slice.
+Modules has `Installed`, `Official`, and `Community` tabs backed by the verified registry. Cards expose metadata, permissions, source, lifecycle actions, and enable state. Official and community catalog entries are visible before installation; installing one downloads only the selected verified package.
 
 The General settings UI autosaves changes to `~/.config/rayslash/config.toml` with same-directory temporary-file-and-rename writes, rescans folder sources when settings are persisted, and refreshes the current result list. Before replacing an existing `config.toml`, settings saves create a timestamped sibling backup such as `config.toml.backup-<pid>-<timestamp>`. If rayslash started with a config read or parse error and fell back to defaults, settings saves are blocked until the config file is fixed and rayslash is restarted. Toggles and picker choices save immediately. Single-line text fields save when Enter is pressed in the field or when focus leaves the field; multiline alias and search-engine fields save on focus loss. This keeps partial path or number edits from repeatedly rescanning or overwriting config with invalid values. The settings UI also shows diagnostics for the config location, state location, socket path, discovered folder count, discovered app count, and resolved app icon count.
 

@@ -10,7 +10,7 @@ A post-v1 planning pass now exists. [ROADMAP.md](ROADMAP.md) treats Phases 0 thr
 
 The repository is a Cargo workspace with a pure Rust core crate and a Slint UI binary crate. `cargo run -p rayslash` starts a single resident GUI instance, opens a frameless launcher with a search input, mixed calculator, desktop app, and folder results when available, and provider-aware placeholder results only when no enabled desktop apps or folder results are available and the query is not a valid calculation.
 
-The module migration now uses on-demand verified GitHub Release packages, a signed static GitHub Pages registry with raw/cache fallbacks, and a separately installed no-WASI host. Fresh configurations contain no optional modules. Apps and Folders are the only built-in providers; the extracted Calculator, Units, Currency, Time, Web Search, Timers, and Aliases live in separate repositories. Existing virtual-module entries appear as explicit `Restore` actions and never trigger silent downloads. See [manual_migration.md](manual_migration.md) for repository and release state.
+The module migration now uses on-demand verified GitHub Release packages, a signed static GitHub Pages registry with raw/cache fallbacks, and a separately maintained no-WASI host that supported app packages deliver automatically. Fresh configurations contain no optional modules. Apps and Folders are the only built-in providers; the extracted Calculator, Units, Currency, Time, Web Search, Timers, and Aliases live in separate repositories. Existing virtual-module entries appear as explicit `Restore` actions and never trigger silent downloads. See [manual_migration.md](manual_migration.md) for repository and release state.
 
 The latest utility/settings correction moves remote time and currency resolution out of the per-keystroke UI path, waits for the provider-declared debounce interval, and discards stale query generations. Time lookup canonicalizes punctuation-free names such as `washington dc`, prevents `america` from resolving to the same-named Dutch village, suppresses unrelated results, and expands countries through the local IANA timezone database into rows grouped by current UTC offset. Time tooltips allow three wrapped lines and clamp their screen position inside the result viewport. The permanent first `Web Search` template uses keyword `search` and a user-editable Google `%s` URL for every browser; it can be disabled but not removed. Search-engine and alias settings use compact bordered field cards with a larger identity header, small save action, and red SVG trash action. Additional search engines persist incomplete rows as inactive drafts on field focus loss, show an amber warning until valid, and use cached favicons in both settings and result rows with a magnifying-glass/keyword fallback. System actions support fuzzy partial queries and additional aliases, run immediately unless a delay is explicit, and participate in learned ranking without tests executing the destructive commands.
 
@@ -224,10 +224,7 @@ The current UI supports dark, dim, and light themes, keyboard and mouse selectio
 
 ## Partially done
 
-- Installable module migration:
-  - Internal provider boundary, typed actions, virtual descriptors, version-1 `modules.toml`, and local Modules settings toggles exist.
-  - Remote registry/package lifecycle, integrity, community authoring API/SDK, optional WASM host, extraction of seven official modules, and version-1 user migration remain.
-  - Permanent GitHub repositories, public signing key, maintainers, support contacts, and packaging targets are owner prerequisites in [manual_migration.md](../manual_migration.md).
+- Installable module migration implementation is complete. The remaining work is the real distribution/desktop verification matrix in [manual_migration.md](manual_migration.md).
 
 - Minimal launcher UI exists with:
   - Search input.

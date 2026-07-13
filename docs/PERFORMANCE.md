@@ -8,9 +8,9 @@ Release builds used the same local x86_64 Rust release profile and dependency ca
 | --- | ---: | ---: |
 | Pre-migration app at `25f8315` | 37,913,912 | 36.2 MiB |
 | Migrated core app | 37,228,544 | 35.5 MiB |
-| Separately installed module host | 14,659,904 | 14.0 MiB |
+| Required module host | 14,659,904 | 14.0 MiB |
 
-The core is 685,368 bytes smaller (1.8%) even after adding signature verification, compressed package installation, registry networking/cache, and module lifecycle UI. The 14.0 MiB Wasmtime host is not a dependency of the core RPM/PKGBUILD and occupies no installed space unless the user chooses a WASM module.
+The core is 685,368 bytes smaller (1.8%) even after adding signature verification, compressed package installation, registry networking/cache, and module lifecycle UI. The 14.0 MiB Wasmtime host is required infrastructure in supported app packages, so the complete fresh installation pays that fixed cost while still containing no optional module packages.
 
 The live Calculator conformance probe measures both cold and warm behavior through the verified installer and real host. Cold startup initializes Wasmtime once; the persistent-host second query must complete in under 250 ms. Installed modules are queried in parallel so one slow module does not serialize all providers.
 
