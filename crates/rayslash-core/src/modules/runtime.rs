@@ -630,13 +630,18 @@ fn module_host_path() -> PathBuf {
     env::var_os("RAYSLASH_MODULE_HOST")
         .map(PathBuf::from)
         .or_else(|| {
-            [
+            let mut candidates = vec![
                 "/app/libexec/rayslash/rayslash-module-host",
+                "/usr/local/libexec/rayslash/rayslash-module-host",
                 "/usr/libexec/rayslash/rayslash-module-host",
             ]
             .into_iter()
             .map(PathBuf::from)
-            .find(|path| path.is_file())
+            .collect::<Vec<_>>();
+            if let Some(home) = dirs::home_dir() {
+                candidates.push(home.join(".local/libexec/rayslash/rayslash-module-host"));
+            }
+            candidates.into_iter().find(|path| path.is_file())
         })
         .unwrap_or_else(|| PathBuf::from("rayslash-module-host"))
 }

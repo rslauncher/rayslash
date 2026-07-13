@@ -28,7 +28,7 @@
 - Find folders from configurable source directories
 - Install Calculator, Units, Currency, Time, Web Search, Timers, Aliases, and community modules only when wanted
 - Verify a signed registry and every package digest before activation
-- Run executable modules without WASI in the separately installed sandbox host
+- Run executable modules without WASI in the included sandbox host
 - Learn from app and folder selections using local ranking data
 - Configure providers, appearance, aliases, and search engines from the settings panel
 
@@ -39,10 +39,10 @@ Building requires a recent Rust toolchain and the Fontconfig development files f
 ```sh
 git clone https://github.com/rslauncher/rayslash.git
 cd rayslash
-cargo install --path crates/rayslash-ui
+packaging/install-user.sh
 ```
 
-Make sure Cargo's binary directory, usually `~/.cargo/bin`, is on your `PATH`, then start rayslash:
+This one command builds the launcher and installs the digest-pinned module host. Make sure Cargo's binary directory, usually `~/.cargo/bin`, is on your `PATH`, then start rayslash:
 
 ```sh
 rayslash
@@ -56,7 +56,7 @@ rayslash toggle
 
 Global shortcuts are managed by the desktop environment rather than captured by rayslash. A desktop entry and icon are available under [`packaging/linux`](packaging/linux) for local or package installations.
 
-The core install contains no optional modules. Install them from Settings → Modules. WASM modules also require the optional [`rayslash-module-host`](https://github.com/rslauncher/rayslash-module-host); Fedora and Arch recipes install it separately. Apps and Folders work without the host or registry.
+The app installs the [`rayslash-module-host`](https://github.com/rslauncher/rayslash-module-host) runtime so Settings → Modules can install and run modules immediately. The host is infrastructure, not a module: no official or community module is installed until you choose it. Fedora and Arch express the separately maintained host package as a required dependency, and the Flatpak includes the host executable.
 
 ## Usage
 

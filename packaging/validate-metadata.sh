@@ -5,6 +5,9 @@ root_dir="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 inventory="$root_dir/packaging/linux/inventory.toml"
 desktop_file="$root_dir/packaging/linux/dev.rayan6ms.rayslash.desktop"
 metainfo_file="$root_dir/packaging/linux/dev.rayan6ms.rayslash.metainfo.xml"
+fedora_spec="$root_dir/packaging/fedora/rayslash.spec"
+arch_pkgbuild="$root_dir/packaging/arch/PKGBUILD"
+flatpak_manifest="$root_dir/packaging/flatpak/dev.rayan6ms.rayslash.yml"
 
 require_inventory_value() {
     key="$1"
@@ -36,6 +39,9 @@ require_file_text "$desktop_file" "StartupWMClass=dev.rayan6ms.rayslash"
 require_file_text "$metainfo_file" "<id>dev.rayan6ms.rayslash</id>"
 require_file_text "$metainfo_file" "<binary>rayslash</binary>"
 require_file_text "$metainfo_file" "<launchable type=\"desktop-id\">dev.rayan6ms.rayslash.desktop</launchable>"
+require_file_text "$fedora_spec" "Requires:       rayslash-module-host >= 0.1.2"
+require_file_text "$arch_pkgbuild" "depends=('fontconfig' 'rayslash-module-host>=0.1.2')"
+require_file_text "$flatpak_manifest" "install -Dm0755 rayslash-module-host /app/libexec/rayslash/rayslash-module-host"
 
 if command -v desktop-file-validate >/dev/null 2>&1; then
     desktop-file-validate "$desktop_file"
