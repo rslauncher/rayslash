@@ -89,4 +89,4 @@ rayslash toggle
 
 ## Packaging
 
-Linux packaging notes and metadata validation commands live in [PACKAGING.md](PACKAGING.md). Current package artifacts include Fedora RPM packaging, an Arch/AUR `PKGBUILD`, a Flatpak prototype manifest, AppStream/metainfo metadata, and an AppImage deferral note.
+Linux packaging notes and metadata validation commands live in [PACKAGING.md](PACKAGING.md). Official Fedora x86_64 and aarch64 app/host package sets are published on the [Rayslash releases page](https://github.com/rslauncher/rayslash/releases); installation and checksum commands are documented in the Fedora section of `PACKAGING.md`. Current package artifacts also include an Arch/AUR `PKGBUILD`, a Flatpak prototype manifest, AppStream/metainfo metadata, and an AppImage deferral note.

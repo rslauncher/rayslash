@@ -62,7 +62,7 @@ desktop-file-validate packaging/linux/dev.rayan6ms.rayslash.desktop
 appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xml
 ```
 
-The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs formatting, clippy, tests, build, desktop-entry validation, AppStream validation, inventory consistency checks, and a frozen/offline Fedora rebuild. The Fedora job retains its SRPM and binary RPMs for seven days as the `fedora-44-rpms` workflow artifact so release validation can inspect the exact CI outputs without rebuilding them on a developer workstation.
+The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs formatting, clippy, tests, build, desktop-entry validation, AppStream validation, inventory consistency checks, and frozen/offline Fedora rebuilds on x86_64 and aarch64. Each Fedora job fetches the architecture-matched host RPM from the immutable host v0.1.2 release, verifies both pinned and published checksums, runs RPM digest and rpmlint validation, and proves with a DNF dry run that installing `rayslash` resolves the separate host dependency. The `fedora-44-x86_64-package-set` and `fedora-44-aarch64-package-set` workflow artifacts are retained for fourteen days.
 
 ## Standards To Follow
 
@@ -119,7 +119,7 @@ sources_dir="$(mktemp -d)"
 packaging/fedora/prepare-sources.sh "$sources_dir" HEAD
 ```
 
-The helper runs `cargo vendor --locked --versioned-dirs`, creates `rayslash-0.1.0.tar.gz` from the selected commit, and creates a deterministic `rayslash-0.1.0-vendor.tar.xz`. It prints both SHA-256 hashes. Network access is allowed only during this source-preparation step so Cargo can populate missing registry packages. `Cargo.lock` remains authoritative and source preparation fails if its dependency graph cannot be vendored.
+The helper runs `cargo vendor --locked --versioned-dirs`, creates `rayslash-0.1.1.tar.gz` from the selected commit, and creates a deterministic `rayslash-0.1.1-vendor.tar.xz`. It prints both SHA-256 hashes. Network access is allowed only during this source-preparation step so Cargo can populate missing registry packages. `Cargo.lock` remains authoritative and source preparation fails if its dependency graph cannot be vendored.
 
 Build the SRPM from a literal copy of the checked-in spec in a fresh top directory:
 
@@ -142,7 +142,7 @@ resultdir="$(mktemp -d)"
 mock \
   -r fedora-44-x86_64 \
   --resultdir="$resultdir" \
-  --rebuild "$topdir/SRPMS/rayslash-0.1.0-2.fc44.src.rpm"
+  --rebuild "$topdir/SRPMS/rayslash-0.1.1-1.fc44.src.rpm"
 ```
 
 The spec installs `packaging/fedora/cargo-config.toml`, which replaces crates.io with the unpacked `vendor` directory and enables Cargo offline mode. Both `%build` and `%check` use `--frozen`, so a missing/stale vendor entry or lockfile change fails instead of accessing the registry. They cap Cargo at two jobs because clean Slint builds can otherwise run enough concurrent compiler processes to exhaust a 16 GiB workstation. `%check` uses the release profile so it reuses the packaged build's optimized dependency graph instead of compiling the full Slint stack a second time in the debug profile.
@@ -160,6 +160,22 @@ The desktop entry should keep `Exec=rayslash toggle` unless the runtime model ch
 
 The package installs AppStream/metainfo metadata.
 
+### Official Fedora package set
+
+The [Rayslash v0.1.1 release](https://github.com/rslauncher/rayslash/releases/tag/v0.1.1) publishes the app RPMs together with the verified, separately packaged host RPM for x86_64 and aarch64. The same host RPMs remain independently available from the [host v0.1.2 release](https://github.com/rslauncher/rayslash-module-host/releases/tag/v0.1.2). No optional module is included in either RPM.
+
+Download the app RPM, the matching host RPM, and their `.sha256` files for the machine architecture. Verify them in the download directory and install both official files in one DNF transaction:
+
+```sh
+sha256sum --check --strict rayslash-0.1.1-1.fc44."$(uname -m)".rpm.sha256
+sha256sum --check --strict rayslash-module-host-0.1.2-1.fc44."$(uname -m)".rpm.sha256
+sudo dnf install \
+  ./rayslash-module-host-0.1.2-1.fc44."$(uname -m)".rpm \
+  ./rayslash-0.1.1-1.fc44."$(uname -m)".rpm
+```
+
+This installs the host as a dependency-owned infrastructure package. It does not install Calculator, Units, Currency, Time, Web Search, Timers, Aliases, or any community module.
+
 ## Arch/AUR
 
 Arch/AUR packaging lives at:
@@ -170,7 +186,7 @@ packaging/arch/PKGBUILD
 
 The `PKGBUILD` builds the Rust workspace and installs the resulting binary as `rayslash`.
 
-`pkgrel` is `2` because the mandatory module-host dependency materially changed package metadata after the `0.1.0-1` package. This ensures an ordinary Arch upgrade delivers the corrected dependency contract without changing the upstream application version.
+`pkgver` is `0.1.1` and `pkgrel` is `1`, matching the first release that publishes complete architecture-matched app and host package sets.
 
 Expected package behavior:
 

@@ -191,6 +191,7 @@ These tasks come from [CLEANUP_AUDIT.md](CLEANUP_AUDIT.md) and are intentionally
 - [x] Add metadata validation commands to docs and CI.
 - [x] Decide the first public package target, with Flatpak as the strongest broad-distribution candidate to evaluate.
 - [x] Implement complete Fedora RPM packaging after install layout is stable.
+- [x] Publish checksum-verified x86_64/aarch64 Fedora app and separate host RPMs as complete official package sets, with CI DNF resolution tests.
 - [x] Implement complete Arch/AUR packaging after install layout is stable.
 - [x] Revisit AppImage after desktop entry, icon, and update expectations are clear.
 - [x] Improve Desktop Entry compatibility for `TryExec`, `OnlyShowIn`, `NotShowIn`, missing `Exec` targets, and `MimeType`/`Categories`-based folder opener filtering.
@@ -234,6 +235,7 @@ These tasks come from [CLEANUP_AUDIT.md](CLEANUP_AUDIT.md) and are intentionally
   Remaining: catalog search, in-flight cancellation, an explicit stale/offline badge, expanded diagnostics/permission-diff details, and keyboard/focus/wrapping coverage.
 - [ ] Define a backward-compatible community settings schema and generic Settings form; API v1 community modules currently must work with an empty `{}` settings object.
 - [x] Implement the sandboxed WASM host and make supported app packages deliver it automatically.
+- [x] Publish the required host as a separate official Fedora RPM and include the verified RPM in architecture-matched app release package sets.
 - [x] Extract and independently release all seven official modules.
 - [x] Migrate existing version-1 virtual-module users as explicit Restore choices without installing optional modules for fresh users.
 - [x] Update native and Flatpak packaging so fresh packages contain no official optional modules.
