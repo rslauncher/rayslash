@@ -8,7 +8,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux metadata tools
         run: |
@@ -24,3 +24,46 @@ jobs:
         run: cargo build --workspace
       - name: Validate packaging metadata
         run: packaging/validate-metadata.sh
+
+  fedora-rpm-offline:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    steps:
+      - name: Install packaging tools
+        run: dnf install -y appstream cargo desktop-file-utils fontconfig-devel gcc git rpm-build rust xz
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Trust the container workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Prepare source and vendor archives
+        run: packaging/fedora/prepare-sources.sh "$RUNNER_TEMP/sources" "$GITHUB_SHA"
+      - name: Build source RPM
+        run: |
+          mkdir -p "$RUNNER_TEMP/rpmbuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          cp "$RUNNER_TEMP/sources"/* "$RUNNER_TEMP/rpmbuild/SOURCES/"
+          cp packaging/fedora/rayslash.spec "$RUNNER_TEMP/rpmbuild/SPECS/"
+          rpmbuild -bs \
+            --define "_topdir $RUNNER_TEMP/rpmbuild" \
+            "$RUNNER_TEMP/rpmbuild/SPECS/rayslash.spec"
+      - name: Rebuild without Cargo network access
+        env:
+          CARGO_NET_OFFLINE: "true"
+        run: |
+          mkdir -p "$RUNNER_TEMP/rebuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          rpmbuild --rebuild \
+            --define "_topdir $RUNNER_TEMP/rebuild" \
+            "$RUNNER_TEMP/rpmbuild/SRPMS/rayslash-0.1.0-2.fc44.src.rpm"
+      - name: Preserve RPMs for release validation
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/fedora-rpms"
+          find "$RUNNER_TEMP/rpmbuild/SRPMS" "$RUNNER_TEMP/rebuild/RPMS" \
+            -type f -name '*.rpm' -exec cp -v {} "$GITHUB_WORKSPACE/fedora-rpms/" \;
+          test "$(find "$GITHUB_WORKSPACE/fedora-rpms" -maxdepth 1 -type f -name '*.rpm' | wc -l)" -eq 4
+      - name: Upload RPMs for release validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-44-rpms
+          path: fedora-rpms/*.rpm
+          if-no-files-found: error
+          retention-days: 7

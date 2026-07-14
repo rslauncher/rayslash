@@ -12,8 +12,8 @@ use crate::{
 };
 
 use super::{
-    ALIASES_MODULE_ID, CALCULATOR_MODULE_ID, CURRENCY_MODULE_ID, TIME_MODULE_ID, TIMERS_MODULE_ID,
-    UNITS_MODULE_ID, WEB_SEARCH_MODULE_ID, official_module_descriptors,
+    ALIASES_MODULE_ID, CALCULATOR_MODULE_ID, CURRENCY_MODULE_ID, InstalledModules, TIME_MODULE_ID,
+    TIMERS_MODULE_ID, UNITS_MODULE_ID, WEB_SEARCH_MODULE_ID, official_module_descriptors,
 };
 
 pub const MODULES_CONFIG_VERSION: u32 = 2;
@@ -299,6 +299,34 @@ impl ModulesConfig {
             module_id.to_owned(),
             ModuleEntryConfig::installed(version, enabled),
         );
+    }
+
+    pub fn reconcile_installed(&mut self, installed: &InstalledModules) -> bool {
+        let mut changed = false;
+        for (module_id, installed) in &installed.modules {
+            match self.modules.get_mut(module_id) {
+                Some(entry) => {
+                    let version = installed.version.to_string();
+                    if entry.version.as_deref() != Some(&version) {
+                        entry.version = Some(version);
+                        changed = true;
+                    }
+                    if entry.channel.as_deref() != Some(STABLE_CHANNEL) {
+                        entry.channel = Some(STABLE_CHANNEL.to_owned());
+                        changed = true;
+                    }
+                }
+                None => {
+                    self.set_installed(
+                        module_id,
+                        &installed.version.to_string(),
+                        installed.enabled,
+                    );
+                    changed = true;
+                }
+            }
+        }
+        changed
     }
 
     pub fn remove(&mut self, module_id: &str) -> bool {

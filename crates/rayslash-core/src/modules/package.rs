@@ -153,6 +153,9 @@ pub fn install_registry_version(
     module: &RegistryModule,
     version: &RegistryVersion,
 ) -> Result<InstalledModule, PackageError> {
+    if !super::registry::valid_module_id(&module.id) {
+        return Err(PackageError::Invalid("module ID is invalid".into()));
+    }
     if module.review_status == super::ReviewStatus::Blocked {
         return Err(PackageError::Invalid(
             "this module is blocked by registry moderation".into(),
@@ -186,7 +189,9 @@ pub fn install_registry_version(
     fs::create_dir_all(&modules_dir).map_err(|source| io_error(&modules_dir, source))?;
     let _install_lock = InstallLock::acquire(&modules_dir)?;
     remove_abandoned_staging(&modules_dir)?;
-    let existing = load_installed_modules()?.modules.remove(&module.id);
+    let installed_state = load_installed_modules()?;
+    recover_abandoned_removals(&modules_dir, &installed_state)?;
+    let existing = installed_state.modules.get(&module.id).cloned();
     let mut repair_broken = false;
     if let Some(installed) = existing.as_ref() {
         if version.version < installed.version {
@@ -269,13 +274,34 @@ pub fn install_registry_version(
             digest,
             source: module.repository.clone(),
             source_commit: version.source_commit.clone(),
-            install_path: destination,
+            install_path: destination.clone(),
             enabled: true,
             permissions: manifest.permissions.clone(),
         };
         let mut state = load_installed_modules()?;
         state.modules.insert(module.id.clone(), installed.clone());
-        save_installed_modules(&state)?;
+        if let Err(error) = save_installed_modules(&state) {
+            if !destination_existed {
+                let _ = fs::remove_dir_all(&destination);
+            }
+            return Err(error);
+        }
+        if let Some(previous) = existing.as_ref()
+            && previous.install_path != destination
+            && valid_installed_path(&modules_dir, &module.id, previous)
+        {
+            super::runtime::stop_wasm_module(&module.id, &previous.install_path);
+            if let Err(error) = fs::remove_dir_all(&previous.install_path) {
+                eprintln!(
+                    "updated {}, but could not remove old module code at {}: {error}",
+                    module.id,
+                    previous.install_path.display()
+                );
+            }
+            if let Some(parent) = previous.install_path.parent() {
+                remove_dir_if_empty(parent);
+            }
+        }
         Ok(installed)
     })();
     if result.is_err() {
@@ -404,7 +430,9 @@ fn lock_owner_is_alive(path: &Path) -> bool {
 fn remove_abandoned_staging(modules_dir: &Path) -> Result<(), PackageError> {
     for entry in fs::read_dir(modules_dir).map_err(|source| io_error(modules_dir, source))? {
         let entry = entry.map_err(|source| io_error(modules_dir, source))?;
-        if entry.file_name().to_string_lossy().starts_with(".staging-") {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with(".staging-") {
             let path = entry.path();
             if path.is_dir() {
                 fs::remove_dir_all(&path).map_err(|source| io_error(&path, source))?;
@@ -422,6 +450,55 @@ fn remove_abandoned_staging(modules_dir: &Path) -> Result<(), PackageError> {
     Ok(())
 }
 
+fn recover_abandoned_removals(
+    modules_dir: &Path,
+    state: &InstalledModules,
+) -> Result<(), PackageError> {
+    for module_entry in fs::read_dir(modules_dir).map_err(|source| io_error(modules_dir, source))? {
+        let module_entry = module_entry.map_err(|source| io_error(modules_dir, source))?;
+        if !module_entry
+            .file_type()
+            .map_err(|source| io_error(&module_entry.path(), source))?
+            .is_dir()
+        {
+            continue;
+        }
+        let module_path = module_entry.path();
+        for entry in fs::read_dir(&module_path).map_err(|source| io_error(&module_path, source))? {
+            let entry = entry.map_err(|source| io_error(&module_path, source))?;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let Some(original_name) = name.strip_prefix(".removing-") else {
+                continue;
+            };
+            let removing = entry.path();
+            let original = module_path.join(original_name);
+            let removal_was_not_committed = state
+                .modules
+                .values()
+                .any(|installed| installed.install_path == original);
+            if removal_was_not_committed {
+                if original.exists() {
+                    return Err(PackageError::Invalid(format!(
+                        "both active and interrupted-removal paths exist for {}",
+                        original.display()
+                    )));
+                }
+                fs::rename(&removing, &original).map_err(|source| io_error(&removing, source))?;
+            } else if entry
+                .file_type()
+                .map_err(|source| io_error(&removing, source))?
+                .is_dir()
+            {
+                fs::remove_dir_all(&removing).map_err(|source| io_error(&removing, source))?;
+            } else {
+                fs::remove_file(&removing).map_err(|source| io_error(&removing, source))?;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn load_installed_modules() -> Result<InstalledModules, PackageError> {
     let path = installed_modules_file().ok_or(PackageError::DirectoryUnavailable)?;
     match fs::read_to_string(&path) {
@@ -432,7 +509,11 @@ pub fn load_installed_modules() -> Result<InstalledModules, PackageError> {
                 .and_then(toml::Value::as_integer)
                 .unwrap_or_default();
             match version {
-                2 => toml::from_str(&contents).map_err(PackageError::Parse),
+                2 => {
+                    let state = toml::from_str(&contents).map_err(PackageError::Parse)?;
+                    validate_installed_state(&state)?;
+                    Ok(state)
+                }
                 1 => migrate_installed_state(&path, &contents),
                 _ => Err(PackageError::Invalid(format!(
                     "unsupported installed state version {version}"
@@ -512,33 +593,70 @@ fn migrate_installed_state(path: &Path, contents: &str) -> Result<InstalledModul
 }
 
 pub fn remove_installed_module(module_id: &str, remove_data: bool) -> Result<bool, PackageError> {
+    if !super::registry::valid_module_id(module_id) {
+        return Err(PackageError::Invalid("module ID is invalid".into()));
+    }
     let modules_dir = modules_data_dir().ok_or(PackageError::DirectoryUnavailable)?;
     fs::create_dir_all(&modules_dir).map_err(|source| io_error(&modules_dir, source))?;
     let _install_lock = InstallLock::acquire(&modules_dir)?;
+    remove_abandoned_staging(&modules_dir)?;
     let mut state = load_installed_modules()?;
+    recover_abandoned_removals(&modules_dir, &state)?;
     let Some(installed) = state.modules.remove(module_id) else {
+        if remove_data {
+            remove_module_data(module_id)?;
+        }
         return Ok(false);
     };
-    if installed.install_path.exists() {
-        fs::remove_dir_all(&installed.install_path)
+    if !valid_installed_path(&modules_dir, module_id, &installed) {
+        return Err(PackageError::Invalid(format!(
+            "installed path for {module_id} is outside its managed module directory"
+        )));
+    }
+    let install_name = installed
+        .install_path
+        .file_name()
+        .expect("validated install path has a file name");
+    let removing = installed
+        .install_path
+        .with_file_name(format!(".removing-{}", install_name.to_string_lossy()));
+    let moved = installed.install_path.exists();
+    if moved {
+        fs::rename(&installed.install_path, &removing)
             .map_err(|source| io_error(&installed.install_path, source))?;
+    }
+    if let Err(error) = save_installed_modules(&state) {
+        if moved && let Err(rollback) = fs::rename(&removing, &installed.install_path) {
+            return Err(PackageError::Invalid(format!(
+                "could not save removal state ({error}); restoring module code also failed: {rollback}"
+            )));
+        }
+        return Err(error);
+    }
+    super::runtime::stop_wasm_module(module_id, &installed.install_path);
+    if moved {
+        fs::remove_dir_all(&removing).map_err(|source| io_error(&removing, source))?;
     }
     if let Some(parent) = installed.install_path.parent() {
         remove_dir_if_empty(parent);
     }
     if remove_data {
-        for directory in [
-            module_config_dir(module_id),
-            module_state_dir(module_id),
-            module_cache_dir(module_id),
-        ] {
-            if directory.exists() {
-                fs::remove_dir_all(&directory).map_err(|source| io_error(&directory, source))?;
-            }
+        remove_module_data(module_id)?;
+    }
+    Ok(true)
+}
+
+fn remove_module_data(module_id: &str) -> Result<(), PackageError> {
+    for directory in [
+        module_config_dir(module_id),
+        module_state_dir(module_id),
+        module_cache_dir(module_id),
+    ] {
+        if directory.exists() {
+            fs::remove_dir_all(&directory).map_err(|source| io_error(&directory, source))?;
         }
     }
-    save_installed_modules(&state)?;
-    Ok(true)
+    Ok(())
 }
 
 pub fn installed_modules_file() -> Option<PathBuf> {
@@ -546,12 +664,39 @@ pub fn installed_modules_file() -> Option<PathBuf> {
 }
 
 fn save_installed_modules(state: &InstalledModules) -> Result<(), PackageError> {
+    validate_installed_state(state)?;
     let path = installed_modules_file().ok_or(PackageError::DirectoryUnavailable)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|source| io_error(parent, source))?;
     }
     let contents = toml::to_string_pretty(state).map_err(PackageError::Serialize)?;
     atomic_write::write(&path, &contents).map_err(|source| io_error(&path, source))
+}
+
+fn validate_installed_state(state: &InstalledModules) -> Result<(), PackageError> {
+    if state.version != INSTALLED_STATE_VERSION {
+        return Err(PackageError::Invalid(format!(
+            "unsupported installed state version {}",
+            state.version
+        )));
+    }
+    let modules_dir = modules_data_dir().ok_or(PackageError::DirectoryUnavailable)?;
+    for (module_id, installed) in &state.modules {
+        if !super::registry::valid_module_id(module_id)
+            || !valid_installed_path(&modules_dir, module_id, installed)
+            || installed.source_commit.len() != 40
+            || !installed
+                .source_commit
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+            || !super::registry::valid_github_repository(&installed.source)
+        {
+            return Err(PackageError::Invalid(format!(
+                "installed state for {module_id} is invalid"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn extract_package(bytes: &[u8], staging: &Path) -> Result<ModulePackageManifest, PackageError> {
@@ -736,6 +881,20 @@ fn safe_filename(value: &str) -> String {
         })
         .collect()
 }
+
+fn valid_installed_path(modules_dir: &Path, module_id: &str, installed: &InstalledModule) -> bool {
+    installed.digest.len() == 64
+        && installed
+            .digest
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+        && installed.install_path
+            == modules_dir.join(module_id).join(format!(
+                "{}-{}",
+                installed.version,
+                &installed.digest[..16]
+            ))
+}
 fn safe_archive_path(path: &Path) -> bool {
     !path.is_absolute()
         && path
@@ -767,6 +926,10 @@ mod tests {
         assert!(!safe_archive_path(Path::new("root/../escape")));
         assert!(!safe_archive_path(Path::new("/absolute")));
         assert!(safe_archive_path(Path::new("root/module.toml")));
+        assert!(matches!(
+            remove_installed_module("../escape", true),
+            Err(PackageError::Invalid(_))
+        ));
     }
 
     #[test]
@@ -816,6 +979,79 @@ mod tests {
 
         assert!(!empty.exists());
         assert!(occupied.join("keep").is_file());
+        fs::remove_dir_all(root).expect("clean fixture");
+    }
+
+    #[test]
+    fn managed_install_paths_are_derived_from_verified_identity() {
+        let modules_dir = PathBuf::from("/data/rayslash/modules");
+        let mut installed = InstalledModule {
+            version: Version::new(1, 2, 3),
+            digest: "a".repeat(64),
+            source: "https://github.com/example/module".into(),
+            source_commit: "b".repeat(40),
+            install_path: modules_dir
+                .join("io.github.example.module")
+                .join("1.2.3-aaaaaaaaaaaaaaaa"),
+            enabled: true,
+            permissions: PackagePermissions::default(),
+        };
+        assert!(valid_installed_path(
+            &modules_dir,
+            "io.github.example.module",
+            &installed
+        ));
+
+        installed.install_path = PathBuf::from("/tmp/unmanaged");
+        assert!(!valid_installed_path(
+            &modules_dir,
+            "io.github.example.module",
+            &installed
+        ));
+        installed.digest = "not-a-digest".into();
+        assert!(!valid_installed_path(
+            &modules_dir,
+            "io.github.example.module",
+            &installed
+        ));
+    }
+
+    #[test]
+    fn interrupted_removal_is_restored_or_finished_from_committed_state() {
+        let root = std::env::temp_dir().join(format!(
+            "rayslash-removal-recovery-{}-{}",
+            process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = fs::remove_dir_all(&root);
+        let module_dir = root.join("io.github.example.module");
+        let original = module_dir.join("1.0.0-aaaaaaaaaaaaaaaa");
+        let removing = module_dir.join(".removing-1.0.0-aaaaaaaaaaaaaaaa");
+        fs::create_dir_all(&original).expect("create installed module");
+        fs::rename(&original, &removing).expect("start removal");
+        let installed = InstalledModule {
+            version: Version::new(1, 0, 0),
+            digest: "a".repeat(64),
+            source: "https://github.com/example/module".into(),
+            source_commit: "b".repeat(40),
+            install_path: original.clone(),
+            enabled: true,
+            permissions: PackagePermissions::default(),
+        };
+        let state = InstalledModules {
+            modules: [("io.github.example.module".into(), installed)].into(),
+            ..Default::default()
+        };
+
+        recover_abandoned_removals(&root, &state).expect("restore uncommitted removal");
+        assert!(original.is_dir());
+        assert!(!removing.exists());
+
+        fs::rename(&original, &removing).expect("start committed removal cleanup");
+        recover_abandoned_removals(&root, &InstalledModules::default())
+            .expect("finish committed removal");
+        assert!(!original.exists());
+        assert!(!removing.exists());
         fs::remove_dir_all(root).expect("clean fixture");
     }
 

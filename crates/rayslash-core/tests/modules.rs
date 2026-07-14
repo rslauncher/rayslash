@@ -7,14 +7,16 @@ use rayslash_core::{
     config::ProviderConfig,
     modules::{
         ALIASES_MODULE_ID, CALCULATOR_MODULE_ID, CURRENCY_MODULE_ID, DescriptorValidationError,
-        LoadModulesConfigError, MODULES_CONFIG_VERSION, ModuleDescriptor, ModuleSource,
-        ModulesConfig, ModulesConfigLoadOutcome, OFFICIAL_AUTHOR, TIME_MODULE_ID, TIMERS_MODULE_ID,
-        UNITS_MODULE_ID, WEB_SEARCH_MODULE_ID, load_modules_config_from_path,
+        InstalledModule, InstalledModules, LoadModulesConfigError, MODULES_CONFIG_VERSION,
+        ModuleDescriptor, ModuleSource, ModulesConfig, ModulesConfigLoadOutcome, OFFICIAL_AUTHOR,
+        PackagePermissions, TIME_MODULE_ID, TIMERS_MODULE_ID, UNITS_MODULE_ID,
+        WEB_SEARCH_MODULE_ID, load_modules_config_from_path,
         load_or_create_modules_config_from_path,
         load_or_create_modules_config_from_path_with_migration, modules_config_file,
         official_module_descriptors, save_modules_config_to_path, validate_descriptors,
     },
 };
+use semver::Version;
 
 #[test]
 fn official_descriptors_are_unique_virtual_modules() {
@@ -157,6 +159,55 @@ fn enable_disable_rejects_unknown_modules_without_removing_them() {
     config.modules.insert(unknown.to_owned(), unknown_entry);
     assert!(config.disable(unknown).is_err());
     assert!(config.modules.contains_key(unknown));
+}
+
+#[test]
+fn interrupted_install_state_is_reconciled_without_overwriting_enable_choice() {
+    let installed = InstalledModules {
+        version: 2,
+        modules: [
+            (
+                "community.example.docs".into(),
+                InstalledModule {
+                    version: Version::new(2, 0, 0),
+                    digest: "a".repeat(64),
+                    source: "https://github.com/example/docs".into(),
+                    source_commit: "b".repeat(40),
+                    install_path: "/tmp/example".into(),
+                    enabled: true,
+                    permissions: PackagePermissions::default(),
+                },
+            ),
+            (
+                CALCULATOR_MODULE_ID.into(),
+                InstalledModule {
+                    version: Version::new(1, 0, 2),
+                    digest: "c".repeat(64),
+                    source: "https://github.com/rslauncher/rayslash-module-calculator".into(),
+                    source_commit: "d".repeat(40),
+                    install_path: "/tmp/calculator".into(),
+                    enabled: true,
+                    permissions: PackagePermissions::default(),
+                },
+            ),
+        ]
+        .into(),
+    };
+    let mut config = ModulesConfig::empty();
+    config.set_installed(CALCULATOR_MODULE_ID, "1.0.1", false);
+
+    assert!(config.reconcile_installed(&installed));
+    assert_eq!(
+        config.modules[CALCULATOR_MODULE_ID].version.as_deref(),
+        Some("1.0.2")
+    );
+    assert!(!config.modules[CALCULATOR_MODULE_ID].enabled);
+    assert_eq!(
+        config.modules["community.example.docs"].version.as_deref(),
+        Some("2.0.0")
+    );
+    assert!(config.modules["community.example.docs"].enabled);
+    assert!(!config.reconcile_installed(&installed));
 }
 
 #[test]

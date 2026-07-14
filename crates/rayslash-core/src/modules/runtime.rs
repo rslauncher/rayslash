@@ -116,8 +116,14 @@ pub fn query_installed_modules(
     settings: &BTreeMap<String, String>,
 ) -> ModuleQueryBatch {
     let mut batch = ModuleQueryBatch::default();
-    let Ok(installed) = load_installed_modules() else {
-        return batch;
+    let installed = match load_installed_modules() {
+        Ok(installed) => installed,
+        Err(error) => {
+            batch
+                .errors
+                .push(format!("could not load installed module state: {error}"));
+            return batch;
+        }
     };
     let revocations = load_cached_registry()
         .ok()
@@ -261,6 +267,10 @@ fn remove_host(key: &str) {
         .lock()
         .unwrap_or_else(|error| error.into_inner())
         .remove(key);
+}
+
+pub(super) fn stop_wasm_module(module_id: &str, install_path: &Path) {
+    remove_host(&format!("{module_id}:{}", install_path.display()));
 }
 
 fn host_sender(

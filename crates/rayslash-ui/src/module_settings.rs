@@ -103,6 +103,25 @@ fn module_items_with_operations(
     operations: &BTreeMap<String, ModuleOperationState>,
 ) -> Vec<ModuleItem> {
     let installed = modules::load_installed_modules().unwrap_or_default();
+    let revocations = modules::load_cached_registry()
+        .ok()
+        .map(|registry| registry.revocations);
+    module_items_with_installed(
+        config,
+        catalog,
+        operations,
+        &installed,
+        revocations.as_ref(),
+    )
+}
+
+fn module_items_with_installed(
+    config: &modules::ModulesConfig,
+    catalog: &[modules::RegistryModule],
+    operations: &BTreeMap<String, ModuleOperationState>,
+    installed: &modules::InstalledModules,
+    revocations: Option<&modules::RegistryRevocations>,
+) -> Vec<ModuleItem> {
     let mut items = catalog
         .iter()
         .map(|module| {
@@ -117,6 +136,17 @@ fn module_items_with_operations(
                     })
             });
             let installed_healthy = installed_module.is_none() || installed_manifest.is_some();
+            let installed_revoked = installed_module.is_some_and(|installed| {
+                revocations.is_some_and(|revocations| {
+                    modules::installed_revocation(
+                        revocations,
+                        &module.id,
+                        &installed.version,
+                        &installed.digest,
+                    )
+                    .is_some()
+                })
+            });
             let latest = latest_compatible_version(module);
             let update_available = installed_module
                 .zip(latest)
@@ -134,32 +164,43 @@ fn module_items_with_operations(
                 .unwrap_or_default();
             let (icon_kind, icon_text) = module_icon(&module.id);
             let operation = operations.get(&module.id).cloned().unwrap_or_default();
+            let action = if installed_revoked && update_available && permission_expansion {
+                "Review update"
+            } else if installed_revoked && update_available {
+                "Update"
+            } else if installed_revoked {
+                "Remove"
+            } else if !installed_healthy && latest.is_some() {
+                "Repair"
+            } else if update_available && permission_expansion {
+                "Review update"
+            } else if update_available {
+                "Update"
+            } else if installed_module.is_some() {
+                "Remove"
+            } else if latest.is_none() {
+                "Unavailable"
+            } else if config.is_enabled(&module.id).is_some() {
+                "Restore"
+            } else {
+                "Install"
+            };
             ModuleItem {
                 id: module.id.clone().into(),
                 name: module.name.clone().into(),
                 description: module.description.clone().into(),
                 author: module.author.clone().into(),
                 version: version.into(),
-                enabled: installed_module.is_some()
+                enabled: !installed_revoked
+                    && installed_module.is_some()
                     && config
                         .is_enabled(&module.id)
                         .unwrap_or(installed_module.is_some_and(|m| m.enabled)),
                 installed: installed_module.is_some(),
                 official: module.official,
                 stars: module.github_stars.to_string().into(),
-                action: if !installed_healthy {
-                    "Repair".into()
-                } else if update_available && permission_expansion {
-                    "Review update".into()
-                } else if update_available {
-                    "Update".into()
-                } else if installed_module.is_some() {
-                    "Remove".into()
-                } else if config.is_enabled(&module.id).is_some() {
-                    "Restore".into()
-                } else {
-                    "Install".into()
-                },
+                action: action.into(),
+                action_available: action != "Unavailable",
                 update_available,
                 permissions: target_permissions
                     .map(permission_summary)
@@ -173,7 +214,9 @@ fn module_items_with_operations(
                     modules::ReviewStatus::Blocked => "Blocked",
                 }
                 .into(),
-                status: if !installed_healthy {
+                status: if installed_revoked {
+                    "Installed · Revoked".into()
+                } else if !installed_healthy {
                     "Installed · Broken".into()
                 } else if installed_module.is_some() {
                     if config.is_enabled(&module.id).unwrap_or(true) {
@@ -200,6 +243,17 @@ fn module_items_with_operations(
             continue;
         }
         let installed_module = installed.modules.get(descriptor.id);
+        let installed_revoked = installed_module.is_some_and(|installed| {
+            revocations.is_some_and(|revocations| {
+                modules::installed_revocation(
+                    revocations,
+                    descriptor.id,
+                    &installed.version,
+                    &installed.digest,
+                )
+                .is_some()
+            })
+        });
         let (icon_kind, icon_text) = module_icon(descriptor.id);
         let operation = operations.get(descriptor.id).cloned().unwrap_or_default();
         items.push(ModuleItem {
@@ -211,25 +265,34 @@ fn module_items_with_operations(
                 .map(|module| module.version.to_string())
                 .unwrap_or_default()
                 .into(),
-            enabled: installed_module.is_some()
+            enabled: !installed_revoked
+                && installed_module.is_some()
                 && config.is_enabled(descriptor.id).unwrap_or(false),
             installed: installed_module.is_some(),
             official: true,
             stars: "".into(),
             action: if installed_module.is_some() {
-                "Remove"
-            } else if config.is_enabled(descriptor.id).is_some() {
-                "Restore"
+                "Remove".into()
             } else {
-                "Install"
-            }
-            .into(),
+                "Unavailable".into()
+            },
+            action_available: installed_module.is_some(),
             update_available: false,
-            permissions: "Permissions shown when the verified catalog is available".into(),
-            repository: "".into(),
+            permissions: installed_module
+                .map(|installed| permission_summary(&installed.permissions))
+                .unwrap_or_else(|| {
+                    "Permissions shown when the verified catalog is available".into()
+                })
+                .into(),
+            repository: installed_module
+                .map(|installed| installed.source.clone())
+                .unwrap_or_default()
+                .into(),
             license: "".into(),
             review_status: "Catalog unavailable".into(),
-            status: if installed_module.is_some() {
+            status: if installed_revoked {
+                "Installed · Revoked".into()
+            } else if installed_module.is_some() {
                 "Installed".into()
             } else {
                 "Not installed".into()
@@ -242,6 +305,76 @@ fn module_items_with_operations(
             operation_details_expanded: operation.details_expanded,
             icon_kind: icon_kind.into(),
             icon_text: icon_text.into(),
+        });
+    }
+    for (module_id, installed_module) in &installed.modules {
+        if items.iter().any(|item| item.id.as_str() == module_id) {
+            continue;
+        }
+        let manifest = std::fs::read_to_string(installed_module.install_path.join("module.toml"))
+            .ok()
+            .and_then(|text| toml::from_str::<modules::ModulePackageManifest>(&text).ok())
+            .filter(|manifest| {
+                manifest.id == *module_id
+                    && installed_module.install_path.join("module.wasm").is_file()
+                    && manifest.permissions == installed_module.permissions
+            });
+        let healthy = manifest.is_some();
+        let operation = operations.get(module_id).cloned().unwrap_or_default();
+        let enabled = config
+            .is_enabled(module_id)
+            .unwrap_or(installed_module.enabled);
+        items.push(ModuleItem {
+            id: module_id.clone().into(),
+            name: manifest
+                .as_ref()
+                .map(|manifest| manifest.name.clone())
+                .unwrap_or_else(|| module_id.clone())
+                .into(),
+            description: manifest
+                .as_ref()
+                .map(|manifest| manifest.description.clone())
+                .unwrap_or_else(|| "Installed module metadata is unreadable.".into())
+                .into(),
+            author: manifest
+                .as_ref()
+                .map(|manifest| manifest.author.clone())
+                .unwrap_or_default()
+                .into(),
+            version: installed_module.version.to_string().into(),
+            enabled,
+            installed: true,
+            official: false,
+            stars: "".into(),
+            action: "Remove".into(),
+            action_available: true,
+            update_available: false,
+            permissions: permission_summary(&installed_module.permissions).into(),
+            repository: installed_module.source.clone().into(),
+            license: manifest
+                .as_ref()
+                .map(|manifest| manifest.license.clone())
+                .unwrap_or_default()
+                .into(),
+            review_status: "Catalog unavailable".into(),
+            status: if healthy {
+                if enabled {
+                    "Installed · Enabled"
+                } else {
+                    "Installed · Disabled"
+                }
+            } else {
+                "Installed · Broken"
+            }
+            .into(),
+            operation_pending: operation.pending,
+            operation_label: operation.label.into(),
+            operation_summary: operation.summary.into(),
+            operation_details: operation.details.into(),
+            operation_failed: operation.failed,
+            operation_details_expanded: operation.details_expanded,
+            icon_kind: "placeholder".into(),
+            icon_text: "".into(),
         });
     }
     items.sort_by(|left, right| {
@@ -410,6 +543,17 @@ pub(crate) fn register_module_settings_callback(
         let module_catalog = module_catalog.clone();
         let module_model = module_model.clone();
         let operations = operations.clone();
+        let config_state = config_state.clone();
+        let ranking_state = ranking_state.clone();
+        let app_install_state = app_install_state.clone();
+        let projects = projects.clone();
+        let apps = apps.clone();
+        let current_results = current_results.clone();
+        let results_model = results_model.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
+        let remote_search_generation = remote_search_generation.clone();
+        let remote_result_tx = remote_result_tx.clone();
         move || {
             let completions = install_rx.try_iter().collect::<Vec<_>>();
             if completions.is_empty() {
@@ -418,6 +562,7 @@ pub(crate) fn register_module_settings_callback(
             let Some(ui) = weak.upgrade() else {
                 return;
             };
+            let mut module_state_changed = false;
             for (module_id, action, result) in completions {
                 match result {
                     Ok(installed) => {
@@ -443,6 +588,7 @@ pub(crate) fn register_module_settings_callback(
                             ui.set_status_text(details.into());
                         } else {
                             *module_state.borrow_mut() = config;
+                            module_state_changed = true;
                             let message = match action.as_str() {
                                 "Remove" => {
                                     "Module code removed; settings and data were kept".to_owned()
@@ -483,6 +629,83 @@ pub(crate) fn register_module_settings_callback(
                     &module_state.borrow(),
                     &module_catalog.borrow(),
                     &operations.borrow(),
+                );
+            }
+            if module_state_changed {
+                let compatibility_config = {
+                    let mut next_config = config_state.borrow().clone();
+                    module_state
+                        .borrow()
+                        .apply_to_provider_config(&mut next_config.providers);
+                    *config_state.borrow_mut() = next_config.clone();
+                    next_config
+                };
+                if let Err(error) = config::save_config_with_backup(&compatibility_config) {
+                    eprintln!(
+                        "module state was saved, but config.toml compatibility mirror failed: {error}"
+                    );
+                }
+
+                let query = ui.get_query_text();
+                let effective_query = effective_search_query(
+                    query.as_str(),
+                    ui.get_active_search_keyword().as_str(),
+                );
+                let needs_remote_lookup = matches!(
+                    query_execution_hint(&config_state.borrow()),
+                    ProviderExecutionHint::DebouncedNetwork { .. }
+                );
+                if needs_remote_lookup {
+                    let generation =
+                        remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
+                    let expected_generation = remote_search_generation.clone();
+                    let config = config_state.borrow().clone();
+                    let ranking = ranking_state.borrow().clone();
+                    let app_install = app_install_state.borrow().clone();
+                    let projects_snapshot = projects.borrow().clone();
+                    let apps_snapshot = apps.borrow().clone();
+                    let query = effective_query.clone();
+                    let remote_result_tx = remote_result_tx.clone();
+                    thread::spawn(move || {
+                        let result_set = search_result_set(
+                            &config,
+                            &ranking,
+                            &app_install,
+                            &projects_snapshot,
+                            &apps_snapshot,
+                            &query,
+                        );
+                        if expected_generation.load(Ordering::Relaxed) == generation {
+                            let _ = remote_result_tx.send((generation, query, result_set));
+                        }
+                    });
+                } else {
+                    remote_search_generation.fetch_add(1, Ordering::Relaxed);
+                    refresh_result_view(
+                        &ui,
+                        ResultRefreshContext {
+                            config: &config_state.borrow(),
+                            ranking_state: &ranking_state.borrow(),
+                            app_state: &app_install_state.borrow(),
+                            projects: &projects.borrow(),
+                            apps: &apps.borrow(),
+                            current_results: &current_results,
+                            results_model: &results_model,
+                            icon_cache: &icon_cache,
+                            profile,
+                        },
+                        effective_query.as_str(),
+                        ResultSelection::QueryDefault,
+                    );
+                }
+                refresh_settings_dependent_ui(
+                    &ui,
+                    &config_state.borrow(),
+                    &projects.borrow(),
+                    &apps.borrow(),
+                    &ranking_state.borrow(),
+                    &icon_cache,
+                    &socket_path,
                 );
             }
         }
@@ -864,6 +1087,120 @@ mod tests {
         assert_eq!(calculator.name.as_str(), "Calculator");
         assert!(!calculator.enabled);
         assert!(!calculator.description.is_empty());
+    }
+
+    #[test]
+    fn installed_community_module_remains_manageable_without_catalog_metadata() {
+        let module_id = "io.github.example.docs";
+        let installed = modules::InstalledModules {
+            modules: [(
+                module_id.into(),
+                modules::InstalledModule {
+                    version: Version::new(1, 2, 3),
+                    digest: "a".repeat(64),
+                    source: "https://github.com/example/docs".into(),
+                    source_commit: "b".repeat(40),
+                    install_path: "/missing/module".into(),
+                    enabled: true,
+                    permissions: modules::PackagePermissions::default(),
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+
+        let items = module_items_with_installed(
+            &modules::ModulesConfig::empty(),
+            &[],
+            &BTreeMap::new(),
+            &installed,
+            None,
+        );
+        let item = items
+            .iter()
+            .find(|item| item.id == module_id)
+            .expect("offline installed module card");
+
+        assert!(item.installed);
+        assert!(!item.official);
+        assert_eq!(item.action.as_str(), "Remove");
+        assert!(item.action_available);
+        assert_eq!(item.status.as_str(), "Installed · Broken");
+        assert_eq!(item.repository.as_str(), "https://github.com/example/docs");
+    }
+
+    #[test]
+    fn revoked_installed_module_is_disabled_and_removable() {
+        let module_id = "io.github.example.docs";
+        let version = Version::new(1, 0, 0);
+        let digest = "a".repeat(64);
+        let registry_version = modules::RegistryVersion {
+            version: version.clone(),
+            api_version: semver::VersionReq::parse("^1").unwrap(),
+            source_commit: "b".repeat(40),
+            asset_url:
+                "https://github.com/example/docs/releases/download/v1.0.0/docs-1.0.0.tar.zst".into(),
+            sha256: digest.clone(),
+            size: 1,
+            yanked: true,
+            permissions: modules::PackagePermissions::default(),
+        };
+        let catalog = [modules::RegistryModule {
+            id: module_id.into(),
+            name: "Docs".into(),
+            description: "Search documentation.".into(),
+            author: "example".into(),
+            license: "MIT".into(),
+            kind: modules::PackageKind::Wasm,
+            legacy_permissions: None,
+            repository: "https://github.com/example/docs".into(),
+            official: false,
+            review_status: modules::ReviewStatus::Reviewed,
+            github_stars: 0,
+            updated_at: "2026-07-13T00:00:00Z".into(),
+            versions: vec![registry_version],
+        }];
+        let installed = modules::InstalledModules {
+            modules: [(
+                module_id.into(),
+                modules::InstalledModule {
+                    version: version.clone(),
+                    digest: digest.clone(),
+                    source: "https://github.com/example/docs".into(),
+                    source_commit: "b".repeat(40),
+                    install_path: "/missing/module".into(),
+                    enabled: true,
+                    permissions: modules::PackagePermissions::default(),
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let revocations = modules::RegistryRevocations {
+            schema_version: 2,
+            generated_at: "2026-07-13T00:00:00Z".into(),
+            revoked: vec![modules::RegistryRevocation {
+                module_id: module_id.into(),
+                version,
+                sha256: digest,
+                reason: "Security issue".into(),
+                revoked_at: "2026-07-13T00:00:00Z".into(),
+            }],
+        };
+        let mut config = modules::ModulesConfig::empty();
+        config.set_installed(module_id, "1.0.0", true);
+
+        let items = module_items_with_installed(
+            &config,
+            &catalog,
+            &BTreeMap::new(),
+            &installed,
+            Some(&revocations),
+        );
+        let item = items.iter().find(|item| item.id == module_id).unwrap();
+        assert_eq!(item.status.as_str(), "Installed · Revoked");
+        assert!(!item.enabled);
+        assert_eq!(item.action.as_str(), "Remove");
     }
 
     #[test]
