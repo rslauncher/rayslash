@@ -229,10 +229,12 @@ These tasks come from [CLEANUP_AUDIT.md](CLEANUP_AUDIT.md) and are intentionally
 - [x] Complete the owner repository, identity, signing, moderation, support, and packaging prerequisites.
 - [x] Freeze module API v1 and publish schemas, WIT, conformance fixtures, SDK, templates, and author documentation.
 - [x] Implement the signed static registry and GitHub pull-request submission pipeline.
-- [ ] Implement safe local install, update, rollback, remove, cache, revocation, and key-rotation behavior.
+- [x] Implement safe local install, update, rollback, remove, cache, revocation, and key-rotation behavior.
 - [ ] Complete the Modules catalog/details/permission/offline UI.
+  Remaining: catalog search, in-flight cancellation, an explicit stale/offline badge, expanded diagnostics/permission-diff details, and keyboard/focus/wrapping coverage.
+- [ ] Define a backward-compatible community settings schema and generic Settings form; API v1 community modules currently must work with an empty `{}` settings object.
 - [x] Implement the sandboxed WASM host and make supported app packages deliver it automatically.
 - [x] Extract and independently release all seven official modules.
 - [x] Migrate existing version-1 virtual-module users as explicit Restore choices without installing optional modules for fresh users.
-- [ ] Update native and Flatpak packaging so fresh packages contain no official optional modules.
+- [x] Update native and Flatpak packaging so fresh packages contain no official optional modules.
 - [ ] Complete automated adversarial tests, performance/size budgets, documentation checks, and the Linux manual matrix.

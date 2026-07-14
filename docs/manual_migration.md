@@ -1,6 +1,6 @@
 # Manual Module Migration Runbook
 
-This runbook records the migration decisions and the owner bootstrap that was completed in July 2026. The repository, signing, release, and deployment steps below are historical; do not repeat them. The only remaining owner work is the real-desktop/package verification matrix at the end of this file.
+This runbook records the migration decisions and the owner bootstrap completed in July 2026. The repository, signing, release, and deployment steps below are historical; do not repeat them. Owner bootstrap is complete and no additional owner input is currently required, but the migration itself is not complete until every acceptance item below is verified. Remaining work belongs to implementation, automated ecosystem tests, packaging validation, and the real-desktop/package matrix.
 
 The instructions separate work that requires repository/account ownership from work Codex can implement after you return the requested information. You should not need to design code, write registry files, or write module documentation manually.
 
@@ -510,7 +510,7 @@ Do not call the migration complete until every box is true:
 - [x] Supported app packages automatically install or include the module host.
 - [x] Unsupported declarative packages are rejected consistently instead of appearing installable.
 - [x] WASM modules require and use the separate sandbox host.
-- [ ] All seven official modules install on demand and match current behavior.
+- [x] All seven official modules install on demand and match current behavior.
 - [x] Community author quickstart works from an empty public repository.
 - [x] Submission is validated and merged through a registry pull request.
 - [x] Registry and package integrity are checked before activation.
@@ -519,11 +519,12 @@ Do not call the migration complete until every box is true:
 - [x] Installed modules work when Pages/GitHub is unavailable.
 - [x] Failed updates roll back without data loss.
 - [x] Uninstall removes code and offers a separate data choice.
-- [ ] Revocation and signing-key rotation are tested.
+- [x] Revocation and signing-key rotation are tested.
 - [x] Existing version-1 virtual-module users receive a safe opt-in migration.
 - [ ] Fresh, upgrade, offline, malformed, interrupted, and hostile cases are tested.
 - [x] Native and Flatpak packaging contain no default official modules.
 - [x] Public author/API/security/submission documentation is complete.
+- [ ] Community modules can declare user-editable settings rendered by a generic validated Settings form.
 - [x] Binary and installed-size measurements are recorded.
 - [ ] All CI and the manual Linux verification matrix pass.
 
@@ -540,15 +541,18 @@ Implemented artifacts:
 - Calculator, Units, Currency, Time, Web Search, Timers, and Aliases in separate repositories and successful GitHub Releases.
 - Core reduced to Apps and Folders. Extracted Calculator, Units, Currency, Time, and Timers source implementations and module-specific dependencies are removed from the app.
 - Fresh configurations create zero optional module entries. Existing version-1 entries become explicit `Restore` choices and never download silently.
-- Live app installer → package verifier → persistent host → Calculator IPC probe passes; warm calls are covered by a 250 ms test budget.
+- Live production signed registry → app installer → package verifier → persistent host probes pass for Calculator, Units, Currency, Time, Web Search, Timers, and Aliases. The probe exercises representative results, the Open-Meteo service boundary, Calculator's 250 ms warm-call budget, and complete removal in an isolated XDG profile.
+- Interrupted install state is reconciled at startup. Removal uses recoverable same-filesystem staging, commits generated state atomically, stops stale host processes, and cleans superseded package versions without touching module-owned config/state during updates.
+- Revoked installed versions are blocked at runtime and shown as revoked/removable in Settings. Signing-key overlap is tested with independently generated retiring/replacement keys.
+- Registry and installed-state module IDs use the SDK's bounded reverse-DNS grammar at the client boundary; installed paths must be derivable from their verified ID, version, and digest before lifecycle cleanup can touch them.
 
 The SDK, host, and all seven official-module pull requests were merged. Registry PR 4 was merged and its protected production deployment was approved. App PRs 3 and 4 were merged in dependency order; PR 5 contains the final runtime and lifecycle safeguards.
 
 Do not delete module release tags or replace their assets. Do not place the registry private key in any repository. After the registry merge, the app will discover the seven records through its normal signed refresh; no URL or key edit is required.
 
-## 11. Remaining manual release verification
+## 10. Remaining release verification
 
-No additional design, repository, signing, or source-code work is required from the owner. Before publishing the first end-user app release:
+No additional owner input or repository bootstrap is required. The following environment matrix remains release work rather than a claim that the module migration is already complete. Automate each check where a suitable runner exists; do not ask the owner to repeat source/signing setup. Before publishing the first end-user app release:
 
 1. Build the Fedora RPM and Arch package on clean x86_64 builders; repeat on aarch64 hardware or builders.
 2. Install the app package and confirm its transaction automatically installs `rayslash-module-host` (or, for Flatpak, that `/app/libexec/rayslash/rayslash-module-host` is included). Confirm Settings lists Installed, Official, and Community modules while no module package exists under the XDG data directory.
@@ -564,7 +568,7 @@ Development builds can use an isolated registry only when `rayslash-core/registr
 
 For example, build the registry with a loopback base URL, sign `public/v1/root.json` with a disposable development key, serve `public/` on `127.0.0.1`, and run `cargo run -p rayslash --features rayslash-core/registry-dev-override`. Release builds and ordinary debug builds do not compile this override path; their URLs and trusted keys remain the production constants.
 
-## 10. Current free-service verification
+## 11. Current free-service verification
 
 These assumptions were checked on 2026-07-11 and must be rechecked before a public launch:
 

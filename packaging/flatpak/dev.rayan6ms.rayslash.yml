@@ -6,6 +6,9 @@ command: rayslash
 # The host is required launcher infrastructure, not a module. No official or community
 # module package is bundled; users still choose every module from Settings -> Modules.
 finish-args:
+  # Required for the signed module catalog, selected module downloads, and modules
+  # whose reviewed permissions include an HTTPS service origin.
+  - --share=network
   - --share=ipc
   - --socket=wayland
   - --socket=fallback-x11

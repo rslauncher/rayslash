@@ -154,8 +154,16 @@ fn run_gui(
             (config::Config::default(), true)
         }
     };
-    let runtime_modules =
+    let mut runtime_modules =
         load_runtime_modules(&config.providers, !settings_save_blocked, existing_config);
+    if !runtime_modules.writes_blocked
+        && let Ok(installed) = modules::load_installed_modules()
+        && runtime_modules.config.reconcile_installed(&installed)
+        && let Err(error) = modules::save_modules_config(&runtime_modules.config)
+    {
+        eprintln!("{error}; module writes are disabled until restart");
+        runtime_modules.writes_blocked = true;
+    }
     runtime_modules
         .config
         .apply_to_provider_config(&mut config.providers);
