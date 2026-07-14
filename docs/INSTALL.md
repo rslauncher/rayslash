@@ -1,6 +1,6 @@
 # Install
 
-These notes cover local development runs, a simple user install from the current checkout, and local desktop entry setup. Distro package implementations are still future work.
+These notes cover local development runs, a user install from the current checkout, and local desktop entry setup. Fedora and Arch package recipes now exist; Flatpak remains a prototype. See [PACKAGING.md](PACKAGING.md) for package status and reproducible build instructions.
 
 ## Development Runs
 

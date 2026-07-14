@@ -35,7 +35,7 @@ install -Dm0644 icons/rayslash-icon.svg %{buildroot}%{_datadir}/icons/hicolor/sc
 install -Dm0644 packaging/linux/dev.rayan6ms.rayslash.metainfo.xml %{buildroot}%{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %check
-cargo test --frozen --jobs 2 --workspace
+cargo test --release --frozen --jobs 2 --workspace
 desktop-file-validate packaging/linux/dev.rayan6ms.rayslash.desktop
 appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xml
 

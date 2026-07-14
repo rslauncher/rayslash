@@ -62,7 +62,7 @@ desktop-file-validate packaging/linux/dev.rayan6ms.rayslash.desktop
 appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xml
 ```
 
-The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs formatting, clippy, tests, build, desktop-entry validation, AppStream validation, and inventory consistency checks.
+The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs formatting, clippy, tests, build, desktop-entry validation, AppStream validation, inventory consistency checks, and a frozen/offline Fedora rebuild. The Fedora job retains its SRPM and binary RPMs for seven days as the `fedora-44-rpms` workflow artifact so release validation can inspect the exact CI outputs without rebuilding them on a developer workstation.
 
 ## Standards To Follow
 
@@ -145,7 +145,7 @@ mock \
   --rebuild "$topdir/SRPMS/rayslash-0.1.0-2.fc44.src.rpm"
 ```
 
-The spec installs `packaging/fedora/cargo-config.toml`, which replaces crates.io with the unpacked `vendor` directory and enables Cargo offline mode. Both `%build` and `%check` use `--frozen`, so a missing/stale vendor entry or lockfile change fails instead of accessing the registry. They cap Cargo at two jobs because clean Slint release and test builds can otherwise run enough concurrent compiler processes to exhaust a 16 GiB workstation.
+The spec installs `packaging/fedora/cargo-config.toml`, which replaces crates.io with the unpacked `vendor` directory and enables Cargo offline mode. Both `%build` and `%check` use `--frozen`, so a missing/stale vendor entry or lockfile change fails instead of accessing the registry. They cap Cargo at two jobs because clean Slint builds can otherwise run enough concurrent compiler processes to exhaust a 16 GiB workstation. `%check` uses the release profile so it reuses the packaged build's optimized dependency graph instead of compiling the full Slint stack a second time in the debug profile.
 
 Mock 6.7 on Fedora 44 may log repeated `unknown tag: "pkgid"` messages while its `package_state` plugin runs an RPM query containing `%{pkgid}`. This occurs before project build commands and comes from `/usr/lib/python3.14/site-packages/mockbuild/plugins/package_state.py`; RPM 6.0.1 no longer recognizes that query tag. It is harmless mock/plugin compatibility noise, not a rayslash spec or source error.
 
@@ -186,6 +186,8 @@ Expected package behavior:
 Flatpak packaging has a prototype manifest at `packaging/flatpak/dev.rayan6ms.rayslash.yml`. It should be evaluated before broad public release because it can provide a single distribution path across many Linux distros.
 
 The manifest installs the pinned host release at `/app/libexec/rayslash/rayslash-module-host`. It contains no official or community module package.
+
+The sandbox shares network access because the app must fetch the signed catalog and user-selected package assets, and because reviewed modules such as Currency and Time use narrowly allowlisted HTTPS services through the host. Module-level origin checks still apply; Flatpak network access does not grant a guest module ambient sockets.
 
 Open questions:
 

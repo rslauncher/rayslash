@@ -297,6 +297,22 @@ pub fn verify_registry_bytes(
     index_bytes: &[u8],
     revocations_bytes: &[u8],
 ) -> Result<(RegistryRoot, RegistryIndex, RegistryRevocations), RegistryError> {
+    verify_registry_bytes_with_key_lookup(
+        root_bytes,
+        signature_bytes,
+        index_bytes,
+        revocations_bytes,
+        trusted_key,
+    )
+}
+
+fn verify_registry_bytes_with_key_lookup(
+    root_bytes: &[u8],
+    signature_bytes: &[u8],
+    index_bytes: &[u8],
+    revocations_bytes: &[u8],
+    key_lookup: impl Fn(&str) -> Option<String>,
+) -> Result<(RegistryRoot, RegistryIndex, RegistryRevocations), RegistryError> {
     if root_bytes.len() as u64 > MAX_ROOT_BYTES
         || signature_bytes.len() as u64 > MAX_SIGNATURE_BYTES
         || index_bytes.len() as u64 > MAX_INDEX_BYTES
@@ -311,7 +327,7 @@ pub fn verify_registry_bytes(
     if !matches!(root.schema_version, 1 | 2) {
         return Err(RegistryError::Invalid("unsupported root schema".into()));
     }
-    let encoded_key = trusted_key(&root.key_id)
+    let encoded_key = key_lookup(&root.key_id)
         .ok_or_else(|| RegistryError::Invalid("untrusted registry signing key".into()))?;
     let key: [u8; 32] = STANDARD
         .decode(&encoded_key)
@@ -411,9 +427,11 @@ fn fetch_limited(url: &str, limit: u64) -> Result<Vec<u8>, RegistryError> {
 fn validate_index(index: &RegistryIndex) -> Result<(), RegistryError> {
     let mut previous = None;
     for module in &index.modules {
-        if module.id.is_empty() || previous.is_some_and(|value: &str| value >= module.id.as_str()) {
+        if !valid_module_id(&module.id)
+            || previous.is_some_and(|value: &str| value >= module.id.as_str())
+        {
             return Err(RegistryError::Invalid(
-                "module IDs must be non-empty, unique, and sorted".into(),
+                "module IDs must use bounded reverse-DNS syntax and be unique and sorted".into(),
             ));
         }
         if module.official != module.id.starts_with("rayslash.") {
@@ -438,7 +456,7 @@ fn validate_index(index: &RegistryIndex) -> Result<(), RegistryError> {
             || module.description.is_empty()
             || module.author.is_empty()
             || module.license.is_empty()
-            || !module.repository.starts_with("https://github.com/")
+            || !valid_github_repository(&module.repository)
             || module.versions.is_empty()
         {
             return Err(RegistryError::Invalid(format!(
@@ -487,6 +505,42 @@ fn validate_index(index: &RegistryIndex) -> Result<(), RegistryError> {
     Ok(())
 }
 
+pub(super) fn valid_module_id(id: &str) -> bool {
+    id.len() <= 128
+        && id.split('.').count() >= 2
+        && id.split('.').all(|part| {
+            !part.is_empty()
+                && part.len() <= 63
+                && part
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+                && part
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && part
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+        })
+}
+
+pub(super) fn valid_github_repository(url: &str) -> bool {
+    let Some(path) = url.strip_prefix("https://github.com/") else {
+        return false;
+    };
+    let mut parts = path.split('/');
+    let owner = parts.next().unwrap_or_default();
+    let repository = parts.next().unwrap_or_default();
+    !owner.is_empty()
+        && !repository.is_empty()
+        && !matches!(owner, "." | "..")
+        && !matches!(repository, "." | "..")
+        && !owner.contains(['?', '#'])
+        && !repository.contains(['?', '#'])
+        && parts.next().is_none()
+}
+
 fn normalize_permissions(index: &mut RegistryIndex) -> Result<(), RegistryError> {
     for module in &mut index.modules {
         match index.schema_version {
@@ -527,7 +581,7 @@ fn validate_revocations(revocations: &RegistryRevocations) -> Result<(), Registr
             &revocation.version,
             &revocation.sha256,
         );
-        if revocation.module_id.is_empty()
+        if !valid_module_id(&revocation.module_id)
             || revocation.reason.is_empty()
             || revocation.revoked_at.is_empty()
             || revocation.sha256.len() != 64
@@ -669,6 +723,7 @@ fn sha256(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ed25519_dalek::{Signer, SigningKey};
 
     #[test]
     #[cfg(not(feature = "registry-dev-override"))]
@@ -694,8 +749,40 @@ mod tests {
     }
 
     #[test]
+    fn module_ids_use_bounded_reverse_dns_parts() {
+        assert!(valid_module_id("io.github.example-module"));
+        assert!(valid_module_id("rayslash.web-search"));
+        for invalid in [
+            "single",
+            "../escape",
+            "io..example",
+            "io.Example.module",
+            "io.-example.module",
+            "io.example-.module",
+        ] {
+            assert!(!valid_module_id(invalid), "{invalid}");
+        }
+    }
+
+    #[test]
+    fn github_repository_urls_have_exact_owner_and_repository_segments() {
+        assert!(valid_github_repository(
+            "https://github.com/example/rayslash-module"
+        ));
+        for invalid in [
+            "http://github.com/example/module",
+            "https://github.com/example",
+            "https://github.com/example/module/extra",
+            "https://github.com/example/../module",
+            "https://github.com/example/module?ref=main",
+        ] {
+            assert!(!valid_github_repository(invalid), "{invalid}");
+        }
+    }
+
+    #[test]
     fn schema_two_keeps_different_exact_origins_per_version() {
-        let mut index: RegistryIndex = serde_json::from_str(r#"{"schema_version":2,"generated_at":"now","modules":[{"id":"x","name":"x","description":"x","author":"x","license":"MIT","kind":"wasm","repository":"https://github.com/x/x","official":false,"review_status":"reviewed","github_stars":0,"updated_at":"now","versions":[{"version":"1.0.0","api_version":"^1","source_commit":"0000000000000000000000000000000000000000","asset_url":"https://github.com/x/x/releases/download/v1/x.tar.zst","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":1,"yanked":false,"permissions":{"network":["https://old.example"]}},{"version":"1.0.1","api_version":"^1","source_commit":"1111111111111111111111111111111111111111","asset_url":"https://github.com/x/x/releases/download/v1.0.1/x.tar.zst","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","size":1,"yanked":false,"permissions":{"network":["https://new.example"]}}]}]}"#).unwrap();
+        let mut index: RegistryIndex = serde_json::from_str(r#"{"schema_version":2,"generated_at":"now","modules":[{"id":"io.example.x","name":"x","description":"x","author":"x","license":"MIT","kind":"wasm","repository":"https://github.com/x/x","official":false,"review_status":"reviewed","github_stars":0,"updated_at":"now","versions":[{"version":"1.0.0","api_version":"^1","source_commit":"0000000000000000000000000000000000000000","asset_url":"https://github.com/x/x/releases/download/v1/x.tar.zst","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","size":1,"yanked":false,"permissions":{"network":["https://old.example"]}},{"version":"1.0.1","api_version":"^1","source_commit":"1111111111111111111111111111111111111111","asset_url":"https://github.com/x/x/releases/download/v1.0.1/x.tar.zst","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","size":1,"yanked":false,"permissions":{"network":["https://new.example"]}}]}]}"#).unwrap();
         normalize_permissions(&mut index).unwrap();
         validate_index(&index).unwrap();
         assert_ne!(
@@ -734,6 +821,46 @@ mod tests {
             verify_registry_bytes(root, signature, index, br#"{"schema_version":1,"generated_at":"now","revoked":[]}"#),
             Err(RegistryError::Invalid(message)) if message == "revocations digest mismatch"
         ));
+    }
+
+    #[test]
+    fn signing_key_rotation_accepts_a_replacement_during_the_overlap_release() {
+        let index = br#"{"schema_version":2,"generated_at":"2026-07-13T00:00:00Z","modules":[]}"#;
+        let revocations =
+            br#"{"schema_version":2,"generated_at":"2026-07-13T00:00:00Z","revoked":[]}"#;
+        let root = RegistryRoot {
+            schema_version: 2,
+            generated_at: "2026-07-13T00:00:00Z".into(),
+            key_id: "registry-replacement".into(),
+            index_url: "https://example.test/index.json".into(),
+            index_sha256: sha256(index),
+            revocations_url: "https://example.test/revocations.json".into(),
+            revocations_sha256: sha256(revocations),
+        };
+        let root_bytes = serde_json::to_vec(&root).expect("serialize root");
+        let replacement = SigningKey::from_bytes(&[7; 32]);
+        let signature = STANDARD.encode(replacement.sign(&root_bytes).to_bytes());
+        let keys = [
+            ("registry-retiring", STANDARD.encode([3; 32])),
+            (
+                "registry-replacement",
+                STANDARD.encode(replacement.verifying_key().as_bytes()),
+            ),
+        ];
+
+        let (verified, _, _) = verify_registry_bytes_with_key_lookup(
+            &root_bytes,
+            signature.as_bytes(),
+            index,
+            revocations,
+            |key_id| {
+                keys.iter()
+                    .find_map(|(id, key)| (*id == key_id).then(|| key.clone()))
+            },
+        )
+        .expect("replacement key is trusted alongside retiring key");
+
+        assert_eq!(verified.key_id, "registry-replacement");
     }
 
     #[test]

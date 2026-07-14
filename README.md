@@ -28,7 +28,7 @@
 - Find folders from configurable source directories
 - Install Calculator, Units, Currency, Time, Web Search, Timers, Aliases, and community modules only when wanted
 - Verify a signed registry and every package digest before activation
-- Run executable modules without WASI in the included sandbox host
+- Run executable modules without WASI in an automatically delivered sandbox host
 - Learn from app and folder selections using local ranking data
 - Configure providers, appearance, aliases, and search engines from the settings panel
 

@@ -47,4 +47,17 @@ jobs:
       - name: Rebuild without Cargo network access
         env:
           CARGO_NET_OFFLINE: "true"
-        run: rpmbuild --rebuild "$RUNNER_TEMP/rpmbuild/SRPMS/rayslash-0.1.0-2.fc44.src.rpm"
+        run: |
+          mkdir -p "$RUNNER_TEMP/rebuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          rpmbuild --rebuild \
+            --define "_topdir $RUNNER_TEMP/rebuild" \
+            "$RUNNER_TEMP/rpmbuild/SRPMS/rayslash-0.1.0-2.fc44.src.rpm"
+      - name: Preserve RPMs for release validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: fedora-44-rpms
+          path: |
+            ${{ runner.temp }}/rpmbuild/SRPMS/*.src.rpm
+            ${{ runner.temp }}/rebuild/RPMS/**/*.rpm
+          if-no-files-found: error
+          retention-days: 7

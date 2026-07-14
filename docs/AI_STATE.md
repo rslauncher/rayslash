@@ -224,7 +224,7 @@ The current UI supports dark, dim, and light themes, keyboard and mouse selectio
 
 ## Partially done
 
-- Installable module migration implementation is complete. The remaining work is the real distribution/desktop verification matrix in [manual_migration.md](manual_migration.md).
+- Installable module migration infrastructure is functional but not yet fully accepted. The signed production registry, package manager, host, and all seven extracted modules pass an isolated install/query/remove probe; interrupted install/removal recovery, revocation/key-rotation behavior, client-side ID/path validation, and offline installed-module visibility are covered. Catalog UI completion plus the broader malformed/interrupted/hostile and distribution/desktop matrix in [manual_migration.md](manual_migration.md) remain open. Do not describe the migration as complete while that checklist has open items.
 
 - Minimal launcher UI exists with:
   - Search input.

@@ -321,8 +321,8 @@ component ModuleCard inherits Rectangle {
                     horizontal-alignment: center; vertical-alignment: center;
                 }
                 action-touch := TouchArea {
-                    enabled: !root.item.operation_pending;
-                    mouse-cursor: root.item.operation_pending ? default : pointer;
+                    enabled: root.item.action_available && !root.item.operation_pending;
+                    mouse-cursor: root.item.action_available && !root.item.operation_pending ? pointer : default;
                     clicked => { root.action-requested(root.item.id, root.item.action); }
                 }
             }
@@ -380,7 +380,7 @@ export component ModulesPanel inherits FocusScope {
 
         Text {
             height: 18px;
-            text: "Manage bundled capabilities without changing the launcher core.";
+            text: "Manage optional modules without changing the launcher core.";
             color: root.light ? #666666 : #9a9a9a;
             font-size: 11px;
             vertical-alignment: center;
@@ -454,7 +454,37 @@ export component ModulesPanel inherits FocusScope {
                     }
                 }
 
-                Rectangle {
+                if root.selected-tab == "installed": Rectangle {
+                    height: 64px;
+                    border-radius: 10px;
+                    background: root.light ? #eeeeee : #202020;
+                    border-width: 1px;
+                    border-color: root.light ? #d4d4d4 : #3a3a3a;
+
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 12px;
+                        padding-top: 9px;
+                        padding-bottom: 9px;
+                        spacing: 3px;
+
+                        Text {
+                            text: "Add a module";
+                            color: root.light ? #333333 : #d8d8d8;
+                            font-size: 11px;
+                            font-weight: 700;
+                        }
+
+                        Text {
+                            text: "Browse Official or Community to install modules on demand.";
+                            color: root.light ? #707070 : #929292;
+                            font-size: 10px;
+                            overflow: elide;
+                        }
+                    }
+                }
+
+                if root.selected-tab == "community": Rectangle {
                     height: 64px;
                     border-radius: 10px;
                     background: root.light ? #eeeeee : #202020;
