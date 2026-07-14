@@ -460,6 +460,7 @@ Exit criteria: fresh, upgraded-online, upgraded-offline, partially migrated, can
 - Bundle the pinned host artifact in Flatpak and test its execution boundary.
 - Ensure no official module packages enter the app RPM, Arch package, Flatpak base app, or source install.
 - Add reproducible release/build provenance where supported without making it the only trust mechanism.
+- Publish separate x86_64/aarch64 Fedora host RPMs from checksum-pinned immutable host release inputs, and include the verified host RPM in the app's official architecture-matched Fedora package sets. CI must prove DNF resolves the dependency without bundling the host in the app RPM.
 - Measure fresh installed size and release binary size before/after; document both the core and host cost.
 - Add upgrade/rollback release notes and emergency registry-key rotation steps.
 
@@ -536,6 +537,7 @@ Implemented artifacts:
 
 - SDK API v1, manifest schema, validator/packager, author/API/release documentation, and immutable release tag.
 - No-WASI host with bounded capabilities, persistent launcher IPC, x86_64/aarch64 releases, and separate Fedora/Arch recipes.
+- Official reproducible Fedora 44 x86_64/aarch64 host RPMs and checksum sidecars are published on the host v0.1.2 release. App CI verifies those immutable assets, combines them with architecture-matched app RPMs, and exercises dependency resolution with a DNF dry run before app-release publication.
 - Signed registry generator, protected publish workflow, public key, and seven live-fetched official submission records.
 - Verified registry client/cache, digest-pinned safe atomic package installation, install/update/remove lifecycle, separate keep/delete-data removal, and permission display.
 - Calculator, Units, Currency, Time, Web Search, Timers, and Aliases in separate repositories and successful GitHub Releases.

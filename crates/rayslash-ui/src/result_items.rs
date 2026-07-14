@@ -55,9 +55,14 @@ pub(crate) fn load_icon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -
         return cached.clone();
     }
 
-    let image = Image::load_from_path(path)
-        .ok()
-        .or_else(|| load_extensionless_icon_image(path));
+    // Slint reports decode failures to stderr. Sniff extensionless AppImage-style
+    // candidates first so unrelated non-image files fail quietly and use the
+    // normal fallback icon, while named image files retain useful diagnostics.
+    let image = if path.extension().is_none() {
+        load_extensionless_icon_image(path)
+    } else {
+        Image::load_from_path(path).ok()
+    };
     icon_cache.insert(path.clone(), image.clone());
     image
 }
