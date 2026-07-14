@@ -8,7 +8,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Linux metadata tools
         run: |
@@ -31,7 +31,7 @@ jobs:
     steps:
       - name: Install packaging tools
         run: dnf install -y appstream cargo desktop-file-utils fontconfig-devel gcc git rpm-build rust xz
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Trust the container workspace
@@ -55,11 +55,15 @@ jobs:
             --define "_topdir $RUNNER_TEMP/rebuild" \
             "$RUNNER_TEMP/rpmbuild/SRPMS/rayslash-0.1.0-2.fc44.src.rpm"
       - name: Preserve RPMs for release validation
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/fedora-rpms"
+          find "$RUNNER_TEMP/rpmbuild/SRPMS" "$RUNNER_TEMP/rebuild/RPMS" \
+            -type f -name '*.rpm' -exec cp -v {} "$GITHUB_WORKSPACE/fedora-rpms/" \;
+          test "$(find "$GITHUB_WORKSPACE/fedora-rpms" -maxdepth 1 -type f -name '*.rpm' | wc -l)" -eq 4
+      - name: Upload RPMs for release validation
         uses: actions/upload-artifact@v4
         with:
           name: fedora-44-rpms
-          path: |
-            ${{ runner.temp }}/rpmbuild/SRPMS/*.src.rpm
-            ${{ runner.temp }}/rebuild/RPMS/**/*.rpm
+          path: fedora-rpms/*.rpm
           if-no-files-found: error
           retention-days: 7
