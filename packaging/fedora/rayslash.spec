@@ -1,6 +1,6 @@
 Name:           rayslash
-Version:        0.1.0
-Release:        2%{?dist}
+Version:        0.1.1
+Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 
 License:        MIT
@@ -48,6 +48,9 @@ appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xm
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Tue Jul 14 2026 RaySlash contributors - 0.1.1-1
+- Publish complete architecture-matched app and module-host package sets.
+
 * Mon Jul 13 2026 RaySlash contributors - 0.1.0-2
 - Require the module host and build from vendored dependencies without network access.
 

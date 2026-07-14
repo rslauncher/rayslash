@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.1.1" date="2026-07-14">
+      <description>
+        <p>Harden installable module lifecycle and publish complete Fedora app and host package sets.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-07-03">
       <description>
         <p>Initial public packaging metadata and Linux integration files.</p>
