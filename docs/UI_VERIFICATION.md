@@ -59,9 +59,10 @@ Pass criteria:
 11. Disable Tooltips and hover a toggle row again.
 12. Open Modules and toggle Web Search, Units, Currency, Time, Calculator, Timers, and Aliases.
 13. Confirm each module card uses its result-style glyph, including `U` for Units and `$` for Currency.
-14. Add a search-engine row, fill one field, click into another window, reopen rayslash, and continue the draft.
-15. Complete a YouTube engine using `https://www.youtube.com/results?search_query=%s`, then disable and re-enable it.
-16. Add, edit, and delete an alias row using `name | keyword | kind | target`.
+14. Open the new search-engine editor, fill one field, switch to another window to copy a URL, and return to rayslash.
+15. Cancel that editor and confirm no row was added, then create a YouTube engine using `https://www.youtube.com/results?search_query=%s`.
+16. Edit the YouTube engine, disable and re-enable it, then delete it from the editor.
+17. Add, edit, and delete an alias row using `name | keyword | kind | target`.
 
 Pass criteria:
 
@@ -72,10 +73,12 @@ Pass criteria:
 - Tooltips sits next to Alt opener, and Max results appears after those toggles before Appearance.
 - Theme and density read as mutually exclusive segmented controls, not unrelated buttons.
 - Module toggles fit without text overlap, save immediately, and use provider-specific result glyphs.
-- An incomplete search engine survives launcher focus loss/restart, shows an amber warning, and does not become searchable until valid.
+- Add and Edit use the same compact in-window editor; switching applications leaves it open with entered values intact.
+- Cancel does not persist a new row, invalid values keep the editor open, and Delete appears only when editing a removable existing engine.
+- Search-engine list rows show a compact favicon container, name and URL, mildly rounded keyword flair, centered switch, and centered Edit button without a Delete or warning action.
 - Search-engine switches are vertically centered and use the same sharp track/knob proportions as normal feature switches.
 - After the YouTube favicon is fetched, it appears in the settings card and the `Search YouTube for...` result; the keyword fallback remains available if fetching fails.
-- Alias and search-engine multiline fields fit inside the scrolled settings panel and reject invalid rows with a clear status message instead of overwriting config.
+- Alias fields and the search-engine editor fit inside the settings panel and reject invalid rows with a clear status message instead of overwriting config.
 - Light mode keeps header, search, result rows, settings fields, toggles, and diagnostics readable.
 - Invalid Max results and empty enabled alternate opener values show a clear status message and do not save.
 - Successful saves refresh the current result count and diagnostics.
@@ -101,7 +104,7 @@ Pass criteria:
 - Default web search appears only for the built-in `search` command or active `Search` pill.
 - `Web Search` renders its configured `%s` URL and opens it through the desktop default browser; changing its URL affects every browser family.
 - Space and Tab turn an enabled keyword into a compact pill before the typed search terms.
-- The custom search result shows a compact keyword badge and opens the configured URL with percent-encoded terms.
+- The custom search result shows the cached favicon when available, retains the keyword fallback when unavailable, and opens the configured URL with percent-encoded terms.
 - Backspace on an empty active custom search clears the pill.
 - Disabled custom engines do not trigger a pill or a custom search row.
 
@@ -111,12 +114,27 @@ Pass criteria:
 2. Click another application window.
 3. Open Settings and use the folder picker.
 4. Cancel the folder picker, then click another application window.
+5. Open the search-engine editor, switch to another application, then return and cancel the editor.
 
 Pass criteria:
 
 - Ordinary focus loss hides the launcher.
 - Opening the folder picker does not permanently break focus-loss hiding.
 - After the picker closes, ordinary focus loss hides the launcher again.
+- Focus loss does not hide rayslash while the search-engine editor is open; explicit Save, Cancel, or Delete closes the editor.
+
+## Resident Toggle Latency
+
+1. Start rayslash once with `RAYSLASH_PROFILE=1 target/release/rayslash toggle`.
+2. Hide it with `target/release/rayslash toggle`.
+3. Confirm the original process and `$XDG_RUNTIME_DIR/rayslash.sock` remain alive.
+4. Show and hide it several more times through `Super+\`.
+
+Pass criteria:
+
+- Empty startup/show queries do not launch optional module hosts.
+- Hiding the launcher does not terminate the resident process.
+- After the first start, shortcut toggles show and hide through IPC without visible startup delay.
 
 ## Icon Rendering
 

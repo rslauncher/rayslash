@@ -149,7 +149,7 @@ Current calculator/app/project and resident flow:
 42. Clicking a result row activates it through the same callback path as Enter.
 43. Enter activates a selected calculator, unit conversion, currency conversion, or time lookup result by copying the result text to the clipboard and hiding the launcher after a successful copy.
 44. Enter activates a selected calculator, currency, time lookup, timer, or system-action error row internally by echoing the error message in the status line and keeping the launcher visible.
-45. Web search is represented by configured URL templates only. The first permanent template is `Web Search`, uses keyword `search`, and defaults to `https://www.google.com/search?q=%s`. It can be disabled and its URL can be edited, but it cannot be removed. Incomplete additional rows are persisted as inactive drafts and filtered by the provider until valid. Non-default engine favicons are fetched into the XDG cache in the background, normalized to PNG, shown in settings and matching result rows, and sampled with the same muted-accent technique used by the alternate folder opener; that accent colors the active search pill. The permanent default retains its neutral magnifying-glass treatment. All web-search activation opens the rendered URL through `xdg-open`, normally handing it to an existing browser as a new tab without browser-family-specific command handling.
+45. Web search is represented by configured URL templates only. The first permanent template is `Web Search`, uses keyword `search`, and defaults to `https://www.google.com/search?q=%s`. It can be disabled and its URL can be edited, but it cannot be removed. Add and Edit share an explicit-save modal editor, while legacy incomplete rows remain inactive until completed. Non-default engine favicons are fetched into the XDG cache in the background, prefer the largest site-declared icon, try common high-resolution icon paths before the legacy root favicon, are normalized to PNG, and are rendered with smooth interpolation in settings and matching module result rows. The same muted-accent technique used by the alternate folder opener colors the active search pill. The permanent default retains its neutral magnifying-glass treatment. All web-search activation opens the rendered URL through `xdg-open`, normally handing it to an existing browser as a new tab without browser-family-specific command handling.
 46. Enter activates a selected no-results row by hiding the launcher.
 47. Enter activates a selected app result by asking core to focus an existing app window when possible, then to launch through desktop activation (`gio launch <desktop-id>`) with a parsed desktop command fallback.
 48. Enter activates a selected folder result by asking core to spawn `xdg-open <project-path>` on Linux.
@@ -305,7 +305,7 @@ Provider toggles default to enabled. The seven module-backed compatibility value
 
 ## Startup and toggle model
 
-`rayslash` runs as a single resident GUI process. The first invocation starts the Slint window and binds the local IPC socket. Later invocations contact that socket and exit quickly.
+`rayslash` runs as a single resident GUI process. The first invocation starts the Slint window and binds the local IPC socket. It uses Slint's daemon-style event loop so hiding the only window does not terminate the process. Empty-query startup and show/reset paths do not invoke optional module hosts; those providers run only after the user enters a query. Later invocations contact the resident socket and exit quickly.
 
 The IPC socket path is:
 

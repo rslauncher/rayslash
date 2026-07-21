@@ -8,6 +8,7 @@ use std::{
 
 use rayslash_core::{
     app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking, search,
+    web_search,
 };
 use slint::VecModel;
 
@@ -79,15 +80,20 @@ pub(crate) fn search_result_set(
         &core_providers,
         ranking,
     );
-    let module_config = modules::load_modules_config(&config.providers)
-        .unwrap_or_else(|_| modules::ModulesConfig::empty());
-    let settings = module_settings(config);
-    let module_results = modules::query_installed_modules(
-        query,
-        config.appearance.max_results,
-        &module_config,
-        &settings,
-    );
+    let mut module_results = if !should_query_modules(query) {
+        modules::ModuleQueryBatch::default()
+    } else {
+        let module_config = modules::load_modules_config(&config.providers)
+            .unwrap_or_else(|_| modules::ModulesConfig::empty());
+        let settings = module_settings(config);
+        modules::query_installed_modules(
+            query,
+            config.appearance.max_results,
+            &module_config,
+            &settings,
+        )
+    };
+    apply_web_search_favicons(&mut module_results.results, &config.web_searches);
     if module_results.exclusive {
         results = module_results.results;
     } else if !module_results.results.is_empty() {
@@ -127,6 +133,50 @@ pub(crate) fn search_result_set(
         results,
         result_tip,
     }
+}
+
+fn should_query_modules(query: &str) -> bool {
+    !query.trim().is_empty()
+}
+
+fn apply_web_search_favicons(
+    results: &mut [search::SearchResult],
+    searches: &[config::WebSearchConfig],
+) {
+    for result in results {
+        let Some(keyword) = web_search_result_keyword(result) else {
+            continue;
+        };
+        let Some(path) = searches
+            .iter()
+            .find(|search| search.keyword.eq_ignore_ascii_case(keyword))
+            .and_then(web_search::cached_favicon_path)
+        else {
+            continue;
+        };
+        result.icon = search::SearchResultIcon::Module {
+            label: String::new(),
+            path: Some(path),
+        };
+    }
+}
+
+fn web_search_result_keyword(result: &search::SearchResult) -> Option<&str> {
+    let search::SearchResultKind::Module {
+        module_id,
+        result_id,
+        ..
+    } = &result.kind
+    else {
+        return None;
+    };
+    if module_id != modules::WEB_SEARCH_MODULE_ID {
+        return None;
+    }
+    result_id
+        .strip_prefix("web-search:")?
+        .split_once(':')
+        .map(|(keyword, _)| keyword)
 }
 
 pub(crate) fn query_execution_hint(config: &config::Config) -> ProviderExecutionHint {
@@ -377,6 +427,34 @@ mod tests {
         assert_eq!(effective_search_query("rust slint", ""), "rust slint");
         assert_eq!(effective_search_query("", "yt"), "yt");
         assert_eq!(effective_search_query("rust slint", "yt"), "yt rust slint");
+    }
+
+    #[test]
+    fn empty_queries_do_not_start_module_hosts() {
+        assert!(!should_query_modules(""));
+        assert!(!should_query_modules("   "));
+        assert!(should_query_modules("youtube rust"));
+    }
+
+    #[test]
+    fn web_search_module_result_ids_expose_the_engine_keyword() {
+        let result = search::SearchResult {
+            title: "Search YouTube for rust".into(),
+            flair: String::new(),
+            subtitle: "https://www.youtube.com/results?search_query=rust".into(),
+            icon: search::SearchResultIcon::Module {
+                label: "youtube".into(),
+                path: None,
+            },
+            kind: search::SearchResultKind::Module {
+                module_id: modules::WEB_SEARCH_MODULE_ID.into(),
+                result_id: "web-search:youtube:rust".into(),
+                action: search::ModuleAction::None,
+                score: None,
+            },
+        };
+
+        assert_eq!(web_search_result_keyword(&result), Some("youtube"));
     }
 
     #[test]

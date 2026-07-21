@@ -38,10 +38,18 @@ component MiniToggle inherits Rectangle {
     in-out property <bool> checked;
     in property <bool> light;
     callback toggled();
-    width: 30px; height: 18px; border-radius: 9px;
+    width: 34px; height: 20px; border-radius: 10px;
     background: root.light ? root.checked ? #202020 : #e1e1e1 : root.checked ? #d6d6d6 : #303030;
     border-width: 1px; border-color: root.light ? root.checked ? #202020 : #a9a9a9 : root.checked ? #eeeeee : #666666;
-    Rectangle { x: root.checked ? 14px : 2px; y: 2px; width: 14px; height: 14px; border-radius: 7px; background: root.light ? root.checked ? #ffffff : #777777 : root.checked ? #181818 : #b8b8b8; }
+    Rectangle {
+        x: root.checked ? 16px : 2px;
+        y: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: root.light ? root.checked ? #ffffff : #777777 : root.checked ? #181818 : #b8b8b8;
+        animate x { duration: 90ms; }
+    }
     TouchArea { mouse-cursor: pointer; clicked => { root.checked = !root.checked; root.toggled(); } }
 }
 
@@ -99,6 +107,7 @@ export component SettingsPanel inherits FocusScope {
     in property <string> icon-count;
     in property <string> ranking-entry-count;
     in-out property <bool> alternate-picker-open;
+    in-out property <bool> web-search-editor-open;
 
     callback cancel-requested();
     callback browse-folder-requested(string);
@@ -107,14 +116,18 @@ export component SettingsPanel inherits FocusScope {
     callback alias-save-requested(int, string, string, string, string);
     callback alias-add-requested();
     callback alias-remove-requested(int);
-    callback web-search-save-requested(int, string, string, string, bool);
-    callback web-search-add-requested();
-    callback web-search-remove-requested(int);
+    callback web-search-save-requested(int, string, string, string, bool) -> bool;
+    callback web-search-remove-requested(int) -> bool;
     callback module-toggle-requested(string, bool);
     callback module-action-requested(string, string);
     callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     private property <string> settings-section: "general";
+    private property <int> web-search-editor-index: -1;
+    private property <string> web-search-editor-name: "";
+    private property <string> web-search-editor-keyword: "";
+    private property <string> web-search-editor-url: "";
+    private property <bool> web-search-editor-enabled: true;
 
     private property <color> text-strong: root.light ? #1f1f1f : #f2f2f2;
     private property <color> text-main: root.light ? #2d2d2d : #d8d8d8;
@@ -131,6 +144,29 @@ export component SettingsPanel inherits FocusScope {
         settings-scroll.viewport-y = 0px;
         modules-panel.reset-scroll();
         root.focus();
+    }
+
+    public function cancel-web-search-editor() {
+        root.web-search-editor-open = false;
+        root.web-search-editor-index = -1;
+    }
+
+    function add-web-search() {
+        root.web-search-editor-index = root.web-searches.length;
+        root.web-search-editor-name = "";
+        root.web-search-editor-keyword = "";
+        root.web-search-editor-url = "";
+        root.web-search-editor-enabled = true;
+        root.web-search-editor-open = true;
+    }
+
+    function edit-web-search(index: int) {
+        root.web-search-editor-index = index;
+        root.web-search-editor-name = root.web-searches[index].name;
+        root.web-search-editor-keyword = root.web-searches[index].keyword;
+        root.web-search-editor-url = root.web-searches[index].url;
+        root.web-search-editor-enabled = root.web-searches[index].enabled;
+        root.web-search-editor-open = true;
     }
 
     function save-settings() {
@@ -167,12 +203,18 @@ export component SettingsPanel inherits FocusScope {
             root.settings-section = "general";
             settings-scroll.viewport-y = 0px;
             modules-panel.reset-scroll();
+        } else {
+            root.cancel-web-search-editor();
         }
     }
 
     key-pressed(event) => {
         if (event.text == Key.Escape) {
-            root.cancel-requested();
+            if (root.web-search-editor-open) {
+                root.cancel-web-search-editor();
+            } else {
+                root.cancel-requested();
+            }
             accept
         } else {
             reject
@@ -233,7 +275,7 @@ export component SettingsPanel inherits FocusScope {
         height: parent.height - 76px;
         visible: root.settings-section == "general";
         viewport-width: self.width;
-        viewport-height: root.open ? (root.alternate-picker-open ? 1139px : 989px) + root.aliases.length * 134px + root.web-searches.length * 134px : 0px;
+        viewport-height: root.open ? (root.alternate-picker-open ? 1139px : 989px) + root.aliases.length * 134px + root.web-searches.length * 72px : 0px;
         interactive: root.open && root.settings-section == "general";
 
         VerticalLayout {
@@ -548,34 +590,34 @@ export component SettingsPanel inherits FocusScope {
 
             Rectangle { height: 34px; border-radius: 8px; background: search-add.pressed ? root.field-bg-pressed : search-add.has-hover ? root.field-bg-hover : root.field-bg;
                 Text { text: "+  Add search engine"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-                search-add := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-add-requested(); } }
+                search-add := TouchArea { mouse-cursor: pointer; clicked => { root.add-web-search(); } }
             }
 
             for engine[index] in root.web-searches: Rectangle {
-                height: 126px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
-                VerticalLayout { padding: 8px; spacing: 6px;
-                    HorizontalLayout { height: 34px; spacing: 9px;
-                        Rectangle { width: 34px; border-radius: 8px; background: root.field-bg-hover;
-                            Image { x: 6px; y: 6px; width: 22px; height: 22px; source: engine.icon; image-fit: contain; visible: engine.has_icon; }
-                            Path { x: 8px; y: 7px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M11 4 A7 7 0 1 0 11 18 A7 7 0 1 0 11 4 M16.2 16.2 L21 21"; visible: !engine.has_icon; }
+                height: 64px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
+                HorizontalLayout { padding: 7px; spacing: 10px;
+                    Rectangle { width: 46px; height: 50px; background: transparent;
+                        Rectangle { x: 1px; y: 3px; width: 44px; height: 44px; border-radius: 9px; background: root.field-bg-hover; border-width: 1px; border-color: root.field-border;
+                            Image { x: 8px; y: 8px; width: 28px; height: 28px; source: engine.icon; image-fit: contain; image-rendering: smooth; visible: engine.has_icon; }
+                            Path { x: 11px; y: 10px; width: 22px; height: 22px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M11 4 A7 7 0 1 0 11 18 A7 7 0 1 0 11 4 M16.2 16.2 L21 21"; visible: !engine.has_icon; }
                         }
-                        VerticalLayout { spacing: 1px; Text { text: engine.name == "" ? "New search engine" : engine.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; } Text { text: engine.keyword == "" ? "Choose a keyword" : engine.keyword; color: root.text-muted; font-size: 10px; overflow: elide; } }
-                        Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Rectangle { width: engine.valid ? 0px : 28px; visible: !engine.valid; border-radius: 7px; background: root.light ? #fff1c7 : #594615;
-                            Path { x: 5px; y: 5px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; commands: "M12 3 L22 20 H2 Z M12 9 V14 M12 17 V18"; stroke: root.light ? #9a6700 : #ffd166; stroke-width: 2px; fill: transparent; }
+                    }
+                    VerticalLayout { height: 50px; alignment: center; spacing: 3px;
+                        Text { text: engine.name == "" ? "Incomplete search engine" : engine.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; vertical-alignment: bottom; }
+                        Text { text: engine.url == "" ? "Add a search URL" : engine.url; color: root.text-muted; font-size: 10px; overflow: elide; vertical-alignment: top; }
+                    }
+                    Rectangle { width: min(110px, max(54px, keyword-label.preferred-width + 18px)); height: 50px; background: transparent;
+                        Rectangle { y: 14px; width: 100%; height: 22px; border-radius: 6px; background: root.light ? #e7e7e7 : #2d2d2d; border-width: 1px; border-color: root.field-border;
+                            keyword-label := Text { text: engine.keyword == "" ? "keyword" : engine.keyword; color: root.text-soft; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                         }
-                        Rectangle { width: 34px; background: transparent; MiniToggle { x: 2px; y: 8px; checked: engine.enabled; light: root.light; toggled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, self.checked); } } }
                     }
-                    HorizontalLayout { height: 26px; spacing: 6px;
-                        EngineField { value <=> engine.name; light: root.light; editable: index != 0; hint: "Search engine name"; focus-lost => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } edit-settled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } }
-                        EngineField { width: 145px; value <=> engine.keyword; light: root.light; editable: index != 0; hint: "Keyword"; focus-lost => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } edit-settled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } }
+                    Rectangle { width: 42px; height: 50px; background: transparent;
+                        MiniToggle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; checked: engine.enabled; light: root.light; toggled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, self.checked); } }
                     }
-                    HorizontalLayout { height: 26px; spacing: 6px;
-                        EngineField { value <=> engine.url; light: root.light; hint: "URL with %s in place of the search term"; focus-lost => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } edit-settled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } }
-                        Rectangle { width: 28px; border-radius: 6px; background: save-engine.pressed ? root.field-bg-pressed : save-engine.has-hover ? root.field-bg-hover : transparent; Text { text: "✓"; color: root.text-main; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; } save-engine := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } } }
-                        Rectangle { width: index == 0 ? 0px : 28px; visible: index != 0; border-radius: 6px; background: remove-engine.pressed ? #6f2020 : remove-engine.has-hover ? #4c2424 : transparent;
-                            Path { x: 6px; y: 5px; width: 16px; height: 16px; viewbox-width: 24; viewbox-height: 24; stroke: #ef7777; stroke-width: 2px; fill: transparent; commands: "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 10v6 M14 10v6"; }
-                            remove-engine := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-remove-requested(index); } }
+                    Rectangle { width: 42px; height: 50px; background: transparent;
+                        Rectangle { y: 4px; width: 42px; height: 42px; border-radius: 9px; background: edit-engine.pressed ? root.field-bg-pressed : edit-engine.has-hover ? root.field-bg-hover : transparent; border-width: 1px; border-color: root.field-border;
+                            Path { x: 10px; y: 10px; width: 22px; height: 22px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M12 20 H4 V12 L14.5 1.5 A2.1 2.1 0 0 1 17.5 1.5 L22.5 6.5 A2.1 2.1 0 0 1 22.5 9.5 Z M13 3 L21 11"; }
+                            edit-engine := TouchArea { mouse-cursor: pointer; clicked => { root.edit-web-search(index); } }
                         }
                     }
                 }
@@ -970,6 +1012,104 @@ export component SettingsPanel inherits FocusScope {
         }
         module-action-requested(id, action) => {
             root.module-action-requested(id, action);
+        }
+    }
+
+    if root.web-search-editor-open: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: root.light ? #f3f3f3 : #181818;
+
+        TouchArea { }
+
+        Rectangle {
+            x: 0px;
+            y: (parent.height - self.height) / 2;
+            width: 100%;
+            height: 292px;
+            border-radius: 12px;
+            background: root.field-bg;
+            border-width: 1px;
+            border-color: root.field-border-focus;
+
+            VerticalLayout {
+                padding: 14px;
+                spacing: 8px;
+
+                HorizontalLayout {
+                    height: 38px;
+                    spacing: 10px;
+
+                    VerticalLayout {
+                        spacing: 1px;
+                        Text { text: root.web-search-editor-index < root.web-searches.length ? "Edit search engine" : "New search engine"; color: root.text-strong; font-size: 17px; font-weight: 700; }
+                        Text { text: "Use %s where the search terms belong in the URL"; color: root.text-muted; font-size: 10px; }
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    Rectangle { width: 42px; height: 38px; background: transparent;
+                        MiniToggle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; checked <=> root.web-search-editor-enabled; light: root.light; }
+                    }
+                }
+
+                HorizontalLayout {
+                    height: 58px;
+                    spacing: 8px;
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "Name"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                        editor-name-field := EngineField { height: 38px; value <=> root.web-search-editor-name; light: root.light; editable: root.web-search-editor-index != 0; hint: "YouTube"; }
+                    }
+                    VerticalLayout {
+                        width: 180px;
+                        spacing: 4px;
+                        Text { text: "Keyword"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                        EngineField { height: 38px; value <=> root.web-search-editor-keyword; light: root.light; editable: root.web-search-editor-index != 0; hint: "youtube"; }
+                    }
+                }
+
+                VerticalLayout {
+                    height: 58px;
+                    spacing: 4px;
+                    Text { text: "URL"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                    editor-url-field := EngineField { height: 38px; value <=> root.web-search-editor-url; light: root.light; hint: "https://example.com/search?q=%s"; }
+                }
+
+                Text {
+                    height: 24px;
+                    text: root.web-search-editor-index == 0 ? "The built-in search name and keyword are fixed, but its URL can be changed." : "The favicon is fetched from the search engine after saving.";
+                    color: root.text-muted;
+                    font-size: 10px;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                }
+
+                HorizontalLayout {
+                    height: 40px;
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: root.web-search-editor-index > 0 && root.web-search-editor-index < root.web-searches.length ? 86px : 0px;
+                        visible: root.web-search-editor-index > 0 && root.web-search-editor-index < root.web-searches.length;
+                        border-radius: 8px;
+                        background: delete-engine.pressed ? #6f2020 : delete-engine.has-hover ? #4c2424 : transparent;
+                        border-width: 1px;
+                        border-color: root.light ? #c44f4f : #7a3434;
+                        Text { text: "Delete"; color: #ef7777; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        delete-engine := TouchArea { mouse-cursor: pointer; clicked => { if (root.web-search-remove-requested(root.web-search-editor-index)) { root.cancel-web-search-editor(); } } }
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    Rectangle { width: 86px; border-radius: 8px; background: cancel-engine.pressed ? root.field-bg-pressed : cancel-engine.has-hover ? root.field-bg-hover : transparent; border-width: 1px; border-color: root.field-border;
+                        Text { text: "Cancel"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        cancel-engine := TouchArea { mouse-cursor: pointer; clicked => { root.cancel-web-search-editor(); } }
+                    }
+                    Rectangle { width: 86px; border-radius: 8px; background: save-engine.pressed ? (root.light ? #303030 : #d6d6d6) : save-engine.has-hover ? (root.light ? #474747 : #eeeeee) : (root.light ? #202020 : #c8c8c8);
+                        Text { text: "Save"; color: root.light ? #ffffff : #181818; font-size: 12px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                        save-engine := TouchArea { mouse-cursor: pointer; clicked => { if (root.web-search-save-requested(root.web-search-editor-index, root.web-search-editor-name, root.web-search-editor-keyword, root.web-search-editor-url, root.web-search-editor-enabled)) { root.cancel-web-search-editor(); } } }
+                    }
+                }
+            }
         }
     }
 }

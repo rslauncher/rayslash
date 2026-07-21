@@ -7,6 +7,7 @@ export { AliasItem, AppChoiceItem, ModuleItem, ResultItem, WebSearchItem } from 
 
 component HeaderBar inherits HorizontalLayout {
     in property <bool> settings-open;
+    in property <bool> editor-open;
     in property <bool> light;
     callback settings-requested();
 
@@ -55,6 +56,7 @@ component HeaderBar inherits HorizontalLayout {
         }
 
         settings-button-touch := TouchArea {
+            enabled: !root.editor-open;
             mouse-cursor: pointer;
             clicked => {
                 root.settings-requested();
@@ -182,6 +184,7 @@ export component AppWindow inherits Window {
     in property <string> alternate-folder-opener-label: "TM";
     in-out property <bool> control-held: false;
     in-out property <bool> settings-alternate-picker-open: false;
+    in-out property <bool> settings-web-search-editor-open: false;
     in-out property <string> active-search-keyword: "";
     in-out property <string> active-search-name: "";
     in-out property <bool> active-search-has-accent: false;
@@ -202,9 +205,8 @@ export component AppWindow inherits Window {
     callback settings-alias-save-requested(int, string, string, string, string);
     callback settings-alias-add-requested();
     callback settings-alias-remove-requested(int);
-    callback settings-web-search-save-requested(int, string, string, string, bool);
-    callback settings-web-search-add-requested();
-    callback settings-web-search-remove-requested(int);
+    callback settings-web-search-save-requested(int, string, string, string, bool) -> bool;
+    callback settings-web-search-remove-requested(int) -> bool;
     callback settings-module-toggle-requested(string, bool);
     callback settings-module-action-requested(string, string);
     callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
@@ -268,7 +270,9 @@ export component AppWindow inherits Window {
             key-pressed(event) => {
                 root.control-held = event.modifiers.control;
                 if (event.text == Key.Escape) {
-                    if (root.settings-open) {
+                    if (root.settings-web-search-editor-open) {
+                        settings-panel.cancel-web-search-editor();
+                    } else if (root.settings-open) {
                         root.settings-cancel-requested();
                     } else {
                         root.close-requested();
@@ -322,6 +326,7 @@ export component AppWindow inherits Window {
 
                     HeaderBar {
                         settings-open: root.settings-open;
+                        editor-open: root.settings-web-search-editor-open;
                         light: root.light-theme;
                         settings-requested => {
                             root.settings-requested();
@@ -421,6 +426,7 @@ export component AppWindow inherits Window {
                         icon-count: root.settings-icon-count;
                         ranking-entry-count: root.settings-ranking-entry-count;
                         alternate-picker-open <=> root.settings-alternate-picker-open;
+                        web-search-editor-open <=> root.settings-web-search-editor-open;
 
                         cancel-requested => {
                             root.settings-cancel-requested();
@@ -437,9 +443,8 @@ export component AppWindow inherits Window {
                         alias-save-requested(index, name, keyword, kind, target) => { root.settings-alias-save-requested(index, name, keyword, kind, target); }
                         alias-add-requested => { root.settings-alias-add-requested(); }
                         alias-remove-requested(index) => { root.settings-alias-remove-requested(index); }
-                        web-search-save-requested(index, name, keyword, url, enabled) => { root.settings-web-search-save-requested(index, name, keyword, url, enabled); }
-                        web-search-add-requested => { root.settings-web-search-add-requested(); }
-                        web-search-remove-requested(index) => { root.settings-web-search-remove-requested(index); }
+                        web-search-save-requested(index, name, keyword, url, enabled) => { return root.settings-web-search-save-requested(index, name, keyword, url, enabled); }
+                        web-search-remove-requested(index) => { return root.settings-web-search-remove-requested(index); }
                         module-toggle-requested(id, enabled) => { root.settings-module-toggle-requested(id, enabled); }
                         module-action-requested(id, action) => { root.settings-module-action-requested(id, action); }
                         save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, provider-utility-actions, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {

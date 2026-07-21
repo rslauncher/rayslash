@@ -398,7 +398,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let socket_path = socket_path.clone();
         move |index, name, keyword, url, enabled| {
             let Some(ui) = weak.upgrade() else {
-                return;
+                return false;
             };
             let mut next = config_state.borrow().clone();
             let updated = config::WebSearchConfig {
@@ -408,65 +408,35 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 enabled,
             };
             let valid = rayslash_core::web_search::is_valid_template(&updated);
+            if !valid {
+                ui.set_status_text(
+                    "Complete the name, keyword, and a valid URL containing %s before saving."
+                        .into(),
+                );
+                return false;
+            }
             if let Some(engine) = next.web_searches.get_mut(index as usize) {
                 *engine = updated;
             } else if index as usize == next.web_searches.len() {
                 next.web_searches.push(updated);
             } else {
-                return;
+                return false;
             }
             if next.clone().normalized() == *config_state.borrow() {
-                return;
+                return true;
             }
             save_collection_change(
                 &ui,
                 &config_state,
                 next,
                 settings_save_blocked,
-                if valid {
-                    "Search engine saved."
-                } else {
-                    "Search engine draft saved; complete the required fields to activate it."
-                },
+                "Search engine saved.",
                 &projects.borrow(),
                 &apps.borrow(),
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
-            );
-        }
-    });
-    ui.on_settings_web_search_add_requested({
-        let weak = ui.as_weak();
-        let config_state = config_state.clone();
-        let projects = projects.clone();
-        let apps = apps.clone();
-        let ranking_state = ranking_state.clone();
-        let icon_cache = icon_cache.clone();
-        let socket_path = socket_path.clone();
-        move || {
-            let Some(ui) = weak.upgrade() else {
-                return;
-            };
-            let mut next = config_state.borrow().clone();
-            next.web_searches.push(config::WebSearchConfig {
-                name: String::new(),
-                keyword: String::new(),
-                url: String::new(),
-                enabled: true,
-            });
-            save_collection_change(
-                &ui,
-                &config_state,
-                next,
-                settings_save_blocked,
-                "Search engine draft added; changes save when a field loses focus.",
-                &projects.borrow(),
-                &apps.borrow(),
-                &ranking_state.borrow(),
-                &icon_cache,
-                &socket_path,
-            );
+            )
         }
     });
     ui.on_settings_web_search_remove_requested({
@@ -479,11 +449,13 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let socket_path = socket_path.clone();
         move |index| {
             let Some(ui) = weak.upgrade() else {
-                return;
+                return false;
             };
             let mut next = config_state.borrow().clone();
             if index > 0 && (index as usize) < next.web_searches.len() {
                 next.web_searches.remove(index as usize);
+            } else {
+                return false;
             }
             save_collection_change(
                 &ui,
@@ -496,7 +468,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
-            );
+            )
         }
     });
 
@@ -609,14 +581,14 @@ fn save_collection_change(
     ranking: &ranking::RankingState,
     icon_cache: &Rc<RefCell<IconImageCache>>,
     socket_path: &std::path::Path,
-) {
+) -> bool {
     if blocked {
         ui.set_status_text("Could not save settings: fix config.toml and restart rayslash.".into());
-        return;
+        return false;
     }
     if let Err(error) = config::save_config_with_backup(&config_to_save) {
         ui.set_status_text(format!("Could not save settings: {error}").into());
-        return;
+        return false;
     }
     *state.borrow_mut() = config_to_save.normalized();
     let favicon_searches = state.borrow().web_searches.clone();
@@ -653,6 +625,7 @@ fn save_collection_change(
         socket_path,
     );
     set_ephemeral_status(ui, message);
+    true
 }
 
 fn set_ephemeral_status(ui: &AppWindow, message: &str) {
