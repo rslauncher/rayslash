@@ -49,12 +49,14 @@ require_file_text "$fedora_spec" "cargo build --release --frozen --jobs 2 -p ray
 require_file_text "$fedora_spec" "cargo test --release --frozen --jobs 2 --workspace"
 require_file_text "$arch_pkgbuild" "depends=('fontconfig' 'rayslash-module-host>=0.1.2')"
 require_file_text "$arch_pkgbuild" "pkgrel=1"
+require_file_text "$flatpak_manifest" "runtime-version: '25.08'"
 require_file_text "$flatpak_manifest" "install -Dm0755 rayslash-module-host /app/libexec/rayslash/rayslash-module-host"
 require_file_text "$flatpak_manifest" "--talk-name=org.freedesktop.Flatpak"
 require_file_text "$flatpak_manifest" "--filesystem=xdg-data/applications:ro"
 require_file_text "$debian_builder" 'rayslash_${version}_${architecture}.deb'
 require_file_text "$appimage_builder" 'rayslash-${version}-${architecture}.AppImage'
 require_file_text "$release_workflow" 'packaging/release/validate-assets.sh'
+require_file_text "$release_workflow" 'org.freedesktop.Sdk.Extension.rust-stable//25.08'
 
 app_version="$(awk -F '"' '$1 ~ /^version = / { print $2; exit }' "$root_dir/crates/rayslash-ui/Cargo.toml")"
 core_version="$(awk -F '"' '$1 ~ /^version = / { print $2; exit }' "$root_dir/crates/rayslash-core/Cargo.toml")"
