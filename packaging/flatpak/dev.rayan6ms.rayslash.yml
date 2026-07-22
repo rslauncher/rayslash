@@ -26,7 +26,7 @@ modules:
   - name: rayslash-module-host
     buildsystem: simple
     build-commands:
-      - install -Dm0755 rayslash-module-host-v*/rayslash-module-host /app/libexec/rayslash/rayslash-module-host
+      - install -Dm0755 rayslash-module-host /app/libexec/rayslash/rayslash-module-host
     sources:
       - type: archive
         url: https://github.com/rslauncher/rayslash-module-host/releases/download/v0.1.2/rayslash-module-host-v0.1.2-x86_64-unknown-linux-gnu.tar.xz
