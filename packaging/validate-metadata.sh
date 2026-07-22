@@ -57,6 +57,8 @@ require_file_text "$debian_builder" 'rayslash_${version}_${architecture}.deb'
 require_file_text "$appimage_builder" 'rayslash-${version}-${architecture}.AppImage'
 require_file_text "$release_workflow" 'packaging/release/validate-assets.sh'
 require_file_text "$release_workflow" 'org.freedesktop.Sdk.Extension.rust-stable//25.08'
+require_file_text "$release_workflow" 'flatpak run --command=test dev.rayan6ms.rayslash -x /app/bin/rayslash'
+require_file_text "$release_workflow" '-x /app/libexec/rayslash/rayslash-module-host'
 
 app_version="$(awk -F '"' '$1 ~ /^version = / { print $2; exit }' "$root_dir/crates/rayslash-ui/Cargo.toml")"
 core_version="$(awk -F '"' '$1 ~ /^version = / { print $2; exit }' "$root_dir/crates/rayslash-core/Cargo.toml")"

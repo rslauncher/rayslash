@@ -205,8 +205,8 @@ jobs:
             dev.rayan6ms.rayslash stable
           flatpak install --user --noninteractive "$bundle"
           flatpak info dev.rayan6ms.rayslash
+          flatpak run --command=test dev.rayan6ms.rayslash -x /app/bin/rayslash
           flatpak run --command=test dev.rayan6ms.rayslash \
-            -x /app/bin/rayslash \
             -x /app/libexec/rayslash/rayslash-module-host
       - uses: actions/upload-artifact@v7
         with:
