@@ -55,6 +55,17 @@ fn desktop_icon_base_dirs() -> Vec<PathBuf> {
         push_unique_path(&mut dirs, &mut seen_paths, data_dir.join("icons"));
     }
 
+    if std::env::var_os("FLATPAK_ID").is_some() {
+        for path in [
+            "/run/host/user-share/icons",
+            "/run/host/share/icons",
+            "/run/host/usr/local/share/icons",
+            "/run/host/usr/share/icons",
+        ] {
+            push_unique_path(&mut dirs, &mut seen_paths, PathBuf::from(path));
+        }
+    }
+
     dirs
 }
 

@@ -7,6 +7,7 @@ export { AliasItem, AppChoiceItem, ModuleItem, ResultItem, WebSearchItem } from 
 
 component HeaderBar inherits HorizontalLayout {
     in property <bool> settings-open;
+    in property <bool> editor-open;
     in property <bool> light;
     callback settings-requested();
 
@@ -55,6 +56,7 @@ component HeaderBar inherits HorizontalLayout {
         }
 
         settings-button-touch := TouchArea {
+            enabled: !root.editor-open;
             mouse-cursor: pointer;
             clicked => {
                 root.settings-requested();
@@ -151,7 +153,10 @@ export component AppWindow inherits Window {
     in-out property <string> settings-web-searches-text: "";
     in property <[AliasItem]> settings-aliases;
     in property <[WebSearchItem]> settings-web-searches;
+    in-out property <bool> settings-aliases-installed: false;
+    in-out property <bool> settings-web-search-installed: false;
     in property <[ModuleItem]> settings-modules;
+    in-out property <string> settings-module-sort-order: "name-asc";
     in-out property <string> settings-alternate-folder-opener-command: "xdg-terminal-exec";
     in-out property <bool> settings-provider-apps: true;
     in-out property <bool> settings-provider-folders: true;
@@ -182,6 +187,8 @@ export component AppWindow inherits Window {
     in property <string> alternate-folder-opener-label: "TM";
     in-out property <bool> control-held: false;
     in-out property <bool> settings-alternate-picker-open: false;
+    in-out property <bool> settings-web-search-editor-open: false;
+    in-out property <bool> settings-alias-editor-open: false;
     in-out property <string> active-search-keyword: "";
     in-out property <string> active-search-name: "";
     in-out property <bool> active-search-has-accent: false;
@@ -199,14 +206,17 @@ export component AppWindow inherits Window {
     callback settings-browse-folder-requested(string);
     callback settings-choose-alternate-opener-requested(string);
     callback settings-clear-ranking-requested();
-    callback settings-alias-save-requested(int, string, string, string, string);
-    callback settings-alias-add-requested();
-    callback settings-alias-remove-requested(int);
-    callback settings-web-search-save-requested(int, string, string, string, bool);
-    callback settings-web-search-add-requested();
-    callback settings-web-search-remove-requested(int);
+    callback settings-alias-save-requested(int, string, string, string, string) -> bool;
+    callback settings-alias-remove-requested(int) -> bool;
+    callback settings-web-search-save-requested(int, string, string, string, bool) -> bool;
+    callback settings-web-search-remove-requested(int) -> bool;
     callback settings-module-toggle-requested(string, bool);
     callback settings-module-action-requested(string, string);
+    pure callback settings-module-matches(string, string) -> bool;
+    pure callback settings-visible-module-count(string, string, bool, bool, int) -> int;
+    callback settings-module-sort-requested(string);
+    pure callback settings-feedback-kind(string) -> string;
+    pure callback settings-feedback-duration-ms(string) -> int;
     callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     public function focus-search() {
@@ -268,7 +278,11 @@ export component AppWindow inherits Window {
             key-pressed(event) => {
                 root.control-held = event.modifiers.control;
                 if (event.text == Key.Escape) {
-                    if (root.settings-open) {
+                    if (root.settings-alias-editor-open) {
+                        settings-panel.cancel-alias-editor();
+                    } else if (root.settings-web-search-editor-open) {
+                        settings-panel.cancel-web-search-editor();
+                    } else if (root.settings-open) {
                         root.settings-cancel-requested();
                     } else {
                         root.close-requested();
@@ -316,12 +330,13 @@ export component AppWindow inherits Window {
                 VerticalLayout {
                     padding-left: 22px;
                     padding-right: 22px;
-                    padding-top: 20px;
+                    padding-top: 16px;
                     padding-bottom: 8px;
                     spacing: 0px;
 
                     HeaderBar {
                         settings-open: root.settings-open;
+                        editor-open: root.settings-web-search-editor-open || root.settings-alias-editor-open;
                         light: root.light-theme;
                         settings-requested => {
                             root.settings-requested();
@@ -329,7 +344,7 @@ export component AppWindow inherits Window {
                     }
 
                     Rectangle {
-                        height: root.settings-open ? 8px : 12px;
+                        height: root.settings-open ? 0px : 12px;
                         background: transparent;
                     }
 
@@ -389,13 +404,17 @@ export component AppWindow inherits Window {
 
                     settings-panel := SettingsPanel {
                         open <=> root.settings-open;
+                        status-text <=> root.status-text;
                         alternate-opener-choices: root.alternate-opener-choices;
                         folder-sources <=> root.settings-folder-sources;
                         aliases-text <=> root.settings-aliases-text;
                         web-searches-text <=> root.settings-web-searches-text;
                         aliases: root.settings-aliases;
                         web-searches: root.settings-web-searches;
+                        aliases-installed: root.settings-aliases-installed;
+                        web-search-installed: root.settings-web-search-installed;
                         modules: root.settings-modules;
+                        module-sort-order <=> root.settings-module-sort-order;
                         alternate-folder-opener-command <=> root.settings-alternate-folder-opener-command;
                         provider-apps <=> root.settings-provider-apps;
                         provider-folders <=> root.settings-provider-folders;
@@ -421,6 +440,8 @@ export component AppWindow inherits Window {
                         icon-count: root.settings-icon-count;
                         ranking-entry-count: root.settings-ranking-entry-count;
                         alternate-picker-open <=> root.settings-alternate-picker-open;
+                        web-search-editor-open <=> root.settings-web-search-editor-open;
+                        alias-editor-open <=> root.settings-alias-editor-open;
 
                         cancel-requested => {
                             root.settings-cancel-requested();
@@ -434,14 +455,17 @@ export component AppWindow inherits Window {
                         clear-ranking-requested => {
                             root.settings-clear-ranking-requested();
                         }
-                        alias-save-requested(index, name, keyword, kind, target) => { root.settings-alias-save-requested(index, name, keyword, kind, target); }
-                        alias-add-requested => { root.settings-alias-add-requested(); }
-                        alias-remove-requested(index) => { root.settings-alias-remove-requested(index); }
-                        web-search-save-requested(index, name, keyword, url, enabled) => { root.settings-web-search-save-requested(index, name, keyword, url, enabled); }
-                        web-search-add-requested => { root.settings-web-search-add-requested(); }
-                        web-search-remove-requested(index) => { root.settings-web-search-remove-requested(index); }
+                        alias-save-requested(index, name, keyword, kind, target) => { return root.settings-alias-save-requested(index, name, keyword, kind, target); }
+                        alias-remove-requested(index) => { return root.settings-alias-remove-requested(index); }
+                        web-search-save-requested(index, name, keyword, url, enabled) => { return root.settings-web-search-save-requested(index, name, keyword, url, enabled); }
+                        web-search-remove-requested(index) => { return root.settings-web-search-remove-requested(index); }
                         module-toggle-requested(id, enabled) => { root.settings-module-toggle-requested(id, enabled); }
                         module-action-requested(id, action) => { root.settings-module-action-requested(id, action); }
+                        module-matches(haystack, query) => { return root.settings-module-matches(haystack, query); }
+                        visible-module-count(tab, query, updates-only, saved-data-only, model-length) => { return root.settings-visible-module-count(tab, query, updates-only, saved-data-only, model-length); }
+                        module-sort-requested(order) => { root.settings-module-sort-requested(order); }
+                        feedback-kind(message) => { return root.settings-feedback-kind(message); }
+                        feedback-duration-ms(message) => { return root.settings-feedback-duration-ms(message); }
                         save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, provider-utility-actions, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {
                             root.settings-save-requested(
                                 folder-sources,

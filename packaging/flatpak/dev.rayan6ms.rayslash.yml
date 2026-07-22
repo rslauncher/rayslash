@@ -3,6 +3,10 @@ runtime: org.freedesktop.Platform
 runtime-version: '24.08'
 sdk: org.freedesktop.Sdk
 command: rayslash
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
 # The host is required launcher infrastructure, not a module. No official or community
 # module package is bundled; users still choose every module from Settings -> Modules.
 finish-args:
@@ -13,15 +17,16 @@ finish-args:
   - --socket=wayland
   - --socket=fallback-x11
   - --device=dri
-  - --filesystem=xdg-config/rayslash:create
+  # A desktop launcher must be able to discover configured folders and host desktop
+  # entries. External commands are executed through flatpak-spawn on the host.
+  - --filesystem=host:ro
   - --filesystem=xdg-data/applications:ro
-  - --filesystem=~/.local/share/applications:ro
-  - --filesystem=/usr/share/applications:ro
+  - --talk-name=org.freedesktop.Flatpak
 modules:
   - name: rayslash-module-host
     buildsystem: simple
     build-commands:
-      - install -Dm0755 rayslash-module-host /app/libexec/rayslash/rayslash-module-host
+      - install -Dm0755 rayslash-module-host-v*/rayslash-module-host /app/libexec/rayslash/rayslash-module-host
     sources:
       - type: archive
         url: https://github.com/rslauncher/rayslash-module-host/releases/download/v0.1.2/rayslash-module-host-v0.1.2-x86_64-unknown-linux-gnu.tar.xz
@@ -36,7 +41,7 @@ modules:
   - name: rayslash
     buildsystem: simple
     build-commands:
-      - cargo build --release --locked -p rayslash
+      - cargo build --release --locked --offline -p rayslash
       - install -Dm0755 target/release/rayslash /app/bin/rayslash
       - install -Dm0644 packaging/linux/dev.rayan6ms.rayslash.desktop /app/share/applications/dev.rayan6ms.rayslash.desktop
       - install -Dm0644 icons/rayslash-icon.svg /app/share/icons/hicolor/scalable/apps/dev.rayan6ms.rayslash.svg

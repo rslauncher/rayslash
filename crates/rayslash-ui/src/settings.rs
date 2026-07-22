@@ -90,7 +90,6 @@ pub(crate) fn web_search_items(searches: &[config::WebSearchConfig]) -> Vec<WebS
                 enabled: search.enabled,
                 has_icon: icon.is_some(),
                 icon: icon.unwrap_or_default(),
-                valid: rayslash_core::web_search::is_valid_template(search),
             }
         })
         .collect()

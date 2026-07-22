@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+app_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+export PATH="$app_dir/usr/bin:$PATH"
+export RAYSLASH_MODULE_HOST="$app_dir/usr/libexec/rayslash/rayslash-module-host"
+exec "$app_dir/usr/bin/rayslash" "$@"

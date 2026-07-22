@@ -4,12 +4,6 @@ on:
   push:
   pull_request:
   workflow_dispatch:
-    inputs:
-      publish_release_assets:
-        description: Attach verified Fedora package sets to the matching app release
-        required: true
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -71,28 +65,24 @@ jobs:
           mkdir -p "$RUNNER_TEMP/rebuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
           rpmbuild --rebuild \
             --define "_topdir $RUNNER_TEMP/rebuild" \
-            "$RUNNER_TEMP/rpmbuild/SRPMS/rayslash-0.1.1-1.fc44.src.rpm"
-      - name: Preserve RPMs for release validation
+            "$RUNNER_TEMP/rpmbuild/SRPMS/"*.src.rpm
+      - name: Assemble user-facing RPMs for validation
         run: |
           mkdir -p "$GITHUB_WORKSPACE/fedora-package-set"
-          find "$RUNNER_TEMP/rebuild/RPMS" -type f -name '*.rpm' \
-            -exec cp -v {} "$GITHUB_WORKSPACE/fedora-package-set/" \;
-          if [[ "${{ matrix.architecture }}" == x86_64 ]]; then
-            cp -v "$RUNNER_TEMP/rpmbuild/SRPMS/"*.src.rpm "$GITHUB_WORKSPACE/fedora-package-set/"
-          fi
+          version=$(awk '$1 == "Version:" { print $2; exit }' packaging/fedora/rayslash.spec)
+          app_rpm=$(find "$RUNNER_TEMP/rebuild/RPMS" -type f \
+            -name "rayslash-${version}-1.fc44.${{ matrix.architecture }}.rpm" -print -quit)
+          test -n "$app_rpm"
+          cp -v "$app_rpm" "$GITHUB_WORKSPACE/fedora-package-set/"
           packaging/fedora/fetch-host-rpm.sh "${{ matrix.architecture }}" \
             "$GITHUB_WORKSPACE/fedora-package-set"
-          for package in "$GITHUB_WORKSPACE/fedora-package-set"/rayslash-*.rpm; do
-            sidecar="$package.sha256"
-            [[ -f "$sidecar" ]] || (cd "$(dirname "$package")" && sha256sum "$(basename "$package")" > "$(basename "$sidecar")")
-          done
       - name: Validate complete Fedora package set
         run: |
           cd fedora-package-set
-          sha256sum --check --strict *.rpm.sha256
+          sha256sum --check --strict rayslash-module-host-*.rpm.sha256
           rpm -Kv *.rpm
           rpmlint *.rpm
-          app_rpm=$(find . -maxdepth 1 -type f -name 'rayslash-0.1.1-1.fc44.*.rpm' ! -name '*.src.rpm' -print -quit)
+          app_rpm=$(find . -maxdepth 1 -type f -name 'rayslash-*.fc44.*.rpm' ! -name 'rayslash-module-host-*' -print -quit)
           host_rpm=$(find . -maxdepth 1 -type f -name 'rayslash-module-host-*.rpm' -print -quit)
           test -n "$app_rpm"
           test -n "$host_rpm"
@@ -109,37 +99,4 @@ jobs:
             install rayslash --assumeno | tee dnf-transaction.txt
           grep -F rayslash-module-host dnf-transaction.txt
           grep -F rayslash dnf-transaction.txt
-          expected=4
-          [[ "${{ matrix.architecture }}" == x86_64 ]] && expected=5
-          test "$(find . -maxdepth 1 -type f -name '*.rpm' | wc -l)" -eq "$expected"
-          test "$(find . -maxdepth 1 -type f -name '*.rpm.sha256' | wc -l)" -eq "$expected"
-      - name: Upload complete Fedora package set
-        uses: actions/upload-artifact@v7
-        with:
-          name: fedora-44-${{ matrix.architecture }}-package-set
-          path: |
-            fedora-package-set/*.rpm
-            fedora-package-set/*.rpm.sha256
-          if-no-files-found: error
-          retention-days: 14
-
-  publish-fedora-release-assets:
-    if: ${{ inputs.publish_release_assets }}
-    needs: fedora-rpm-offline
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: fedora-44-*-package-set
-          path: fedora-release-assets
-          merge-multiple: true
-      - name: Verify and publish Fedora package sets
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cd fedora-release-assets
-          sha256sum --check --strict *.rpm.sha256
-          gh release view v0.1.1 --repo "$GITHUB_REPOSITORY" >/dev/null
-          gh release upload v0.1.1 ./* --repo "$GITHUB_REPOSITORY" --clobber
+          test "$(find . -maxdepth 1 -type f -name '*.rpm' | wc -l)" -eq 2

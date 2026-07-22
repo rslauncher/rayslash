@@ -9,6 +9,13 @@ pub fn resolve_desktop_icon_in_dirs(icon: &str, dirs: &[PathBuf]) -> Option<Path
 
     let icon_path = Path::new(icon);
     if icon_path.is_absolute() {
+        if std::env::var_os("FLATPAK_ID").is_some()
+            && let Ok(relative_path) = icon_path.strip_prefix("/")
+            && let Some(path) =
+                supported_existing_absolute_icon(&Path::new("/run/host").join(relative_path))
+        {
+            return Some(path);
+        }
         return supported_existing_absolute_icon(icon_path);
     }
 

@@ -6,7 +6,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use rayslash_core::search;
+use rayslash_core::{modules, search};
 use slint::Image;
 
 use crate::ResultItem;
@@ -20,7 +20,7 @@ pub(crate) fn to_result_items(
     results
         .iter()
         .map(|result| {
-            let icon = result_icon(&result.icon, icon_cache);
+            let icon = result_icon(result, icon_cache);
 
             ResultItem {
                 title: result.title.clone().into(),
@@ -137,8 +137,17 @@ struct RowIcon {
     text: String,
 }
 
-fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache) -> RowIcon {
-    match icon {
+fn result_icon(result: &search::SearchResult, icon_cache: &mut IconImageCache) -> RowIcon {
+    let module_kind = match &result.kind {
+        search::SearchResultKind::Module { module_id, .. }
+            if module_id == modules::WEB_SEARCH_MODULE_ID =>
+        {
+            "web-search"
+        }
+        _ => "module",
+    };
+
+    match &result.icon {
         search::SearchResultIcon::Module {
             path: Some(path), ..
         } => {
@@ -146,15 +155,15 @@ fn result_icon(icon: &search::SearchResultIcon, icon_cache: &mut IconImageCache)
                 RowIcon {
                     image,
                     has_image: true,
-                    kind: "module",
+                    kind: module_kind,
                     text: String::new(),
                 }
             } else {
-                fallback_icon("module", "")
+                fallback_icon(module_kind, "")
             }
         }
         search::SearchResultIcon::Module { label, path: None } => {
-            fallback_icon_owned("module", label.clone())
+            fallback_icon_owned(module_kind, label.clone())
         }
         search::SearchResultIcon::App { path: Some(path) } => {
             if let Some(image) = load_icon_image(path, icon_cache) {
@@ -206,5 +215,27 @@ mod tests {
             Some("svg")
         );
         assert_eq!(image_extension_from_bytes(b"not an icon"), None);
+    }
+
+    #[test]
+    fn web_search_module_rows_use_the_favicon_display_kind() {
+        let result = search::SearchResult {
+            title: "Search YouTube for rust".into(),
+            flair: String::new(),
+            subtitle: "https://www.youtube.com/results?search_query=rust".into(),
+            icon: search::SearchResultIcon::Module {
+                label: "youtube".into(),
+                path: None,
+            },
+            kind: search::SearchResultKind::Module {
+                module_id: modules::WEB_SEARCH_MODULE_ID.into(),
+                result_id: "web-search:youtube:rust".into(),
+                action: search::ModuleAction::None,
+                score: None,
+            },
+        };
+
+        let icon = result_icon(&result, &mut IconImageCache::new());
+        assert_eq!(icon.kind, "web-search");
     }
 }

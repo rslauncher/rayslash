@@ -53,6 +53,7 @@ fn desktop_application_dirs() -> Vec<PathBuf> {
         std::env::var_os("XDG_DATA_HOME"),
         std::env::var_os("XDG_DATA_DIRS"),
         dirs::home_dir(),
+        std::env::var_os("FLATPAK_ID").is_some(),
     )
 }
 
@@ -60,6 +61,7 @@ fn desktop_application_dirs_from_env(
     data_home: Option<OsString>,
     data_dirs: Option<OsString>,
     home: Option<PathBuf>,
+    flatpak: bool,
 ) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut seen_paths = HashSet::new();
@@ -90,6 +92,15 @@ fn desktop_application_dirs_from_env(
 
     for data_dir in data_dirs {
         push_unique_path(&mut dirs, &mut seen_paths, data_dir.join("applications"));
+    }
+
+    if flatpak {
+        for path in [
+            "/run/host/usr/local/share/applications",
+            "/run/host/usr/share/applications",
+        ] {
+            push_unique_path(&mut dirs, &mut seen_paths, PathBuf::from(path));
+        }
     }
 
     dirs
@@ -156,6 +167,7 @@ mod tests {
                 Some(OsString::from("/tmp/data-home")),
                 Some(OsString::from("/tmp/flatpak:/tmp/system")),
                 Some(PathBuf::from("/home/example")),
+                false,
             ),
             vec![
                 PathBuf::from("/tmp/data-home/applications"),
@@ -168,12 +180,29 @@ mod tests {
     #[test]
     fn desktop_application_dirs_use_default_xdg_locations() {
         assert_eq!(
-            desktop_application_dirs_from_env(None, None, Some(PathBuf::from("/home/example"))),
+            desktop_application_dirs_from_env(
+                None,
+                None,
+                Some(PathBuf::from("/home/example")),
+                false,
+            ),
             vec![
                 PathBuf::from("/home/example/.local/share/applications"),
                 PathBuf::from("/usr/local/share/applications"),
                 PathBuf::from("/usr/share/applications"),
             ]
         );
+    }
+
+    #[test]
+    fn flatpak_discovery_includes_host_desktop_entry_exports() {
+        let dirs = desktop_application_dirs_from_env(
+            Some(OsString::from("/tmp/app-data")),
+            Some(OsString::from("/app/share:/usr/share")),
+            Some(PathBuf::from("/home/example")),
+            true,
+        );
+
+        assert!(dirs.contains(&PathBuf::from("/run/host/usr/share/applications")));
     }
 }

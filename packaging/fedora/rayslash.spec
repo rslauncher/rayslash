@@ -1,5 +1,5 @@
 Name:           rayslash
-Version:        0.1.1
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 
@@ -48,6 +48,9 @@ appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xm
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Wed Jul 22 2026 RaySlash contributors - 0.2.0-1
+- Refine settings and module management and add multi-format release packaging.
+
 * Tue Jul 14 2026 RaySlash contributors - 0.1.1-1
 - Publish complete architecture-matched app and module-host package sets.
 

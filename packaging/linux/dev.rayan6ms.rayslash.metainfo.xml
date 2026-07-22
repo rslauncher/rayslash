@@ -8,8 +8,8 @@
   <description>
     <p>
       rayslash is a lightweight keyboard-first launcher for Linux desktops. It
-      searches installed desktop applications, configured folder sources,
-      installed applications and configured folder sources from a compact native Slint window.
+      searches installed desktop applications and configured folder sources
+      from a compact native Slint window.
       Optional capabilities are installed on demand as verified modules.
     </p>
     <p>
@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.0" date="2026-07-22">
+      <description>
+        <p>Refine module management and settings, improve launcher responsiveness, and add RPM, DEB, Flatpak, and AppImage releases.</p>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-07-14">
       <description>
         <p>Harden installable module lifecycle and publish complete Fedora app and host package sets.</p>

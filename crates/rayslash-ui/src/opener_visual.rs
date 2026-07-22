@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use rayslash_core::apps;
+use rayslash_core::{actions, apps};
 use slint::Color;
 
 use crate::result_items::{IconImageCache, load_icon_image};
@@ -42,7 +42,28 @@ fn picker_command_for_app(app: &apps::DesktopApp) -> String {
         return "xdg-terminal-exec".to_owned();
     }
 
-    app.command.program.to_string_lossy().trim().to_owned()
+    let command = apps::parse_exec_command(&app.exec).unwrap_or_else(|| app.command.clone());
+    command_text(&command)
+}
+
+fn command_text(command: &actions::CommandSpec) -> String {
+    std::iter::once(&command.program)
+        .chain(command.args.iter())
+        .map(|part| quote_command_part(&part.to_string_lossy()))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn quote_command_part(part: &str) -> String {
+    if !part.is_empty()
+        && !part
+            .chars()
+            .any(|character| character.is_ascii_whitespace() || matches!(character, '"' | '\\'))
+    {
+        return part.to_owned();
+    }
+
+    format!("\"{}\"", part.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 pub(crate) fn set_alternate_opener_visual(
@@ -93,7 +114,10 @@ fn terminal_like_app(apps: &[apps::DesktopApp]) -> Option<&apps::DesktopApp> {
 }
 
 fn command_basename(command: &str) -> String {
-    Path::new(command.trim())
+    let program = actions::parse_action_command(command)
+        .map(|command| command.program.to_string_lossy().into_owned())
+        .unwrap_or_else(|| command.trim().to_owned());
+    Path::new(&program)
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or(command.trim())
@@ -287,6 +311,47 @@ mod tests {
                 ("Terminal".to_owned(), "xdg-terminal-exec".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn dbus_activatable_picker_choices_use_desktop_exec_instead_of_gio_launcher() {
+        let mut files = app("Files", "gio", vec!["inode/directory"], Vec::new());
+        files.exec = "nautilus --new-window %U".into();
+        files.command.args = vec![
+            OsString::from("launch"),
+            OsString::from("/usr/share/applications/org.gnome.Nautilus.desktop"),
+        ];
+        files.dbus_activatable = true;
+        let mut analyzer = app(
+            "Disk Usage Analyzer",
+            "gio",
+            vec!["inode/directory"],
+            Vec::new(),
+        );
+        analyzer.exec = "baobab %U".into();
+        analyzer.command.args = vec![
+            OsString::from("launch"),
+            OsString::from("/usr/share/applications/org.gnome.baobab.desktop"),
+        ];
+        analyzer.dbus_activatable = true;
+
+        let choices = to_app_choice_items(&[files, analyzer], &mut IconImageCache::default());
+        assert_eq!(choices[0].command.as_str(), "nautilus --new-window");
+        assert_eq!(choices[1].command.as_str(), "baobab");
+    }
+
+    #[test]
+    fn picker_command_text_round_trips_static_arguments() {
+        let command = CommandSpec {
+            program: OsString::from("/opt/My Editor/bin/editor"),
+            args: vec![
+                OsString::from("--new-window"),
+                OsString::from("a \\\"b\\\""),
+            ],
+        };
+        let text = command_text(&command);
+
+        assert_eq!(actions::parse_action_command(&text), Some(command));
     }
 
     fn app(

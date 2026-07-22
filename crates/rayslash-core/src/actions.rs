@@ -81,7 +81,7 @@ pub fn activate_app(
         return Ok(LaunchOutcome::FocusedExisting);
     }
 
-    let outcome = if dbus_activatable {
+    let outcome = if dbus_activatable && !running_in_flatpak() {
         launch_desktop_file(desktop_file)
     } else {
         match spawn_command(command) {
@@ -175,11 +175,12 @@ pub fn default_web_search_command_for_app(
 }
 
 pub fn default_web_browser_desktop_id() -> io::Result<String> {
-    let output = Command::new("xdg-settings")
-        .args(["get", "default-web-browser"])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()?;
+    let output = command_builder(&CommandSpec {
+        program: OsString::from("xdg-settings"),
+        args: vec![OsString::from("get"), OsString::from("default-web-browser")],
+    })
+    .stdout(Stdio::piped())
+    .output()?;
 
     if !output.status.success() {
         return Err(io::Error::new(
@@ -307,17 +308,49 @@ fn exit_status_error(command: &CommandSpec, status: ExitStatus) -> io::Error {
 }
 
 fn spawn_command_in_dir(command: &CommandSpec, dir: &Path) -> io::Result<Child> {
-    command_builder(command).current_dir(dir).spawn()
+    let mut builder = command_builder_for_dir(command, Some(dir));
+    if !running_in_flatpak() {
+        builder.current_dir(dir);
+    }
+    builder.spawn()
 }
 
 fn command_builder(command: &CommandSpec) -> Command {
-    let mut builder = Command::new(&command.program);
+    command_builder_for_dir(command, None)
+}
+
+fn command_builder_for_dir(command: &CommandSpec, dir: Option<&Path>) -> Command {
+    let mut builder = if running_in_flatpak() {
+        let mut builder = Command::new("flatpak-spawn");
+        builder.arg("--host");
+        if let Some(dir) = dir {
+            builder.arg(format!("--directory={}", dir.display()));
+        }
+        builder.arg(&command.program);
+        builder.args(command.args.iter().map(host_visible_argument));
+        builder
+    } else {
+        let mut builder = Command::new(&command.program);
+        builder.args(&command.args);
+        builder
+    };
     builder
-        .args(&command.args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     builder
+}
+
+fn running_in_flatpak() -> bool {
+    std::env::var_os("FLATPAK_ID").is_some()
+}
+
+fn host_visible_argument(argument: &OsString) -> OsString {
+    let path = Path::new(argument);
+    path.strip_prefix("/run/host")
+        .ok()
+        .map(|path| Path::new("/").join(path).into_os_string())
+        .unwrap_or_else(|| argument.clone())
 }
 
 fn focus_app_window_after_delay(
@@ -364,13 +397,12 @@ fn try_focus_existing_app_window(
 }
 
 fn command_status_success<const N: usize>(program: &str, args: [&str; N]) -> bool {
-    Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|status| status.success())
+    command_builder(&CommandSpec {
+        program: OsString::from(program),
+        args: args.into_iter().map(OsString::from).collect(),
+    })
+    .status()
+    .is_ok_and(|status| status.success())
 }
 
 fn dedup_targets(targets: Vec<String>) -> Vec<String> {

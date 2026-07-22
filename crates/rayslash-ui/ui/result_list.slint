@@ -184,12 +184,13 @@ export component ResultList inherits Flickable {
                 background: #00000000;
 
                 Image {
-                    x: 5px;
+                    x: (parent.width - self.width) / 2;
                     y: (parent.height - self.height) / 2;
-                    width: 40px;
-                    height: 40px;
+                    width: item.icon_kind == "web-search" ? 32px : 40px;
+                    height: item.icon_kind == "web-search" ? 32px : 40px;
                     source: item.icon;
                     image-fit: contain;
+                    image-rendering: smooth;
                     visible: item.has_icon;
                 }
 

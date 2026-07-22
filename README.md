@@ -34,6 +34,10 @@
 
 ## Installation
 
+Download the architecture-matched RPM, DEB, AppImage, or Flatpak bundle from the [latest release](https://github.com/rslauncher/rayslash/releases/latest). Every release includes one `SHA256SUMS` file; DEB, AppImage, and Flatpak downloads include the required module host, while RPM users install the matching app and host RPMs together. Detailed commands are in [docs/INSTALL.md](docs/INSTALL.md).
+
+To build and install from source instead, use:
+
 Building requires a recent Rust toolchain and the Fontconfig development files for your distribution.
 
 ```sh
@@ -56,7 +60,7 @@ rayslash toggle
 
 Global shortcuts are managed by the desktop environment rather than captured by rayslash. A desktop entry and icon are available under [`packaging/linux`](packaging/linux) for local or package installations.
 
-The app installs the [`rayslash-module-host`](https://github.com/rslauncher/rayslash-module-host) runtime so Settings → Modules can install and run modules immediately. The host is infrastructure, not a module: no official or community module is installed until you choose it. Fedora and Arch express the separately maintained host package as a required dependency, and the Flatpak includes the host executable.
+The app installs or includes the [`rayslash-module-host`](https://github.com/rslauncher/rayslash-module-host) runtime so Settings → Modules can install and run modules immediately. The host is infrastructure, not a module: no official or community module is installed until you choose it.
 
 ## Usage
 
