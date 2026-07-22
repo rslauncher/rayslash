@@ -59,23 +59,54 @@ Pass criteria:
 11. Disable Tooltips and hover a toggle row again.
 12. Open Modules and toggle Web Search, Units, Currency, Time, Calculator, Timers, and Aliases.
 13. Confirm each module card uses its result-style glyph, including `U` for Units and `$` for Currency.
-14. Add a search-engine row, fill one field, click into another window, reopen rayslash, and continue the draft.
-15. Complete a YouTube engine using `https://www.youtube.com/results?search_query=%s`, then disable and re-enable it.
-16. Add, edit, and delete an alias row using `name | keyword | kind | target`.
+14. Search Modules by name, description, author, category, and a mixed-case query.
+15. Enter a query with no matches on Official and Community and confirm a compact “No modules found” result appears without replacing the tab helper line.
+16. Try Name (A–Z), Name (Z–A), and Most starred sorting, then apply Updates only and Saved data filters.
+17. Remove an installed module without deleting its data and confirm it remains in Installed with a single primary Restore action.
+18. On that removed module, choose Delete data once, verify the warning, then use Cancel or choose Confirm delete to finish.
+19. Open Source code and Report issues and confirm they open the repository and issue tracker respectively.
+20. Scroll to the final module card and confirm the viewport stops at its bottom edge without a large blank tail.
+21. Switch to Modules, press Escape, and confirm rayslash returns to the main launcher just as it does from General.
+22. Select text in the launcher search, module search, folder source, alternate opener, Max results, alias, and search-engine inputs in both light and dark themes.
+23. Install an older module version from a test catalog, refresh to a catalog containing a newer compatible version, and use Update.
+24. Open the new search-engine editor, fill one field, switch to another window to copy a URL, and return to rayslash.
+25. Cancel that editor and confirm no row was added, then create a YouTube engine using `https://www.youtube.com/results?search_query=%s`.
+26. Edit the YouTube engine, disable and re-enable it, then delete it from the editor.
+27. Add an alias, fill part of the editor, switch to another window, and return to rayslash.
+28. Cancel that editor and confirm no row was added, then add a complete URL alias.
+29. Edit the alias, switch its type, save it, and delete it from the editor.
+30. Remove Web Search and Aliases while retaining their data, then reinstall them.
 
 Pass criteria:
 
 - Each valid change saves without closing Settings.
 - Settings content scrolls to the diagnostics and does not push outside the launcher panel.
+- Diagnostics uses one bordered card: config/state locations share equal aligned columns above a divider, while Folders, Apps, Icons, and the runtime socket use aligned cells below it without overlap or irregular gaps.
 - Toggle label/description text remains readable, and hovering the full toggle row for at least 800ms shows the full label/description detail above other settings content.
 - Disabling Tooltips suppresses delayed detail tooltips for settings toggles and result rows.
-- Tooltips sits next to Alt opener, and Max results appears after those toggles before Appearance.
+- Max results is a compact control in the Launcher content row next to Apps and Folders; Tooltips sits next to Alt opener.
 - Theme and density read as mutually exclusive segmented controls, not unrelated buttons.
 - Module toggles fit without text overlap, save immediately, and use provider-specific result glyphs.
-- An incomplete search engine survives launcher focus loss/restart, shows an amber warning, and does not become searchable until valid.
+- Module search is case-insensitive, sorting and filters immediately change the visible list, and the controls remain aligned at the normal launcher size.
+- The module toolbar has visible padding around both rows, and the search, sort, and filter controls do not touch the tab row or outer border.
+- Empty tabs and searches with no matches show a compact “No modules found” result while retaining the contextual helper copy above the toolbar.
+- Removed modules with retained data stay in Installed. Restore occupies the same primary action slot as Install, while permanent data deletion is separate and requires confirmation.
+- Normal module cards omit the capabilities row; compact action buttons end at the Source code/Report issues text baseline rather than extending beneath it.
+- Module scrolling ends with the final visible card, and hidden or filtered cards do not add blank scroll range.
+- Operation feedback appears as a temporary bottom notification rather than changing failed card heights; success uses a green check, errors use a red indicator, and in-progress warnings use orange. Short messages remain for at least 4.2 seconds and longer messages receive additional reading time.
+- Escape closes Settings from both General and Modules, including after using the module search field.
+- Source code uses the normal link color; Report issues uses the distinct issue color and opens the repository issue tracker.
+- Zero-star modules keep a muted star, while positive star counts use the highlighted star color.
+- Text selection uses neutral, theme-aware foreground/background colors instead of the toolkit accent color.
+- Update shows the installed and target versions, verifies the signed package metadata and digest, probes the replacement before committing it, preserves the module's enabled state, and leaves the old version active if installation fails.
+- Alias and search-engine Add/Edit actions use compact in-window editors; switching applications leaves them open with entered values intact.
+- Cancel does not persist a new row, invalid values keep the editor open, and Delete appears only when editing a removable existing engine.
+- Alias list rows show an icon, name and target, centered keyword/type flairs, and a centered Edit button; Delete is available only inside the editor.
+- Search-engine list rows show a compact favicon container, name and URL, mildly rounded keyword flair, centered switch, and centered Edit button without a Delete or warning action.
 - Search-engine switches are vertically centered and use the same sharp track/knob proportions as normal feature switches.
 - After the YouTube favicon is fetched, it appears in the settings card and the `Search YouTube for...` result; the keyword fallback remains available if fetching fails.
-- Alias and search-engine multiline fields fit inside the scrolled settings panel and reject invalid rows with a clear status message instead of overwriting config.
+- Alias and search-engine editors fit inside the settings panel and reject invalid rows with a clear status message instead of overwriting config.
+- Alias and search-engine configuration sections are visible only while their modules are installed. Removing a module with retained data hides its section; reinstalling it restores the saved rows.
 - Light mode keeps header, search, result rows, settings fields, toggles, and diagnostics readable.
 - Invalid Max results and empty enabled alternate opener values show a clear status message and do not save.
 - Successful saves refresh the current result count and diagnostics.
@@ -101,7 +132,7 @@ Pass criteria:
 - Default web search appears only for the built-in `search` command or active `Search` pill.
 - `Web Search` renders its configured `%s` URL and opens it through the desktop default browser; changing its URL affects every browser family.
 - Space and Tab turn an enabled keyword into a compact pill before the typed search terms.
-- The custom search result shows a compact keyword badge and opens the configured URL with percent-encoded terms.
+- The custom search result shows the cached favicon when available, retains the keyword fallback when unavailable, and opens the configured URL with percent-encoded terms.
 - Backspace on an empty active custom search clears the pill.
 - Disabled custom engines do not trigger a pill or a custom search row.
 
@@ -111,12 +142,27 @@ Pass criteria:
 2. Click another application window.
 3. Open Settings and use the folder picker.
 4. Cancel the folder picker, then click another application window.
+5. Open the search-engine editor, switch to another application, then return and cancel the editor.
 
 Pass criteria:
 
 - Ordinary focus loss hides the launcher.
 - Opening the folder picker does not permanently break focus-loss hiding.
 - After the picker closes, ordinary focus loss hides the launcher again.
+- Focus loss does not hide rayslash while the search-engine editor is open; explicit Save, Cancel, or Delete closes the editor.
+
+## Resident Toggle Latency
+
+1. Start rayslash once with `RAYSLASH_PROFILE=1 target/release/rayslash toggle`.
+2. Hide it with `target/release/rayslash toggle`.
+3. Confirm the original process and `$XDG_RUNTIME_DIR/rayslash.sock` remain alive.
+4. Show and hide it several more times through `Super+\`.
+
+Pass criteria:
+
+- Empty startup/show queries do not launch optional module hosts.
+- Hiding the launcher does not terminate the resident process.
+- After the first start, shortcut toggles show and hide through IPC without visible startup delay.
 
 ## Icon Rendering
 

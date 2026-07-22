@@ -15,7 +15,7 @@ use rayslash_core::{
     app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking, search,
 };
 use semver::Version;
-use slint::{ComponentHandle, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Model, Timer, TimerMode, VecModel};
 
 use crate::{
     AppWindow, ModuleItem, ResultItem,
@@ -40,10 +40,29 @@ struct ModuleOperationState {
     summary: String,
     details: String,
     failed: bool,
+    confirmation: bool,
     details_expanded: bool,
 }
 
 type ModuleOperationResult = Result<Option<modules::InstalledModule>, String>;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum ModuleSortOrder {
+    #[default]
+    NameAscending,
+    NameDescending,
+    MostStarred,
+}
+
+impl ModuleSortOrder {
+    fn from_label(label: &str) -> Self {
+        match label {
+            "name-desc" => Self::NameDescending,
+            "stars" => Self::MostStarred,
+            _ => Self::NameAscending,
+        }
+    }
+}
 
 fn concise_feedback(details: &str) -> String {
     details
@@ -54,6 +73,30 @@ fn concise_feedback(details: &str) -> String {
         .chars()
         .take(120)
         .collect()
+}
+
+fn operation_progress_label(action: &str) -> &'static str {
+    match action {
+        "Install" => "Installing…",
+        "Restore" => "Restoring…",
+        "Repair" => "Repairing…",
+        "Update" | "Review update" => "Updating…",
+        _ => "Working…",
+    }
+}
+
+fn apply_completed_operation(
+    config: &mut modules::ModulesConfig,
+    module_id: &str,
+    action: &str,
+    installed: Option<&modules::InstalledModule>,
+) {
+    if let Some(installed) = installed {
+        let enabled = config.is_enabled(module_id).unwrap_or(installed.enabled);
+        config.set_installed(module_id, &installed.version.to_string(), enabled);
+    } else if action != "Remove" {
+        config.remove(module_id);
+    }
 }
 
 pub(crate) fn load_runtime_modules(
@@ -158,32 +201,48 @@ fn module_items_with_installed(
                     .is_some_and(|(installed, target)| {
                         permissions_expand(&installed.permissions, target)
                     });
-            let version = installed_module
-                .map(|installed| installed.version.to_string())
-                .or_else(|| latest.map(|latest| latest.version.to_string()))
-                .unwrap_or_default();
+            let version = match (installed_module, latest) {
+                (Some(installed), Some(latest)) if latest.version > installed.version => {
+                    format!("{} → {}", installed.version, latest.version)
+                }
+                (Some(installed), _) => installed.version.to_string(),
+                (None, Some(latest)) => latest.version.to_string(),
+                (None, None) => String::new(),
+            };
             let (icon_kind, icon_text) = module_icon(&module.id);
             let operation = operations.get(&module.id).cloned().unwrap_or_default();
+            let has_saved_data = config.is_enabled(&module.id).is_some();
             let action = if installed_revoked && update_available && permission_expansion {
                 "Review update"
             } else if installed_revoked && update_available {
                 "Update"
             } else if installed_revoked {
                 "Remove"
-            } else if !installed_healthy && latest.is_some() {
-                "Repair"
             } else if update_available && permission_expansion {
                 "Review update"
             } else if update_available {
                 "Update"
+            } else if !installed_healthy && latest.is_some() {
+                "Repair"
             } else if installed_module.is_some() {
                 "Remove"
             } else if latest.is_none() {
                 "Unavailable"
-            } else if config.is_enabled(&module.id).is_some() {
+            } else if has_saved_data {
                 "Restore"
             } else {
                 "Install"
+            };
+            let secondary_action = if installed_module.is_some() && update_available {
+                "Remove"
+            } else if installed_module.is_none() && has_saved_data {
+                if operation.confirmation {
+                    "Confirm delete"
+                } else {
+                    "Delete data"
+                }
+            } else {
+                ""
             };
             ModuleItem {
                 id: module.id.clone().into(),
@@ -201,7 +260,15 @@ fn module_items_with_installed(
                 stars: module.github_stars.to_string().into(),
                 action: action.into(),
                 action_available: action != "Unavailable",
+                secondary_action: secondary_action.into(),
+                secondary_action_available: !secondary_action.is_empty(),
                 update_available,
+                has_saved_data,
+                category: module_category(&module.id).into(),
+                installed_count: 0,
+                restorable_count: 0,
+                official_count: 0,
+                community_count: 0,
                 permissions: target_permissions
                     .map(permission_summary)
                     .unwrap_or_else(|| "No compatible version".into())
@@ -232,6 +299,7 @@ fn module_items_with_installed(
                 operation_summary: operation.summary.into(),
                 operation_details: operation.details.into(),
                 operation_failed: operation.failed,
+                operation_confirmation: operation.confirmation,
                 operation_details_expanded: operation.details_expanded,
                 icon_kind: icon_kind.into(),
                 icon_text: icon_text.into(),
@@ -256,6 +324,7 @@ fn module_items_with_installed(
         });
         let (icon_kind, icon_text) = module_icon(descriptor.id);
         let operation = operations.get(descriptor.id).cloned().unwrap_or_default();
+        let has_saved_data = config.is_enabled(descriptor.id).is_some();
         items.push(ModuleItem {
             id: descriptor.id.into(),
             name: descriptor.name.into(),
@@ -277,7 +346,24 @@ fn module_items_with_installed(
                 "Unavailable".into()
             },
             action_available: installed_module.is_some(),
+            secondary_action: if installed_module.is_none() && has_saved_data {
+                if operation.confirmation {
+                    "Confirm delete"
+                } else {
+                    "Delete data"
+                }
+            } else {
+                ""
+            }
+            .into(),
+            secondary_action_available: installed_module.is_none() && has_saved_data,
             update_available: false,
+            has_saved_data,
+            category: module_category(descriptor.id).into(),
+            installed_count: 0,
+            restorable_count: 0,
+            official_count: 0,
+            community_count: 0,
             permissions: installed_module
                 .map(|installed| permission_summary(&installed.permissions))
                 .unwrap_or_else(|| {
@@ -302,6 +388,7 @@ fn module_items_with_installed(
             operation_summary: operation.summary.into(),
             operation_details: operation.details.into(),
             operation_failed: operation.failed,
+            operation_confirmation: operation.confirmation,
             operation_details_expanded: operation.details_expanded,
             icon_kind: icon_kind.into(),
             icon_text: icon_text.into(),
@@ -348,7 +435,15 @@ fn module_items_with_installed(
             stars: "".into(),
             action: "Remove".into(),
             action_available: true,
+            secondary_action: "".into(),
+            secondary_action_available: false,
             update_available: false,
+            has_saved_data: true,
+            category: module_category(module_id).into(),
+            installed_count: 0,
+            restorable_count: 0,
+            official_count: 0,
+            community_count: 0,
             permissions: permission_summary(&installed_module.permissions).into(),
             repository: installed_module.source.clone().into(),
             license: manifest
@@ -372,18 +467,76 @@ fn module_items_with_installed(
             operation_summary: operation.summary.into(),
             operation_details: operation.details.into(),
             operation_failed: operation.failed,
+            operation_confirmation: operation.confirmation,
             operation_details_expanded: operation.details_expanded,
             icon_kind: "placeholder".into(),
             icon_text: "".into(),
         });
     }
-    items.sort_by(|left, right| {
-        right
-            .official
-            .cmp(&left.official)
-            .then_with(|| left.name.cmp(&right.name))
-    });
+    let installed_count = items.iter().filter(|item| item.installed).count() as i32;
+    let restorable_count = items
+        .iter()
+        .filter(|item| !item.installed && item.has_saved_data)
+        .count() as i32;
+    let official_count = items.iter().filter(|item| item.official).count() as i32;
+    let community_count = items.iter().filter(|item| !item.official).count() as i32;
+    for item in &mut items {
+        item.installed_count = installed_count;
+        item.restorable_count = restorable_count;
+        item.official_count = official_count;
+        item.community_count = community_count;
+    }
+    sort_module_items(&mut items, ModuleSortOrder::NameAscending);
     items
+}
+
+fn sort_module_items(items: &mut [ModuleItem], order: ModuleSortOrder) {
+    items.sort_by(|left, right| match order {
+        ModuleSortOrder::NameAscending => left
+            .name
+            .to_lowercase()
+            .cmp(&right.name.to_lowercase())
+            .then_with(|| left.id.cmp(&right.id)),
+        ModuleSortOrder::NameDescending => right
+            .name
+            .to_lowercase()
+            .cmp(&left.name.to_lowercase())
+            .then_with(|| left.id.cmp(&right.id)),
+        ModuleSortOrder::MostStarred => right
+            .stars
+            .parse::<u64>()
+            .unwrap_or_default()
+            .cmp(&left.stars.parse::<u64>().unwrap_or_default())
+            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase())),
+    });
+}
+
+fn module_matches_query(haystack: &str, query: &str) -> bool {
+    let query = query.trim();
+    query.is_empty() || haystack.to_lowercase().contains(&query.to_lowercase())
+}
+
+fn module_is_visible(
+    item: &ModuleItem,
+    tab: &str,
+    query: &str,
+    updates_only: bool,
+    saved_data_only: bool,
+) -> bool {
+    let in_tab = match tab {
+        "installed" => item.installed || item.has_saved_data,
+        "official" => item.official,
+        _ => !item.official,
+    };
+    let haystack = format!(
+        "{} {} {} {} {}",
+        item.id, item.name, item.description, item.author, item.category
+    );
+
+    in_tab
+        && (!updates_only || item.update_available)
+        && (!saved_data_only || item.has_saved_data)
+        && module_matches_query(&haystack, query)
 }
 
 fn permission_summary(permissions: &modules::PackagePermissions) -> String {
@@ -474,12 +627,28 @@ fn module_icon(module_id: &str) -> (&'static str, &'static str) {
     }
 }
 
-pub(crate) fn refresh_module_items(
+fn module_category(module_id: &str) -> &'static str {
+    match module_id {
+        modules::CALCULATOR_MODULE_ID
+        | modules::UNITS_MODULE_ID
+        | modules::CURRENCY_MODULE_ID
+        | modules::TIME_MODULE_ID
+        | modules::TIMERS_MODULE_ID => "Utilities",
+        modules::WEB_SEARCH_MODULE_ID => "Search",
+        modules::ALIASES_MODULE_ID => "Commands",
+        _ => "Community",
+    }
+}
+
+fn refresh_module_items(
     model: &Rc<VecModel<ModuleItem>>,
     config: &modules::ModulesConfig,
     catalog: &[modules::RegistryModule],
+    sort_order: ModuleSortOrder,
 ) {
-    model.set_vec(module_items(config, catalog));
+    let mut items = module_items(config, catalog);
+    sort_module_items(&mut items, sort_order);
+    model.set_vec(items);
 }
 
 fn refresh_module_items_with_operations(
@@ -487,8 +656,11 @@ fn refresh_module_items_with_operations(
     config: &modules::ModulesConfig,
     catalog: &[modules::RegistryModule],
     operations: &BTreeMap<String, ModuleOperationState>,
+    sort_order: ModuleSortOrder,
 ) {
-    model.set_vec(module_items_with_operations(config, catalog, operations));
+    let mut items = module_items_with_operations(config, catalog, operations);
+    sort_module_items(&mut items, sort_order);
+    model.set_vec(items);
 }
 
 pub(crate) struct ModuleSettingsCallbackContext {
@@ -535,7 +707,47 @@ pub(crate) fn register_module_settings_callback(
 
     let (install_tx, install_rx) = mpsc::channel::<(String, String, ModuleOperationResult)>();
     let operations = Rc::new(RefCell::new(BTreeMap::<String, ModuleOperationState>::new()));
+    let sort_order = Rc::new(RefCell::new(ModuleSortOrder::NameAscending));
     let pending_permission_approvals = Rc::new(RefCell::new(BTreeSet::<String>::new()));
+
+    ui.on_settings_module_matches(|haystack, query| {
+        module_matches_query(haystack.as_str(), query.as_str())
+    });
+    ui.on_settings_visible_module_count({
+        let module_model = module_model.clone();
+        move |tab, query, updates_only, saved_data_only, _model_length| {
+            module_model
+                .iter()
+                .filter(|item| {
+                    module_is_visible(
+                        item,
+                        tab.as_str(),
+                        query.as_str(),
+                        updates_only,
+                        saved_data_only,
+                    )
+                })
+                .count() as i32
+        }
+    });
+    ui.on_settings_module_sort_requested({
+        let module_state = module_state.clone();
+        let module_catalog = module_catalog.clone();
+        let module_model = module_model.clone();
+        let operations = operations.clone();
+        let sort_order = sort_order.clone();
+        move |label| {
+            let next = ModuleSortOrder::from_label(label.as_str());
+            *sort_order.borrow_mut() = next;
+            refresh_module_items_with_operations(
+                &module_model,
+                &module_state.borrow(),
+                &module_catalog.borrow(),
+                &operations.borrow(),
+                next,
+            );
+        }
+    });
     let install_timer = Timer::default();
     install_timer.start(TimerMode::Repeated, std::time::Duration::from_millis(50), {
         let weak = ui.as_weak();
@@ -543,6 +755,7 @@ pub(crate) fn register_module_settings_callback(
         let module_catalog = module_catalog.clone();
         let module_model = module_model.clone();
         let operations = operations.clone();
+        let sort_order = sort_order.clone();
         let config_state = config_state.clone();
         let ranking_state = ranking_state.clone();
         let app_install_state = app_install_state.clone();
@@ -567,11 +780,12 @@ pub(crate) fn register_module_settings_callback(
                 match result {
                     Ok(installed) => {
                         let mut config = module_state.borrow().clone();
-                        if let Some(installed) = installed {
-                            config.set_installed(&module_id, &installed.version.to_string(), true);
-                        } else {
-                            config.remove(&module_id);
-                        }
+                        apply_completed_operation(
+                            &mut config,
+                            &module_id,
+                            &action,
+                            installed.as_ref(),
+                        );
                         if let Err(error) = modules::save_modules_config(&config) {
                             let details = format!(
                                 "Module changed, but its setting could not be saved: {error}"
@@ -593,7 +807,7 @@ pub(crate) fn register_module_settings_callback(
                                 "Remove" => {
                                     "Module code removed; settings and data were kept".to_owned()
                                 }
-                                "Remove all" => {
+                                "Remove all" | "Delete data" => {
                                     "Module code, settings, state, and cache removed".to_owned()
                                 }
                                 _ => format!("Module {} completed", action.to_ascii_lowercase()),
@@ -629,6 +843,7 @@ pub(crate) fn register_module_settings_callback(
                     &module_state.borrow(),
                     &module_catalog.borrow(),
                     &operations.borrow(),
+                    *sort_order.borrow(),
                 );
             }
             if module_state_changed {
@@ -719,6 +934,7 @@ pub(crate) fn register_module_settings_callback(
         let install_tx = install_tx.clone();
         let pending_permission_approvals = pending_permission_approvals.clone();
         let operations = operations.clone();
+        let sort_order = sort_order.clone();
         move |module_id, action| {
             let Some(ui) = weak.upgrade() else {
                 return;
@@ -739,26 +955,38 @@ pub(crate) fn register_module_settings_callback(
                     &module_state.borrow(),
                     &module_catalog.borrow(),
                     &operations.borrow(),
+                    *sort_order.borrow(),
                 );
                 return;
             }
-            if action.as_str() == "Source" {
+            if action.as_str() == "Source" || action.as_str() == "Issues" {
                 let repository = module_catalog
                     .borrow()
                     .iter()
                     .find(|module| module.id == module_id)
-                    .map(|module| module.repository.clone());
+                    .map(|module| module.repository.clone())
+                    .or_else(|| {
+                        modules::load_installed_modules()
+                            .ok()
+                            .and_then(|installed| installed.modules.get(module_id).cloned())
+                            .map(|installed| installed.source)
+                    });
                 match repository {
                     Some(repository) => {
+                        let url = if action.as_str() == "Issues" {
+                            format!("{}/issues", repository.trim_end_matches('/'))
+                        } else {
+                            repository
+                        };
                         if let Err(error) = rayslash_core::actions::run_module_action(
-                            &search::ModuleAction::OpenUrl(repository),
+                            &search::ModuleAction::OpenUrl(url),
                         ) {
                             ui.set_status_text(
-                                format!("Could not open module source: {error}").into(),
+                                format!("Could not open module link: {error}").into(),
                             );
                         }
                     }
-                    None => ui.set_status_text("Module source is unavailable offline.".into()),
+                    None => ui.set_status_text("Module links are unavailable offline.".into()),
                 }
                 return;
             }
@@ -767,6 +995,37 @@ pub(crate) fn register_module_settings_callback(
                 .get(module_id)
                 .is_some_and(|state| state.pending)
             {
+                return;
+            }
+            if action.as_str() == "Cancel delete" {
+                operations.borrow_mut().remove(module_id);
+                refresh_module_items_with_operations(
+                    &module_model,
+                    &module_state.borrow(),
+                    &module_catalog.borrow(),
+                    &operations.borrow(),
+                    *sort_order.borrow(),
+                );
+                return;
+            }
+            if action.as_str() == "Delete data" {
+                let details = "This permanently deletes the module's retained settings, state, and cache. Click Confirm delete to continue.";
+                operations.borrow_mut().insert(
+                    module_id.to_owned(),
+                    ModuleOperationState {
+                        summary: details.into(),
+                        details: details.into(),
+                        confirmation: true,
+                        ..Default::default()
+                    },
+                );
+                refresh_module_items_with_operations(
+                    &module_model,
+                    &module_state.borrow(),
+                    &module_catalog.borrow(),
+                    &operations.borrow(),
+                    *sort_order.borrow(),
+                );
                 return;
             }
             match action.as_str() {
@@ -789,6 +1048,7 @@ pub(crate) fn register_module_settings_callback(
                             &module_state.borrow(),
                             &module_catalog.borrow(),
                             &operations.borrow(),
+                            *sort_order.borrow(),
                         );
                         ui.set_status_text(details.into());
                         return;
@@ -809,6 +1069,7 @@ pub(crate) fn register_module_settings_callback(
                             &module_state.borrow(),
                             &module_catalog.borrow(),
                             &operations.borrow(),
+                            *sort_order.borrow(),
                         );
                         ui.set_status_text(details.into());
                         return;
@@ -842,6 +1103,7 @@ pub(crate) fn register_module_settings_callback(
                                 &module_state.borrow(),
                                 &module_catalog.borrow(),
                                 &operations.borrow(),
+                                *sort_order.borrow(),
                             );
                             ui.set_status_text(details.into());
                             return;
@@ -849,7 +1111,7 @@ pub(crate) fn register_module_settings_callback(
                     } else {
                         pending_permission_approvals.borrow_mut().remove(module_id);
                     }
-                    let label = format!("{}…", action.trim_end_matches(" update"));
+                    let label = operation_progress_label(action.as_str()).to_owned();
                     operations.borrow_mut().insert(
                         module_id.to_owned(),
                         ModuleOperationState {
@@ -864,6 +1126,7 @@ pub(crate) fn register_module_settings_callback(
                         &module_state.borrow(),
                         &module_catalog.borrow(),
                         &operations.borrow(),
+                        *sort_order.borrow(),
                     );
                     ui.set_status_text(format!("{} {}…", action, module.name).into());
                     let module = module.clone();
@@ -878,9 +1141,13 @@ pub(crate) fn register_module_settings_callback(
                         let _ = install_tx.send((module_id, action, result));
                     });
                 }
-                "Remove" | "Remove all" => {
+                "Remove" | "Remove all" | "Confirm delete" => {
                     let module_id = module_id.to_owned();
-                    let action = action.to_string();
+                    let action = if action.as_str() == "Confirm delete" {
+                        "Delete data".to_owned()
+                    } else {
+                        action.to_string()
+                    };
                     operations.borrow_mut().insert(
                         module_id.clone(),
                         ModuleOperationState {
@@ -895,11 +1162,15 @@ pub(crate) fn register_module_settings_callback(
                         &module_state.borrow(),
                         &module_catalog.borrow(),
                         &operations.borrow(),
+                        *sort_order.borrow(),
                     );
                     let install_tx = install_tx.clone();
                     thread::spawn(move || {
                         let result =
-                            modules::remove_installed_module(&module_id, action == "Remove all")
+                            modules::remove_installed_module(
+                                &module_id,
+                                action == "Remove all" || action == "Delete data",
+                            )
                                 .map(|_| None)
                                 .map_err(|error| error.to_string());
                         let _ = install_tx.send((module_id, action, result));
@@ -914,13 +1185,14 @@ pub(crate) fn register_module_settings_callback(
 
     ui.on_settings_module_toggle_requested({
         let weak = ui.as_weak();
+        let sort_order = sort_order.clone();
         move |module_id, enabled| {
             let Some(ui) = weak.upgrade() else {
                 return;
             };
 
             if module_writes_blocked {
-                refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow());
+                refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow(), *sort_order.borrow());
                 ui.set_status_text(
                     "Could not save module settings: fix config.toml or modules.toml and restart rayslash."
                         .into(),
@@ -943,7 +1215,7 @@ pub(crate) fn register_module_settings_callback(
             let changed = match next_modules.set_installed_enabled(module_id, enabled) {
                 Ok(changed) => changed,
                 Err(error) => {
-                    refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow());
+                    refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow(), *sort_order.borrow());
                     ui.set_status_text(format!("Could not update module: {error}").into());
                     return;
                 }
@@ -954,13 +1226,13 @@ pub(crate) fn register_module_settings_callback(
 
             if let Err(error) = modules::save_modules_config(&next_modules) {
                 eprintln!("{error}");
-                refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow());
+                refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow(), *sort_order.borrow());
                 ui.set_status_text(format!("Could not save module setting: {error}").into());
                 return;
             }
 
             *module_state.borrow_mut() = next_modules.clone();
-            refresh_module_items(&module_model, &next_modules, &module_catalog.borrow());
+            refresh_module_items(&module_model, &next_modules, &module_catalog.borrow(), *sort_order.borrow());
 
             let compatibility_config = {
                 let mut next_config = config_state.borrow().clone();
@@ -1277,5 +1549,166 @@ mod tests {
         assert!(summary.len() <= 120);
         assert_eq!(summary, "Could not install module: invalid module package:");
         assert!(details.len() > summary.len());
+    }
+
+    #[test]
+    fn removed_module_uses_restore_and_separates_permanent_data_deletion() {
+        assert_eq!(operation_progress_label("Restore"), "Restoring…");
+
+        let module_id = "io.github.example.notes";
+        let catalog = [test_registry_module(module_id, &[Version::new(1, 0, 0)])];
+        let mut config = modules::ModulesConfig::empty();
+        config.set_installed(module_id, "1.0.0", true);
+
+        let items = module_items_with_installed(
+            &config,
+            &catalog,
+            &BTreeMap::new(),
+            &modules::InstalledModules::default(),
+            None,
+        );
+        let item = items.iter().find(|item| item.id == module_id).unwrap();
+        assert!(!item.installed);
+        assert!(item.has_saved_data);
+        assert_eq!(item.action.as_str(), "Restore");
+        assert_eq!(item.secondary_action.as_str(), "Delete data");
+
+        let operations = [(
+            module_id.to_owned(),
+            ModuleOperationState {
+                confirmation: true,
+                summary: "Confirm permanent deletion".into(),
+                ..Default::default()
+            },
+        )]
+        .into();
+        let items = module_items_with_installed(
+            &config,
+            &catalog,
+            &operations,
+            &modules::InstalledModules::default(),
+            None,
+        );
+        let item = items.iter().find(|item| item.id == module_id).unwrap();
+        assert_eq!(item.secondary_action.as_str(), "Confirm delete");
+        assert!(item.operation_confirmation);
+    }
+
+    #[test]
+    fn removing_code_keeps_restore_state_but_deleting_data_removes_it() {
+        let module_id = "io.github.example.notes";
+        let mut config = modules::ModulesConfig::empty();
+        config.set_installed(module_id, "1.0.0", true);
+
+        apply_completed_operation(&mut config, module_id, "Remove", None);
+        assert_eq!(config.is_enabled(module_id), Some(true));
+
+        apply_completed_operation(&mut config, module_id, "Delete data", None);
+        assert_eq!(config.is_enabled(module_id), None);
+    }
+
+    #[test]
+    fn installed_outdated_module_exposes_update_and_remove_actions() {
+        let module_id = "io.github.example.notes";
+        let catalog = [test_registry_module(
+            module_id,
+            &[Version::new(1, 0, 0), Version::new(1, 1, 0)],
+        )];
+        let installed = modules::InstalledModules {
+            modules: [(
+                module_id.into(),
+                modules::InstalledModule {
+                    version: Version::new(1, 0, 0),
+                    digest: "a".repeat(64),
+                    source: "https://github.com/example/notes".into(),
+                    source_commit: "b".repeat(40),
+                    install_path: "/missing/module".into(),
+                    enabled: false,
+                    permissions: modules::PackagePermissions::default(),
+                },
+            )]
+            .into(),
+            ..Default::default()
+        };
+        let mut config = modules::ModulesConfig::empty();
+        config.set_installed(module_id, "1.0.0", false);
+
+        let items =
+            module_items_with_installed(&config, &catalog, &BTreeMap::new(), &installed, None);
+        let item = items.iter().find(|item| item.id == module_id).unwrap();
+        assert!(item.update_available);
+        assert_eq!(item.action.as_str(), "Update");
+        assert_eq!(item.secondary_action.as_str(), "Remove");
+        assert_eq!(item.version.as_str(), "1.0.0 → 1.1.0");
+        assert!(!item.enabled);
+
+        let updated = modules::InstalledModule {
+            version: Version::new(1, 1, 0),
+            ..installed.modules[module_id].clone()
+        };
+        apply_completed_operation(&mut config, module_id, "Update", Some(&updated));
+        assert_eq!(config.is_enabled(module_id), Some(false));
+    }
+
+    #[test]
+    fn module_search_is_case_insensitive_and_matches_metadata() {
+        assert!(module_matches_query(
+            "rayslash.calculator Calculator Utilities by rayslash",
+            "CALC"
+        ));
+        assert!(module_matches_query("Time Utilities", "utilities"));
+        assert!(!module_matches_query("Aliases Commands", "weather"));
+        assert!(module_matches_query("Aliases Commands", "   "));
+
+        let items = module_items(&modules::ModulesConfig::default(), &[]);
+        let calculator = items
+            .iter()
+            .find(|item| item.id.as_str() == CALCULATOR_MODULE_ID)
+            .expect("calculator item");
+        assert!(module_is_visible(
+            calculator, "official", "CALC", false, false
+        ));
+        assert!(!module_is_visible(
+            calculator,
+            "community",
+            "",
+            false,
+            false
+        ));
+        assert!(!module_is_visible(
+            calculator, "official", "weather", false, false
+        ));
+    }
+
+    fn test_registry_module(module_id: &str, versions: &[Version]) -> modules::RegistryModule {
+        modules::RegistryModule {
+            id: module_id.into(),
+            name: "Notes".into(),
+            description: "Take quick notes.".into(),
+            author: "example".into(),
+            license: "MIT".into(),
+            kind: modules::PackageKind::Wasm,
+            legacy_permissions: None,
+            repository: "https://github.com/example/notes".into(),
+            official: false,
+            review_status: modules::ReviewStatus::Reviewed,
+            github_stars: 3,
+            updated_at: "2026-07-21T00:00:00Z".into(),
+            versions: versions
+                .iter()
+                .map(|version| modules::RegistryVersion {
+                    version: version.clone(),
+                    api_version: semver::VersionReq::parse("^1").unwrap(),
+                    source_commit: "b".repeat(40),
+                    asset_url: format!(
+                        "https://github.com/example/notes/releases/download/v{version}/notes.tar.zst"
+                    ),
+                    sha256: "a".repeat(64),
+                    size: 1,
+                    yanked: false,
+                    permissions: modules::PackagePermissions::default(),
+                })
+                .collect(),
+        }
     }
 }

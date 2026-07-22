@@ -1,5 +1,12 @@
 # Decisions
 
+## 2026-07-22 - Publish a small, multi-format release surface
+
+Decision: Release native x86_64 and ARM64 RPM, DEB, AppImage, and direct Flatpak bundles from semantic-version tags, publish one checksum manifest, and keep source/debug packages and transient artifacts out of GitHub Releases.
+Context: The Fedora-only v0.1.1 release exposed 18 assets because every source, debug, app, and host RPM received a separate checksum sidecar. Users still lacked direct Debian and portable downloads.
+Reasoning: Architecture-specific application files are meaningful assets; build intermediates and one checksum file per binary are not. RPM retains the separately packaged host dependency, while self-contained formats embed the same digest-pinned host release. Flatpak needs explicit host filesystem read and `org.freedesktop.Flatpak` permissions because a launcher must discover and start host applications; that makes the bundle suitable for direct distribution but not yet a least-privilege Flathub submission.
+Consequences: v0.2.0 uses an automated tag workflow, ten user-facing binaries, and one `SHA256SUMS`. AppImage updates remain explicit download-and-replace operations. Flatpak-aware discovery reads host desktop/icon exports and external actions run through `flatpak-spawn --host`. Optional modules remain unbundled in every format.
+
 ## 2026-07-11 - Preserve incomplete search engines and use cached favicons consistently
 
 Decision: Treat incomplete additional search-engine rows as inactive drafts, persist every field on focus loss, show an inline amber warning until the row is valid, and use a successfully cached favicon in both the settings card and matching result row.

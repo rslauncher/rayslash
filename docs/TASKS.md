@@ -194,6 +194,8 @@ These tasks come from [CLEANUP_AUDIT.md](CLEANUP_AUDIT.md) and are intentionally
 - [x] Publish checksum-verified x86_64/aarch64 Fedora app and separate host RPMs as complete official package sets, with CI DNF resolution tests.
 - [x] Implement complete Arch/AUR packaging after install layout is stable.
 - [x] Revisit AppImage after desktop entry, icon, and update expectations are clear.
+- [x] Publish x86_64/ARM64 DEB, AppImage, and direct Flatpak bundles from semantic-version tags.
+- [x] Keep public releases to user-facing binaries plus one checksum manifest.
 - [x] Improve Desktop Entry compatibility for `TryExec`, `OnlyShowIn`, `NotShowIn`, missing `Exec` targets, and `MimeType`/`Categories`-based folder opener filtering.
 - [x] Improve Desktop Entry compatibility for keywords, localized names, desktop actions, and `DBusActivatable`.
 - [x] Improve icon-theme lookup toward freedesktop behavior or choose a maintained crate.

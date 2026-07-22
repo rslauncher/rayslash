@@ -325,14 +325,16 @@ fn run_gui(
         move || match registry_rx.try_recv() {
             Ok(Ok(registry)) => {
                 *module_catalog.borrow_mut() = registry.index.modules;
-                module_model.set_vec(module_items(
-                    &module_state.borrow(),
-                    &module_catalog.borrow(),
-                ));
-                if let Some(ui) = weak.upgrade()
-                    && registry.from_cache
-                {
-                    ui.set_status_text("Using the last verified module catalog.".into());
+                if let Some(ui) = weak.upgrade() {
+                    ui.invoke_settings_module_sort_requested(ui.get_settings_module_sort_order());
+                    if registry.from_cache {
+                        ui.set_status_text("Using the last verified module catalog.".into());
+                    }
+                } else {
+                    module_model.set_vec(module_items(
+                        &module_state.borrow(),
+                        &module_catalog.borrow(),
+                    ));
                 }
             }
             Ok(Err(error)) => {
@@ -367,6 +369,11 @@ fn run_gui(
         let suppress_next_focus_hide = suppress_next_focus_hide.clone();
         move |_, event| {
             if matches!(event, winit::event::WindowEvent::Focused(false)) {
+                if weak.upgrade().is_some_and(|ui| {
+                    ui.get_settings_web_search_editor_open() || ui.get_settings_alias_editor_open()
+                }) {
+                    return EventResult::Propagate;
+                }
                 if suppress_next_focus_hide.replace(false) {
                     return EventResult::Propagate;
                 }
@@ -703,5 +710,6 @@ fn run_gui(
         }
     });
 
-    ui.run()
+    ui.show()?;
+    slint::run_event_loop_until_quit()
 }

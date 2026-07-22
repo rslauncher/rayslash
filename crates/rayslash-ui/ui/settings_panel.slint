@@ -34,14 +34,56 @@ component SegmentButton inherits Rectangle {
     }
 }
 
+component SettingsTab inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> light;
+    callback clicked();
+
+    height: 40px;
+    background: transparent;
+
+    Text {
+        width: 100%; height: 100%;
+        text: root.label;
+        color: root.selected
+            ? root.light ? #202020 : #f1f1f1
+            : tab-touch.has-hover ? root.light ? #3d3d3d : #d5d5d5
+            : root.light ? #737373 : #999999;
+        font-size: 13px;
+        font-weight: root.selected ? 700 : 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        x: 10px;
+        y: parent.height - 2px;
+        width: parent.width - 20px;
+        height: 2px;
+        border-radius: 1px;
+        background: root.selected ? root.light ? #242424 : #eeeeee : transparent;
+    }
+
+    tab-touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
 component MiniToggle inherits Rectangle {
     in-out property <bool> checked;
     in property <bool> light;
     callback toggled();
-    width: 30px; height: 18px; border-radius: 9px;
+    width: 34px; height: 20px; border-radius: 10px;
     background: root.light ? root.checked ? #202020 : #e1e1e1 : root.checked ? #d6d6d6 : #303030;
     border-width: 1px; border-color: root.light ? root.checked ? #202020 : #a9a9a9 : root.checked ? #eeeeee : #666666;
-    Rectangle { x: root.checked ? 14px : 2px; y: 2px; width: 14px; height: 14px; border-radius: 7px; background: root.light ? root.checked ? #ffffff : #777777 : root.checked ? #181818 : #b8b8b8; }
+    Rectangle {
+        x: root.checked ? 16px : 2px;
+        y: 2px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: root.light ? root.checked ? #ffffff : #777777 : root.checked ? #181818 : #b8b8b8;
+        animate x { duration: 90ms; }
+    }
     TouchArea { mouse-cursor: pointer; clicked => { root.checked = !root.checked; root.toggled(); } }
 }
 
@@ -59,6 +101,8 @@ component EngineField inherits Rectangle {
     field := TextInput {
         x: 8px; width: parent.width - 16px; height: parent.height; enabled: root.editable; text <=> root.value;
         color: root.editable ? root.light ? #222222 : #eeeeee : root.light ? #777777 : #888888;
+        selection-background-color: root.light ? #303030 : #d4d4d4;
+        selection-foreground-color: root.light ? #ffffff : #181818;
         font-size: 11px; single-line: true; vertical-alignment: center;
         edited => { save-delay.running = false; save-delay.running = true; }
         changed has-focus => { if (!self.has-focus && root.editable) { save-delay.running = false; root.focus-lost(); } }
@@ -67,6 +111,7 @@ component EngineField inherits Rectangle {
 
 export component SettingsPanel inherits FocusScope {
     in-out property <bool> open;
+    in-out property <string> status-text;
     in property <[AppChoiceItem]> alternate-opener-choices;
     in property <bool> light;
     in-out property <string> folder-sources;
@@ -74,7 +119,10 @@ export component SettingsPanel inherits FocusScope {
     in-out property <string> web-searches-text;
     in property <[AliasItem]> aliases;
     in property <[WebSearchItem]> web-searches;
+    in property <bool> aliases-installed;
+    in property <bool> web-search-installed;
     in property <[ModuleItem]> modules;
+    in-out property <string> module-sort-order: "name-asc";
     in-out property <string> alternate-folder-opener-command;
     in-out property <bool> provider-apps;
     in-out property <bool> provider-folders;
@@ -99,22 +147,54 @@ export component SettingsPanel inherits FocusScope {
     in property <string> icon-count;
     in property <string> ranking-entry-count;
     in-out property <bool> alternate-picker-open;
+    in-out property <bool> web-search-editor-open;
+    in-out property <bool> alias-editor-open;
 
     callback cancel-requested();
     callback browse-folder-requested(string);
     callback choose-alternate-opener-requested(string);
     callback clear-ranking-requested();
-    callback alias-save-requested(int, string, string, string, string);
-    callback alias-add-requested();
-    callback alias-remove-requested(int);
-    callback web-search-save-requested(int, string, string, string, bool);
-    callback web-search-add-requested();
-    callback web-search-remove-requested(int);
+    callback alias-save-requested(int, string, string, string, string) -> bool;
+    callback alias-remove-requested(int) -> bool;
+    callback web-search-save-requested(int, string, string, string, bool) -> bool;
+    callback web-search-remove-requested(int) -> bool;
     callback module-toggle-requested(string, bool);
     callback module-action-requested(string, string);
+    pure callback module-matches(string, string) -> bool;
+    pure callback visible-module-count(string, string, bool, bool, int) -> int;
+    callback module-sort-requested(string);
+    pure callback feedback-kind(string) -> string;
+    pure callback feedback-duration-ms(string) -> int;
     callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     private property <string> settings-section: "general";
+    private property <int> web-search-editor-index: -1;
+    private property <string> web-search-editor-name: "";
+    private property <string> web-search-editor-keyword: "";
+    private property <string> web-search-editor-url: "";
+    private property <bool> web-search-editor-enabled: true;
+    private property <int> alias-editor-index: -1;
+    private property <string> alias-editor-name: "";
+    private property <string> alias-editor-keyword: "";
+    private property <string> alias-editor-kind: "url";
+    private property <string> alias-editor-target: "";
+    private property <string> notice-kind: root.feedback-kind(root.status-text);
+
+    status-dismiss := Timer {
+        interval: root.feedback-duration-ms(root.status-text) * 1ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.status-text = "";
+        }
+    }
+
+    changed status-text => {
+        status-dismiss.running = false;
+        if (root.status-text != "" && root.open) {
+            status-dismiss.running = true;
+        }
+    }
 
     private property <color> text-strong: root.light ? #1f1f1f : #f2f2f2;
     private property <color> text-main: root.light ? #2d2d2d : #d8d8d8;
@@ -131,6 +211,52 @@ export component SettingsPanel inherits FocusScope {
         settings-scroll.viewport-y = 0px;
         modules-panel.reset-scroll();
         root.focus();
+    }
+
+    public function cancel-web-search-editor() {
+        root.web-search-editor-open = false;
+        root.web-search-editor-index = -1;
+    }
+
+    public function cancel-alias-editor() {
+        root.alias-editor-open = false;
+        root.alias-editor-index = -1;
+    }
+
+    function add-alias() {
+        root.alias-editor-index = root.aliases.length;
+        root.alias-editor-name = "";
+        root.alias-editor-keyword = "";
+        root.alias-editor-kind = "url";
+        root.alias-editor-target = "";
+        root.alias-editor-open = true;
+    }
+
+    function edit-alias(index: int) {
+        root.alias-editor-index = index;
+        root.alias-editor-name = root.aliases[index].name;
+        root.alias-editor-keyword = root.aliases[index].keyword;
+        root.alias-editor-kind = root.aliases[index].kind;
+        root.alias-editor-target = root.aliases[index].target;
+        root.alias-editor-open = true;
+    }
+
+    function add-web-search() {
+        root.web-search-editor-index = root.web-searches.length;
+        root.web-search-editor-name = "";
+        root.web-search-editor-keyword = "";
+        root.web-search-editor-url = "";
+        root.web-search-editor-enabled = true;
+        root.web-search-editor-open = true;
+    }
+
+    function edit-web-search(index: int) {
+        root.web-search-editor-index = index;
+        root.web-search-editor-name = root.web-searches[index].name;
+        root.web-search-editor-keyword = root.web-searches[index].keyword;
+        root.web-search-editor-url = root.web-searches[index].url;
+        root.web-search-editor-enabled = root.web-searches[index].enabled;
+        root.web-search-editor-open = true;
     }
 
     function save-settings() {
@@ -164,84 +290,92 @@ export component SettingsPanel inherits FocusScope {
 
     changed open => {
         if (root.open) {
+            if (root.status-text != "") {
+                status-dismiss.running = false;
+                status-dismiss.running = true;
+            }
             root.settings-section = "general";
             settings-scroll.viewport-y = 0px;
             modules-panel.reset-scroll();
+        } else {
+            root.cancel-alias-editor();
+            root.cancel-web-search-editor();
         }
     }
 
     key-pressed(event) => {
         if (event.text == Key.Escape) {
-            root.cancel-requested();
+            if (root.alias-editor-open) {
+                root.cancel-alias-editor();
+            } else if (root.web-search-editor-open) {
+                root.cancel-web-search-editor();
+            } else {
+                root.cancel-requested();
+            }
             accept
         } else {
             reject
         }
     }
 
-    Text {
+    Rectangle {
         x: 0px;
         y: 0px;
         width: 100%;
-        height: 24px;
-        text: "Settings";
-        color: root.text-strong;
-        font-size: 18px;
-        font-weight: 700;
-        vertical-alignment: center;
-    }
+        height: 41px;
+        background: transparent;
+        border-width: 0px;
 
-    Rectangle {
-        x: 0px;
-        y: 30px;
-        width: 100%;
-        height: 38px;
-        border-radius: 9px;
-        background: root.light ? #e7e7e7 : #222222;
-        border-width: 1px;
-        border-color: root.field-border;
+        Rectangle {
+            x: 0px;
+            y: parent.height - 1px;
+            width: 100%;
+            height: 1px;
+            background: root.field-border;
+        }
 
-        HorizontalLayout {
-            padding: 2px;
-            spacing: 2px;
-
-            SegmentButton {
-                label: "General";
-                selected: root.settings-section == "general";
-                light: root.light;
-                clicked => {
-                    root.settings-section = "general";
-                    settings-scroll.viewport-y = 0px;
-                }
+        SettingsTab {
+            x: 0px;
+            width: 94px;
+            label: "General";
+            selected: root.settings-section == "general";
+            light: root.light;
+            clicked => {
+                root.settings-section = "general";
+                settings-scroll.viewport-y = 0px;
+                root.focus();
             }
+        }
 
-            SegmentButton {
-                label: "Modules";
-                selected: root.settings-section == "modules";
-                light: root.light;
-                clicked => {
-                    root.settings-section = "modules";
-                    modules-panel.reset-scroll();
-                }
+        SettingsTab {
+            x: 104px;
+            width: 94px;
+            label: "Modules";
+            selected: root.settings-section == "modules";
+            light: root.light;
+            clicked => {
+                root.settings-section = "modules";
+                modules-panel.reset-scroll();
+                modules-panel.focus-modules();
             }
         }
     }
 
     settings-scroll := Flickable {
-        y: 76px;
+        y: 47px;
         width: 100%;
-        height: parent.height - 76px;
+        height: parent.height - 47px;
         visible: root.settings-section == "general";
         viewport-width: self.width;
-        viewport-height: root.open ? (root.alternate-picker-open ? 1139px : 989px) + root.aliases.length * 134px + root.web-searches.length * 134px : 0px;
+        viewport-height: root.open ? max(self.height, settings-content.preferred-height) : 0px;
         interactive: root.open && root.settings-section == "general";
 
-        VerticalLayout {
+        settings-content := VerticalLayout {
             width: settings-scroll.width;
             spacing: 9px;
 
             Text {
-                text: "Folder source";
+                text: "Folder sources";
                 color: root.text-main;
                 font-size: 12px;
                 font-weight: 700;
@@ -265,6 +399,8 @@ export component SettingsPanel inherits FocusScope {
                         height: parent.height;
                         text: root.folder-sources;
                         color: root.text-strong;
+                        selection-background-color: root.light ? #303030 : #d4d4d4;
+                        selection-foreground-color: root.light ? #ffffff : #181818;
                         font-size: 13px;
                         single-line: true;
                         vertical-alignment: center;
@@ -354,6 +490,8 @@ export component SettingsPanel inherits FocusScope {
                         height: parent.height;
                         text: root.alternate-folder-opener-command;
                         color: root.text-strong;
+                        selection-background-color: root.light ? #303030 : #d4d4d4;
+                        selection-foreground-color: root.light ? #ffffff : #181818;
                         font-size: 13px;
                         single-line: true;
                         vertical-alignment: center;
@@ -502,87 +640,101 @@ export component SettingsPanel inherits FocusScope {
                 font-size: 11px;
             }
 
-            Text {
-                text: "Aliases";
-                color: root.text-main;
-                font-size: 12px;
-                font-weight: 700;
-            }
+            if root.aliases-installed: VerticalLayout {
+                spacing: 9px;
 
-            Rectangle { height: 34px; border-radius: 8px; background: alias-add.pressed ? root.field-bg-pressed : alias-add.has-hover ? root.field-bg-hover : root.field-bg;
-                Text { text: "+  Add alias"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-                alias-add := TouchArea { mouse-cursor: pointer; clicked => { root.alias-add-requested(); } }
-            }
+                Text {
+                    text: "Aliases";
+                    color: root.text-main;
+                    font-size: 12px;
+                    font-weight: 700;
+                }
 
-            for alias[index] in root.aliases: Rectangle {
-                height: 126px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
-                VerticalLayout { padding: 8px; spacing: 6px;
-                    HorizontalLayout { height: 34px; spacing: 9px;
-                        Rectangle { width: 34px; border-radius: 8px; background: root.field-bg-hover;
-                            Path { x: 8px; y: 8px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M10 13a5 5 0 0 0 7.1.1l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7 M14 11a5 5 0 0 0-7.1-.1l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7"; }
+                Rectangle { height: 34px; border-radius: 8px; background: alias-add.pressed ? root.field-bg-pressed : alias-add.has-hover ? root.field-bg-hover : root.field-bg;
+                    Text { text: "+  Add alias"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    alias-add := TouchArea { mouse-cursor: pointer; clicked => { root.add-alias(); } }
+                }
+
+                for alias[index] in root.aliases: Rectangle {
+                    height: 64px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
+                    HorizontalLayout { padding: 7px; spacing: 10px;
+                        Rectangle { width: 46px; height: 50px; background: transparent;
+                            Rectangle { x: 1px; y: 3px; width: 44px; height: 44px; border-radius: 9px; background: root.field-bg-hover; border-width: 1px; border-color: root.field-border;
+                                Path { x: 11px; y: 11px; width: 22px; height: 22px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M10 13a5 5 0 0 0 7.1.1l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7 M14 11a5 5 0 0 0-7.1-.1l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7"; }
+                            }
                         }
-                        VerticalLayout { spacing: 1px; Text { text: alias.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; } Text { text: alias.keyword; color: root.text-muted; font-size: 10px; overflow: elide; } }
-                    }
-                    HorizontalLayout { height: 26px; spacing: 6px;
-                        EngineField { value <=> alias.name; light: root.light; hint: "Alias name"; }
-                        EngineField { width: 145px; value <=> alias.keyword; light: root.light; hint: "Keyword"; }
-                    }
-                    HorizontalLayout { height: 26px; spacing: 6px;
-                        EngineField { width: 112px; value <=> alias.kind; light: root.light; hint: "Kind"; }
-                        EngineField { value <=> alias.target; light: root.light; hint: "Target URL, path, or command"; }
-                        Rectangle { width: 28px; border-radius: 6px; background: save-alias.pressed ? root.field-bg-pressed : save-alias.has-hover ? root.field-bg-hover : transparent; Text { text: "✓"; color: root.text-main; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; } save-alias := TouchArea { mouse-cursor: pointer; clicked => { root.alias-save-requested(index, alias.name, alias.keyword, alias.kind, alias.target); } } }
-                        Rectangle { width: 28px; border-radius: 6px; background: remove-alias.pressed ? #6f2020 : remove-alias.has-hover ? #4c2424 : transparent;
-                            Path { x: 6px; y: 5px; width: 16px; height: 16px; viewbox-width: 24; viewbox-height: 24; stroke: #ef7777; stroke-width: 2px; fill: transparent; commands: "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 10v6 M14 10v6"; }
-                            remove-alias := TouchArea { mouse-cursor: pointer; clicked => { root.alias-remove-requested(index); } }
+                        VerticalLayout { height: 50px; alignment: center; spacing: 3px;
+                            Text { text: alias.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; vertical-alignment: bottom; }
+                            Text { text: alias.target; color: root.text-muted; font-size: 10px; overflow: elide; vertical-alignment: top; }
+                        }
+                        Rectangle { width: min(100px, max(52px, alias-keyword-label.preferred-width + 18px)); height: 50px; background: transparent;
+                            Rectangle { y: 14px; width: 100%; height: 22px; border-radius: 6px; background: root.light ? #e7e7e7 : #2d2d2d; border-width: 1px; border-color: root.field-border;
+                                alias-keyword-label := Text { text: alias.keyword; color: root.text-soft; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                            }
+                        }
+                        Rectangle { width: 62px; height: 50px; background: transparent;
+                            Rectangle { y: 14px; width: 100%; height: 22px; border-radius: 6px; background: transparent; border-width: 1px; border-color: root.field-border;
+                                Text { text: alias.kind == "" ? "auto" : alias.kind; color: root.text-muted; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                            }
+                        }
+                        Rectangle { width: 42px; height: 50px; background: transparent;
+                            Rectangle { y: 4px; width: 42px; height: 42px; border-radius: 9px; background: edit-alias.pressed ? root.field-bg-pressed : edit-alias.has-hover ? root.field-bg-hover : transparent; border-width: 1px; border-color: root.field-border;
+                                Path { x: 10px; y: 10px; width: 22px; height: 22px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M12 20 H4 V12 L14.5 1.5 A2.1 2.1 0 0 1 17.5 1.5 L22.5 6.5 A2.1 2.1 0 0 1 22.5 9.5 Z M13 3 L21 11"; }
+                                edit-alias := TouchArea { mouse-cursor: pointer; clicked => { root.edit-alias(index); } }
+                            }
                         }
                     }
                 }
             }
 
-            Text {
-                text: "Search engines";
-                color: root.text-main;
-                font-size: 12px;
-                font-weight: 700;
-            }
+            if root.web-search-installed: VerticalLayout {
+                spacing: 9px;
+
+                Text {
+                    text: "Search engines";
+                    color: root.text-main;
+                    font-size: 12px;
+                    font-weight: 700;
+                }
 
             Rectangle { height: 34px; border-radius: 8px; background: search-add.pressed ? root.field-bg-pressed : search-add.has-hover ? root.field-bg-hover : root.field-bg;
                 Text { text: "+  Add search engine"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-                search-add := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-add-requested(); } }
+                search-add := TouchArea { mouse-cursor: pointer; clicked => { root.add-web-search(); } }
             }
 
-            for engine[index] in root.web-searches: Rectangle {
-                height: 126px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
-                VerticalLayout { padding: 8px; spacing: 6px;
-                    HorizontalLayout { height: 34px; spacing: 9px;
-                        Rectangle { width: 34px; border-radius: 8px; background: root.field-bg-hover;
-                            Image { x: 6px; y: 6px; width: 22px; height: 22px; source: engine.icon; image-fit: contain; visible: engine.has_icon; }
-                            Path { x: 8px; y: 7px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M11 4 A7 7 0 1 0 11 18 A7 7 0 1 0 11 4 M16.2 16.2 L21 21"; visible: !engine.has_icon; }
-                        }
-                        VerticalLayout { spacing: 1px; Text { text: engine.name == "" ? "New search engine" : engine.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; } Text { text: engine.keyword == "" ? "Choose a keyword" : engine.keyword; color: root.text-muted; font-size: 10px; overflow: elide; } }
-                        Rectangle { horizontal-stretch: 1; background: transparent; }
-                        Rectangle { width: engine.valid ? 0px : 28px; visible: !engine.valid; border-radius: 7px; background: root.light ? #fff1c7 : #594615;
-                            Path { x: 5px; y: 5px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; commands: "M12 3 L22 20 H2 Z M12 9 V14 M12 17 V18"; stroke: root.light ? #9a6700 : #ffd166; stroke-width: 2px; fill: transparent; }
-                        }
-                        Rectangle { width: 34px; background: transparent; MiniToggle { x: 2px; y: 8px; checked: engine.enabled; light: root.light; toggled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, self.checked); } } }
-                    }
-                    HorizontalLayout { height: 26px; spacing: 6px;
-                        EngineField { value <=> engine.name; light: root.light; editable: index != 0; hint: "Search engine name"; focus-lost => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } edit-settled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } }
-                        EngineField { width: 145px; value <=> engine.keyword; light: root.light; editable: index != 0; hint: "Keyword"; focus-lost => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } edit-settled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } }
-                    }
-                    HorizontalLayout { height: 26px; spacing: 6px;
-                        EngineField { value <=> engine.url; light: root.light; hint: "URL with %s in place of the search term"; focus-lost => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } edit-settled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } }
-                        Rectangle { width: 28px; border-radius: 6px; background: save-engine.pressed ? root.field-bg-pressed : save-engine.has-hover ? root.field-bg-hover : transparent; Text { text: "✓"; color: root.text-main; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; } save-engine := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, engine.enabled); } } }
-                        Rectangle { width: index == 0 ? 0px : 28px; visible: index != 0; border-radius: 6px; background: remove-engine.pressed ? #6f2020 : remove-engine.has-hover ? #4c2424 : transparent;
-                            Path { x: 6px; y: 5px; width: 16px; height: 16px; viewbox-width: 24; viewbox-height: 24; stroke: #ef7777; stroke-width: 2px; fill: transparent; commands: "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 10v6 M14 10v6"; }
-                            remove-engine := TouchArea { mouse-cursor: pointer; clicked => { root.web-search-remove-requested(index); } }
+                for engine[index] in root.web-searches: Rectangle {
+                height: 64px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
+                HorizontalLayout { padding: 7px; spacing: 10px;
+                    Rectangle { width: 46px; height: 50px; background: transparent;
+                        Rectangle { x: 1px; y: 3px; width: 44px; height: 44px; border-radius: 9px; background: root.field-bg-hover; border-width: 1px; border-color: root.field-border;
+                            Image { x: 8px; y: 8px; width: 28px; height: 28px; source: engine.icon; image-fit: contain; image-rendering: smooth; visible: engine.has_icon; }
+                            Path { x: 11px; y: 10px; width: 22px; height: 22px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M11 4 A7 7 0 1 0 11 18 A7 7 0 1 0 11 4 M16.2 16.2 L21 21"; visible: !engine.has_icon; }
                         }
                     }
+                    VerticalLayout { height: 50px; alignment: center; spacing: 3px;
+                        Text { text: engine.name == "" ? "Incomplete search engine" : engine.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; vertical-alignment: bottom; }
+                        Text { text: engine.url == "" ? "Add a search URL" : engine.url; color: root.text-muted; font-size: 10px; overflow: elide; vertical-alignment: top; }
+                    }
+                    Rectangle { width: min(110px, max(54px, keyword-label.preferred-width + 18px)); height: 50px; background: transparent;
+                        Rectangle { y: 14px; width: 100%; height: 22px; border-radius: 6px; background: root.light ? #e7e7e7 : #2d2d2d; border-width: 1px; border-color: root.field-border;
+                            keyword-label := Text { text: engine.keyword == "" ? "keyword" : engine.keyword; color: root.text-soft; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                        }
+                    }
+                    Rectangle { width: 42px; height: 50px; background: transparent;
+                        MiniToggle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; checked: engine.enabled; light: root.light; toggled => { root.web-search-save-requested(index, engine.name, engine.keyword, engine.url, self.checked); } }
+                    }
+                    Rectangle { width: 42px; height: 50px; background: transparent;
+                        Rectangle { y: 4px; width: 42px; height: 42px; border-radius: 9px; background: edit-engine.pressed ? root.field-bg-pressed : edit-engine.has-hover ? root.field-bg-hover : transparent; border-width: 1px; border-color: root.field-border;
+                            Path { x: 10px; y: 10px; width: 22px; height: 22px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M12 20 H4 V12 L14.5 1.5 A2.1 2.1 0 0 1 17.5 1.5 L22.5 6.5 A2.1 2.1 0 0 1 22.5 9.5 Z M13 3 L21 11"; }
+                            edit-engine := TouchArea { mouse-cursor: pointer; clicked => { root.edit-web-search(index); } }
+                        }
+                    }
+                }
                 }
             }
 
             Text {
-                text: "Search features";
+                text: "Launcher content";
                 color: root.text-main;
                 font-size: 12px;
                 font-weight: 700;
@@ -611,6 +763,68 @@ export component SettingsPanel inherits FocusScope {
                     checked <=> root.provider-folders;
                     toggled => {
                         root.save-settings();
+                    }
+                }
+
+                Rectangle {
+                    width: 138px;
+                    height: 58px;
+                    border-radius: 8px;
+                    background: root.field-bg;
+                    border-width: 1px;
+                    border-color: root.field-border;
+
+                    HorizontalLayout {
+                        padding: 9px;
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            spacing: 2px;
+                            Text { text: "Max results"; color: root.text-main; font-size: 12px; font-weight: 700; vertical-alignment: bottom; }
+                            Text { text: "Visible rows"; color: root.text-muted; font-size: 10px; vertical-alignment: top; }
+                        }
+
+                        Rectangle {
+                            width: 44px;
+                            height: 32px;
+                            border-radius: 7px;
+                            background: root.light ? #f6f6f6 : #191919;
+                            border-width: 1px;
+                            border-color: settings-max-results-input.has-focus ? root.field-border-focus : root.field-border;
+
+                            settings-max-results-input := TextInput {
+                                x: 6px;
+                                width: parent.width - 12px;
+                                height: 100%;
+                                text: root.max-results;
+                                color: root.text-strong;
+                                selection-background-color: root.light ? #303030 : #d4d4d4;
+                                selection-foreground-color: root.light ? #ffffff : #181818;
+                                font-size: 12px;
+                                font-weight: 700;
+                                single-line: true;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+
+                                key-pressed(event) => {
+                                    if (event.text == Key.Return) {
+                                        root.save-settings();
+                                        accept
+                                    } else if (event.text == Key.Escape) {
+                                        root.cancel-requested();
+                                        accept
+                                    } else {
+                                        reject
+                                    }
+                                }
+
+                                changed has-focus => {
+                                    if (!self.has-focus) {
+                                        root.save-settings();
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -697,60 +911,6 @@ export component SettingsPanel inherits FocusScope {
                 }
             }
 
-            HorizontalLayout {
-                height: 42px;
-                spacing: 8px;
-
-                VerticalLayout {
-                    spacing: 4px;
-
-                    Text {
-                        text: "Max results";
-                        color: root.text-main;
-                        font-size: 12px;
-                        font-weight: 700;
-                    }
-
-                    Rectangle {
-                        height: 26px;
-                        border-radius: 7px;
-                        background: root.field-bg;
-                        border-width: 1px;
-                        border-color: settings-max-results-input.has-focus ? root.field-border-focus : root.field-border;
-
-                        settings-max-results-input := TextInput {
-                            x: 10px;
-                            y: 0px;
-                            width: parent.width - 20px;
-                            height: parent.height;
-                            text: root.max-results;
-                            color: root.text-strong;
-                            font-size: 12px;
-                            single-line: true;
-                            vertical-alignment: center;
-
-                            key-pressed(event) => {
-                                if (event.text == Key.Return) {
-                                    root.save-settings();
-                                    accept
-                                } else if (event.text == Key.Escape) {
-                                    root.cancel-requested();
-                                    accept
-                                } else {
-                                    reject
-                                }
-                            }
-
-                            changed has-focus => {
-                                if (!self.has-focus) {
-                                    root.save-settings();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             Text {
                 text: "Appearance";
                 color: root.text-main;
@@ -822,7 +982,7 @@ export component SettingsPanel inherits FocusScope {
                 }
 
                 Rectangle {
-                    width: 238px;
+                    horizontal-stretch: 1;
                     height: 72px;
                     border-radius: 8px;
                     background: root.field-bg;
@@ -876,77 +1036,106 @@ export component SettingsPanel inherits FocusScope {
                 background: transparent;
             }
 
-            HorizontalLayout {
-                height: 54px;
-                spacing: 12px;
-
-                VerticalLayout {
-                    spacing: 2px;
-
-                    Text {
-                        text: "Config location";
-                        color: root.text-main;
-                        font-size: 11px;
-                        font-weight: 700;
-                    }
-
-                    Text {
-                        text: root.config-path;
-                        color: root.text-muted;
-                        font-size: 10px;
-                        overflow: elide;
-                    }
-                }
-
-                VerticalLayout {
-                    spacing: 2px;
-
-                    Text {
-                        text: "State location";
-                        color: root.text-main;
-                        font-size: 11px;
-                        font-weight: 700;
-                    }
-
-                    Text {
-                        text: root.state-path;
-                        color: root.text-muted;
-                        font-size: 10px;
-                        overflow: elide;
-                    }
-                }
+            Text {
+                text: "Diagnostics";
+                color: root.text-main;
+                font-size: 12px;
+                font-weight: 700;
             }
 
-            HorizontalLayout {
-                height: 18px;
-                spacing: 14px;
+            Rectangle {
+                height: 116px;
+                border-radius: 10px;
+                background: root.field-bg;
+                border-width: 1px;
+                border-color: root.field-border;
 
-                Text {
-                    text: "Folders: " + root.project-count;
-                    color: root.text-soft;
-                    font-size: 11px;
-                    horizontal-stretch: 0;
-                }
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 8px;
 
-                Text {
-                    text: "Apps: " + root.app-count;
-                    color: root.text-soft;
-                    font-size: 11px;
-                    horizontal-stretch: 0;
-                }
+                    HorizontalLayout {
+                        height: 38px;
+                        spacing: 12px;
 
-                Text {
-                    text: "Icons: " + root.icon-count;
-                    color: root.text-soft;
-                    font-size: 11px;
-                    horizontal-stretch: 0;
-                }
+                        VerticalLayout {
+                            spacing: 3px;
 
-                Text {
-                    text: "Socket: " + root.socket-path;
-                    color: root.text-muted;
-                    font-size: 10px;
-                    overflow: elide;
+                            Text {
+                                text: "Config location";
+                                color: root.text-main;
+                                font-size: 10px;
+                                font-weight: 700;
+                            }
+
+                            Text {
+                                text: root.config-path;
+                                color: root.text-muted;
+                                font-size: 10px;
+                                overflow: elide;
+                            }
+                        }
+
+                        Rectangle {
+                            width: 1px;
+                            background: root.field-border;
+                        }
+
+                        VerticalLayout {
+                            spacing: 3px;
+
+                            Text {
+                                text: "State location";
+                                color: root.text-main;
+                                font-size: 10px;
+                                font-weight: 700;
+                            }
+
+                            Text {
+                                text: root.state-path;
+                                color: root.text-muted;
+                                font-size: 10px;
+                                overflow: elide;
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: root.field-border;
+                    }
+
+                    HorizontalLayout {
+                        height: 39px;
+                        spacing: 0px;
+
+                        VerticalLayout {
+                            width: 78px;
+                            spacing: 1px;
+                            Text { text: "Folders"; color: root.text-muted; font-size: 9px; font-weight: 600; }
+                            Text { text: root.project-count; color: root.text-strong; font-size: 12px; font-weight: 700; }
+                        }
+
+                        VerticalLayout {
+                            width: 70px;
+                            spacing: 1px;
+                            Text { text: "Apps"; color: root.text-muted; font-size: 9px; font-weight: 600; }
+                            Text { text: root.app-count; color: root.text-strong; font-size: 12px; font-weight: 700; }
+                        }
+
+                        VerticalLayout {
+                            width: 86px;
+                            spacing: 1px;
+                            Text { text: "Icons"; color: root.text-muted; font-size: 9px; font-weight: 600; }
+                            Text { text: root.icon-count; color: root.text-strong; font-size: 12px; font-weight: 700; }
+                        }
+
+                        VerticalLayout {
+                            spacing: 1px;
+                            Text { text: "Runtime socket"; color: root.text-muted; font-size: 9px; font-weight: 600; }
+                            Text { text: root.socket-path; color: root.text-soft; font-size: 10px; overflow: elide; }
+                        }
+                    }
                 }
             }
 
@@ -958,11 +1147,12 @@ export component SettingsPanel inherits FocusScope {
     }
 
     modules-panel := ModulesPanel {
-        y: 76px;
+        y: 47px;
         width: 100%;
-        height: parent.height - 76px;
+        height: parent.height - 47px;
         visible: root.settings-section == "modules";
         modules: root.modules;
+        sort-order <=> root.module-sort-order;
         light: root.light;
 
         module-toggle-requested(id, enabled) => {
@@ -970,6 +1160,310 @@ export component SettingsPanel inherits FocusScope {
         }
         module-action-requested(id, action) => {
             root.module-action-requested(id, action);
+        }
+        cancel-requested => {
+            root.cancel-requested();
+        }
+        module-matches(haystack, query) => {
+            return root.module-matches(haystack, query);
+        }
+        visible-module-count(tab, query, updates-only, saved-data-only, model-length) => {
+            return root.visible-module-count(tab, query, updates-only, saved-data-only, model-length);
+        }
+        sort-requested(order) => {
+            root.module-sort-requested(order);
+        }
+    }
+
+    if root.alias-editor-open: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: root.light ? #f3f3f3 : #181818;
+
+        TouchArea { }
+
+        Rectangle {
+            x: 0px;
+            y: (parent.height - self.height) / 2;
+            width: 100%;
+            height: 336px;
+            border-radius: 12px;
+            background: root.field-bg;
+            border-width: 1px;
+            border-color: root.field-border-focus;
+
+            VerticalLayout {
+                padding: 14px;
+                spacing: 8px;
+
+                VerticalLayout {
+                    height: 38px;
+                    spacing: 1px;
+                    Text { text: root.alias-editor-index < root.aliases.length ? "Edit alias" : "New alias"; color: root.text-strong; font-size: 17px; font-weight: 700; }
+                    Text { text: "Create a keyword shortcut to a URL, file, folder, or command"; color: root.text-muted; font-size: 10px; }
+                }
+
+                HorizontalLayout {
+                    height: 58px;
+                    spacing: 8px;
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "Name"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                        EngineField { height: 38px; value <=> root.alias-editor-name; light: root.light; hint: "Project documentation"; }
+                    }
+                    VerticalLayout {
+                        width: 180px;
+                        spacing: 4px;
+                        Text { text: "Keyword"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                        EngineField { height: 38px; value <=> root.alias-editor-keyword; light: root.light; hint: "docs"; }
+                    }
+                }
+
+                VerticalLayout {
+                    height: 58px;
+                    spacing: 4px;
+                    Text { text: "Type"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                    Rectangle {
+                        height: 38px;
+                        border-radius: 8px;
+                        background: root.light ? #e7e7e7 : #222222;
+                        border-width: 1px;
+                        border-color: root.field-border;
+                        HorizontalLayout {
+                            padding: 2px;
+                            spacing: 2px;
+                            SegmentButton { label: "Auto"; selected: root.alias-editor-kind == ""; light: root.light; clicked => { root.alias-editor-kind = ""; } }
+                            SegmentButton { label: "URL"; selected: root.alias-editor-kind == "url"; light: root.light; clicked => { root.alias-editor-kind = "url"; } }
+                            SegmentButton { label: "File"; selected: root.alias-editor-kind == "file"; light: root.light; clicked => { root.alias-editor-kind = "file"; } }
+                            SegmentButton { label: "Folder"; selected: root.alias-editor-kind == "folder"; light: root.light; clicked => { root.alias-editor-kind = "folder"; } }
+                            SegmentButton { label: "Command"; selected: root.alias-editor-kind == "command"; light: root.light; clicked => { root.alias-editor-kind = "command"; } }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    height: 58px;
+                    spacing: 4px;
+                    Text { text: root.alias-editor-kind == "command" ? "Command" : root.alias-editor-kind == "url" ? "URL" : root.alias-editor-kind == "" ? "Target" : "Path"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                    EngineField {
+                        height: 38px;
+                        value <=> root.alias-editor-target;
+                        light: root.light;
+                        hint: root.alias-editor-kind == "command" ? "program --argument" : root.alias-editor-kind == "url" ? "https://example.com" : root.alias-editor-kind == "" ? "URL, path, or command" : "~/Documents";
+                    }
+                }
+
+                Text {
+                    height: 16px;
+                    text: root.alias-editor-kind == "command" ? "Commands run directly without a shell." : root.alias-editor-kind == "" ? "Auto detects URLs, paths, and explicit commands." : "Enter the complete destination opened by this alias.";
+                    color: root.text-muted;
+                    font-size: 10px;
+                    vertical-alignment: center;
+                }
+
+                HorizontalLayout {
+                    height: 40px;
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: root.alias-editor-index >= 0 && root.alias-editor-index < root.aliases.length ? 86px : 0px;
+                        visible: root.alias-editor-index >= 0 && root.alias-editor-index < root.aliases.length;
+                        border-radius: 8px;
+                        background: delete-alias.pressed ? #6f2020 : delete-alias.has-hover ? #4c2424 : transparent;
+                        border-width: 1px;
+                        border-color: root.light ? #c44f4f : #7a3434;
+                        Text { text: "Delete"; color: #ef7777; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        delete-alias := TouchArea { mouse-cursor: pointer; clicked => { if (root.alias-remove-requested(root.alias-editor-index)) { root.cancel-alias-editor(); } } }
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    Rectangle { width: 86px; border-radius: 8px; background: cancel-alias.pressed ? root.field-bg-pressed : cancel-alias.has-hover ? root.field-bg-hover : transparent; border-width: 1px; border-color: root.field-border;
+                        Text { text: "Cancel"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        cancel-alias := TouchArea { mouse-cursor: pointer; clicked => { root.cancel-alias-editor(); } }
+                    }
+                    Rectangle { width: 86px; border-radius: 8px; background: save-alias.pressed ? (root.light ? #303030 : #d6d6d6) : save-alias.has-hover ? (root.light ? #474747 : #eeeeee) : (root.light ? #202020 : #c8c8c8);
+                        Text { text: "Save"; color: root.light ? #ffffff : #181818; font-size: 12px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                        save-alias := TouchArea { mouse-cursor: pointer; clicked => { if (root.alias-save-requested(root.alias-editor-index, root.alias-editor-name, root.alias-editor-keyword, root.alias-editor-kind, root.alias-editor-target)) { root.cancel-alias-editor(); } } }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.web-search-editor-open: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: root.light ? #f3f3f3 : #181818;
+
+        TouchArea { }
+
+        Rectangle {
+            x: 0px;
+            y: (parent.height - self.height) / 2;
+            width: 100%;
+            height: 292px;
+            border-radius: 12px;
+            background: root.field-bg;
+            border-width: 1px;
+            border-color: root.field-border-focus;
+
+            VerticalLayout {
+                padding: 14px;
+                spacing: 8px;
+
+                HorizontalLayout {
+                    height: 38px;
+                    spacing: 10px;
+
+                    VerticalLayout {
+                        spacing: 1px;
+                        Text { text: root.web-search-editor-index < root.web-searches.length ? "Edit search engine" : "New search engine"; color: root.text-strong; font-size: 17px; font-weight: 700; }
+                        Text { text: "Use %s where the search terms belong in the URL"; color: root.text-muted; font-size: 10px; }
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    Rectangle { width: 42px; height: 38px; background: transparent;
+                        MiniToggle { x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2; checked <=> root.web-search-editor-enabled; light: root.light; }
+                    }
+                }
+
+                HorizontalLayout {
+                    height: 58px;
+                    spacing: 8px;
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "Name"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                        editor-name-field := EngineField { height: 38px; value <=> root.web-search-editor-name; light: root.light; editable: root.web-search-editor-index != 0; hint: "YouTube"; }
+                    }
+                    VerticalLayout {
+                        width: 180px;
+                        spacing: 4px;
+                        Text { text: "Keyword"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                        EngineField { height: 38px; value <=> root.web-search-editor-keyword; light: root.light; editable: root.web-search-editor-index != 0; hint: "youtube"; }
+                    }
+                }
+
+                VerticalLayout {
+                    height: 58px;
+                    spacing: 4px;
+                    Text { text: "URL"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                    editor-url-field := EngineField { height: 38px; value <=> root.web-search-editor-url; light: root.light; hint: "https://example.com/search?q=%s"; }
+                }
+
+                Text {
+                    height: 24px;
+                    text: root.web-search-editor-index == 0 ? "The built-in search name and keyword are fixed, but its URL can be changed." : "The favicon is fetched from the search engine after saving.";
+                    color: root.text-muted;
+                    font-size: 10px;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                }
+
+                HorizontalLayout {
+                    height: 40px;
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: root.web-search-editor-index > 0 && root.web-search-editor-index < root.web-searches.length ? 86px : 0px;
+                        visible: root.web-search-editor-index > 0 && root.web-search-editor-index < root.web-searches.length;
+                        border-radius: 8px;
+                        background: delete-engine.pressed ? #6f2020 : delete-engine.has-hover ? #4c2424 : transparent;
+                        border-width: 1px;
+                        border-color: root.light ? #c44f4f : #7a3434;
+                        Text { text: "Delete"; color: #ef7777; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        delete-engine := TouchArea { mouse-cursor: pointer; clicked => { if (root.web-search-remove-requested(root.web-search-editor-index)) { root.cancel-web-search-editor(); } } }
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    Rectangle { width: 86px; border-radius: 8px; background: cancel-engine.pressed ? root.field-bg-pressed : cancel-engine.has-hover ? root.field-bg-hover : transparent; border-width: 1px; border-color: root.field-border;
+                        Text { text: "Cancel"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        cancel-engine := TouchArea { mouse-cursor: pointer; clicked => { root.cancel-web-search-editor(); } }
+                    }
+                    Rectangle { width: 86px; border-radius: 8px; background: save-engine.pressed ? (root.light ? #303030 : #d6d6d6) : save-engine.has-hover ? (root.light ? #474747 : #eeeeee) : (root.light ? #202020 : #c8c8c8);
+                        Text { text: "Save"; color: root.light ? #ffffff : #181818; font-size: 12px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                        save-engine := TouchArea { mouse-cursor: pointer; clicked => { if (root.web-search-save-requested(root.web-search-editor-index, root.web-search-editor-name, root.web-search-editor-keyword, root.web-search-editor-url, root.web-search-editor-enabled)) { root.cancel-web-search-editor(); } } }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.status-text != "" && !root.alias-editor-open && !root.web-search-editor-open: Rectangle {
+        x: max(0px, (parent.width - self.width) / 2);
+        y: parent.height - 50px;
+        width: min(parent.width, 560px);
+        height: 42px;
+        border-radius: 9px;
+        background: root.light ? #242424 : #101010;
+        border-width: 1px;
+        border-color: root.notice-kind == "success"
+            ? root.light ? #2f8051 : #376c4d
+            : root.notice-kind == "error"
+            ? root.light ? #a94747 : #7a3b3b
+            : root.notice-kind == "warning"
+            ? root.light ? #a7662e : #795331
+            : root.light ? #111111 : #4a4a4a;
+        z: 400;
+
+        Rectangle {
+            width: 3px;
+            height: parent.height - 12px;
+            x: 0px;
+            y: 6px;
+            border-radius: 2px;
+            background: root.notice-kind == "success"
+                ? #51b873
+                : root.notice-kind == "error"
+                ? #df6b6b
+                : root.notice-kind == "warning"
+                ? #e59a5f
+                : root.light ? #bcbcbc : #858585;
+        }
+
+        Rectangle {
+            x: 12px; y: 11px; width: 20px; height: 20px;
+            border-radius: 10px;
+            background: root.notice-kind == "success"
+                ? #51b873
+                : root.notice-kind == "error"
+                ? #df6b6b
+                : root.notice-kind == "warning"
+                ? #e59a5f
+                : root.light ? #e9e9e9 : #d5d5d5;
+
+            if root.notice-kind == "success": Path {
+                x: 5px; y: 6px; width: 10px; height: 8px;
+                viewbox-width: 12; viewbox-height: 10;
+                commands: "M1 5 L4.5 8.5 L11 1.5";
+                stroke: #ffffff;
+                stroke-width: 2px;
+                fill: transparent;
+            }
+
+            if root.notice-kind != "success": Text {
+                width: 100%; height: 100%;
+                text: root.notice-kind == "info" ? "i" : "!";
+                color: root.notice-kind == "info" ? #242424 : #ffffff;
+                font-size: 11px;
+                font-weight: 800;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            x: 42px; width: parent.width - 78px; height: 100%;
+            text: root.status-text;
+            color: #eeeeee;
+            font-size: 10px;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Text { x: parent.width - 34px; width: 24px; height: 100%; text: "×"; color: notice-close.has-hover ? #ffffff : #aaaaaa; font-size: 20px; horizontal-alignment: center; vertical-alignment: center;
+            notice-close := TouchArea { mouse-cursor: pointer; clicked => { root.status-text = ""; } }
         }
     }
 }

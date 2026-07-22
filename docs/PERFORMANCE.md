@@ -46,6 +46,21 @@ The live profiler prints startup stages, settings app refresh, core search, resu
 
 ## History
 
+### 2026-07-21
+
+Environment: local Fedora GNOME/Wayland session, optimized build, 75 discovered apps, 26 folders, and installed optional modules.
+
+An empty startup query previously initialized and queried module hosts before the event loop. The normal Slint event loop also stopped when the hidden launcher was its last window, so every shortcut use paid cold-start cost. Empty queries now skip module execution, and the resident uses the daemon-style event loop.
+
+```text
+before: initial search 1.35s; startup before event loop 1.46s
+after:  initial search 0.25ms; startup before event loop 136.83ms
+warm IPC show client: <0.01s
+warm IPC hide client: <0.01s
+```
+
+After hide, the same process and Unix socket remain alive.
+
 ### 2026-07-07
 
 Environment: local development machine, synthetic probe, current workspace.

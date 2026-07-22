@@ -562,7 +562,7 @@ No additional owner input or repository bootstrap is required. The following env
 4. Repeat the launcher/window/shortcut checks on GNOME Wayland and KDE Plasma Wayland. Test X11 sessions where the distribution still provides them.
 5. Disconnect networking after a successful catalog refresh. Confirm installed modules execute and the verified cached catalog remains visible.
 6. Record the distribution, desktop/session, architecture, package versions, and pass/fail result in the release notes. Report any failure with the exact command, log, and environment; do not work around it by bundling modules into the app.
-7. Treat the Flatpak manifest as a prototype until its bundled `/app/libexec/rayslash/rayslash-module-host` and host-app launching behavior pass real Flatpak testing. The Flatpak contains the runtime host but no official or community modules.
+7. Verify that the direct Flatpak bundle contains `/app/libexec/rayslash/rayslash-module-host`, discovers host desktop entries, and starts selected host actions through `flatpak-spawn`. The Flatpak contains the runtime host but no official or community modules; its broad launcher permissions are documented and are not represented as Flathub-ready least privilege.
 
 ### Local signed-registry verification
 

@@ -1,6 +1,21 @@
 # Install
 
-These notes cover local development runs, a user install from the current checkout, and local desktop entry setup. Fedora and Arch package recipes now exist; Flatpak remains a prototype. See [PACKAGING.md](PACKAGING.md) for package status and reproducible build instructions.
+These notes cover release packages, local development runs, a user install from the current checkout, and local desktop entry setup. See [PACKAGING.md](PACKAGING.md) for reproducible build details.
+
+## Release Packages
+
+The [latest GitHub release](https://github.com/rslauncher/rayslash/releases/latest) provides x86_64 and ARM64 RPM, DEB, AppImage, and Flatpak downloads plus one `SHA256SUMS` manifest.
+
+Verify a downloaded file from the directory containing `SHA256SUMS`:
+
+```sh
+sha256sum --check --ignore-missing SHA256SUMS
+```
+
+- Fedora: download the architecture-matched `rayslash` and `rayslash-module-host` RPMs, then install both in one `dnf install ./...` transaction.
+- Debian/Ubuntu: install the matching `.deb` with `sudo apt install ./rayslash_*.deb`. The module host is included.
+- AppImage: mark it executable and bind the full AppImage path plus `toggle` to the desktop shortcut. The module host is included.
+- Flatpak: install the matching bundle with `flatpak install --user ./rayslash-*.flatpak`, then use `flatpak run dev.rayan6ms.rayslash toggle` for the shortcut. The module host is included.
 
 ## Development Runs
 
@@ -89,4 +104,4 @@ rayslash toggle
 
 ## Packaging
 
-Linux packaging notes and metadata validation commands live in [PACKAGING.md](PACKAGING.md). Official Fedora x86_64 and aarch64 app/host package sets are published on the [Rayslash releases page](https://github.com/rslauncher/rayslash/releases); installation and checksum commands are documented in the Fedora section of `PACKAGING.md`. Current package artifacts also include an Arch/AUR `PKGBUILD`, a Flatpak prototype manifest, AppStream/metainfo metadata, and an AppImage deferral note.
+Linux packaging notes and metadata validation commands live in [PACKAGING.md](PACKAGING.md). Release tags build and publish RPM, DEB, AppImage, and Flatpak artifacts for x86_64 and ARM64. Arch/AUR metadata remains available for source-based packaging.

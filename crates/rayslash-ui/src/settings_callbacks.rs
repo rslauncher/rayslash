@@ -51,6 +51,9 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         profile,
     } = context;
 
+    ui.on_settings_feedback_kind(|message| feedback_kind(message.as_str()).into());
+    ui.on_settings_feedback_duration_ms(|message| feedback_duration_ms(message.as_str()));
+
     ui.on_settings_requested({
         let weak = ui.as_weak();
         let config_state = config_state.clone();
@@ -297,20 +300,35 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let socket_path = socket_path.clone();
         move |index, name, keyword, kind, target| {
             let Some(ui) = weak.upgrade() else {
-                return;
+                return false;
             };
             let mut next = config_state.borrow().clone();
-            let Some(alias) = next.aliases.get_mut(index as usize) else {
-                return;
-            };
             if name.trim().is_empty() || keyword.trim().is_empty() || target.trim().is_empty() {
                 ui.set_status_text("Alias name, keyword, and target are required.".into());
-                return;
+                return false;
             }
-            alias.name = name.trim().to_owned();
-            alias.query = keyword.trim().to_owned();
-            alias.target = target.trim().to_owned();
-            alias.kind = parse_alias_kind(kind.as_str());
+            let kind_text = kind.trim();
+            let kind = parse_alias_kind(kind_text);
+            if !kind_text.is_empty() && kind.is_none() {
+                ui.set_status_text("Alias kind must be URL, file, folder, or command.".into());
+                return false;
+            }
+            let updated = config::AliasConfig {
+                name: name.trim().to_owned(),
+                query: keyword.trim().to_owned(),
+                target: target.trim().to_owned(),
+                kind,
+            };
+            if let Some(alias) = next.aliases.get_mut(index as usize) {
+                *alias = updated;
+            } else if index as usize == next.aliases.len() {
+                next.aliases.push(updated);
+            } else {
+                return false;
+            }
+            if next.clone().normalized() == *config_state.borrow() {
+                return true;
+            }
             save_collection_change(
                 &ui,
                 &config_state,
@@ -322,40 +340,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
-            );
-        }
-    });
-    ui.on_settings_alias_add_requested({
-        let weak = ui.as_weak();
-        let config_state = config_state.clone();
-        let projects = projects.clone();
-        let apps = apps.clone();
-        let ranking_state = ranking_state.clone();
-        let icon_cache = icon_cache.clone();
-        let socket_path = socket_path.clone();
-        move || {
-            let Some(ui) = weak.upgrade() else {
-                return;
-            };
-            let mut next = config_state.borrow().clone();
-            next.aliases.push(config::AliasConfig {
-                name: "New alias".into(),
-                query: "alias".into(),
-                target: "https://example.com".into(),
-                kind: Some(config::AliasKind::Url),
-            });
-            save_collection_change(
-                &ui,
-                &config_state,
-                next,
-                settings_save_blocked,
-                "Alias added.",
-                &projects.borrow(),
-                &apps.borrow(),
-                &ranking_state.borrow(),
-                &icon_cache,
-                &socket_path,
-            );
+            )
         }
     });
     ui.on_settings_alias_remove_requested({
@@ -368,11 +353,13 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let socket_path = socket_path.clone();
         move |index| {
             let Some(ui) = weak.upgrade() else {
-                return;
+                return false;
             };
             let mut next = config_state.borrow().clone();
             if (index as usize) < next.aliases.len() {
                 next.aliases.remove(index as usize);
+            } else {
+                return false;
             }
             save_collection_change(
                 &ui,
@@ -385,7 +372,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
-            );
+            )
         }
     });
     ui.on_settings_web_search_save_requested({
@@ -398,7 +385,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let socket_path = socket_path.clone();
         move |index, name, keyword, url, enabled| {
             let Some(ui) = weak.upgrade() else {
-                return;
+                return false;
             };
             let mut next = config_state.borrow().clone();
             let updated = config::WebSearchConfig {
@@ -408,65 +395,35 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 enabled,
             };
             let valid = rayslash_core::web_search::is_valid_template(&updated);
+            if !valid {
+                ui.set_status_text(
+                    "Complete the name, keyword, and a valid URL containing %s before saving."
+                        .into(),
+                );
+                return false;
+            }
             if let Some(engine) = next.web_searches.get_mut(index as usize) {
                 *engine = updated;
             } else if index as usize == next.web_searches.len() {
                 next.web_searches.push(updated);
             } else {
-                return;
+                return false;
             }
             if next.clone().normalized() == *config_state.borrow() {
-                return;
+                return true;
             }
             save_collection_change(
                 &ui,
                 &config_state,
                 next,
                 settings_save_blocked,
-                if valid {
-                    "Search engine saved."
-                } else {
-                    "Search engine draft saved; complete the required fields to activate it."
-                },
+                "Search engine saved.",
                 &projects.borrow(),
                 &apps.borrow(),
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
-            );
-        }
-    });
-    ui.on_settings_web_search_add_requested({
-        let weak = ui.as_weak();
-        let config_state = config_state.clone();
-        let projects = projects.clone();
-        let apps = apps.clone();
-        let ranking_state = ranking_state.clone();
-        let icon_cache = icon_cache.clone();
-        let socket_path = socket_path.clone();
-        move || {
-            let Some(ui) = weak.upgrade() else {
-                return;
-            };
-            let mut next = config_state.borrow().clone();
-            next.web_searches.push(config::WebSearchConfig {
-                name: String::new(),
-                keyword: String::new(),
-                url: String::new(),
-                enabled: true,
-            });
-            save_collection_change(
-                &ui,
-                &config_state,
-                next,
-                settings_save_blocked,
-                "Search engine draft added; changes save when a field loses focus.",
-                &projects.borrow(),
-                &apps.borrow(),
-                &ranking_state.borrow(),
-                &icon_cache,
-                &socket_path,
-            );
+            )
         }
     });
     ui.on_settings_web_search_remove_requested({
@@ -479,11 +436,13 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let socket_path = socket_path.clone();
         move |index| {
             let Some(ui) = weak.upgrade() else {
-                return;
+                return false;
             };
             let mut next = config_state.borrow().clone();
             if index > 0 && (index as usize) < next.web_searches.len() {
                 next.web_searches.remove(index as usize);
+            } else {
+                return false;
             }
             save_collection_change(
                 &ui,
@@ -496,7 +455,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
-            );
+            )
         }
     });
 
@@ -609,14 +568,14 @@ fn save_collection_change(
     ranking: &ranking::RankingState,
     icon_cache: &Rc<RefCell<IconImageCache>>,
     socket_path: &std::path::Path,
-) {
+) -> bool {
     if blocked {
         ui.set_status_text("Could not save settings: fix config.toml and restart rayslash.".into());
-        return;
+        return false;
     }
     if let Err(error) = config::save_config_with_backup(&config_to_save) {
         ui.set_status_text(format!("Could not save settings: {error}").into());
-        return;
+        return false;
     }
     *state.borrow_mut() = config_to_save.normalized();
     let favicon_searches = state.borrow().web_searches.clone();
@@ -653,6 +612,7 @@ fn save_collection_change(
         socket_path,
     );
     set_ephemeral_status(ui, message);
+    true
 }
 
 fn set_ephemeral_status(ui: &AppWindow, message: &str) {
@@ -660,11 +620,91 @@ fn set_ephemeral_status(ui: &AppWindow, message: &str) {
 
     let expected = message.to_owned();
     let weak = ui.as_weak();
-    Timer::single_shot(Duration::from_millis(1800), move || {
-        if let Some(ui) = weak.upgrade()
-            && ui.get_status_text().as_str() == expected
-        {
-            ui.set_status_text(DEFAULT_STATUS_TEXT.into());
-        }
-    });
+    Timer::single_shot(
+        Duration::from_millis(feedback_duration_ms(message) as u64),
+        move || {
+            if let Some(ui) = weak.upgrade()
+                && ui.get_status_text().as_str() == expected
+            {
+                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+            }
+        },
+    );
+}
+
+fn feedback_duration_ms(message: &str) -> i32 {
+    let characters = message.chars().count() as i32;
+    (1_200 + (characters * 1_000 + 17) / 18).clamp(4_200, 10_000)
+}
+
+fn feedback_kind(message: &str) -> &'static str {
+    let message = message.to_ascii_lowercase();
+
+    if [
+        "could not",
+        "failed",
+        "cannot",
+        "must be",
+        "required",
+        "invalid",
+        "unknown",
+        "unavailable",
+        "read-only",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+    {
+        "error"
+    } else if [
+        "installing",
+        "restoring",
+        "updating",
+        "removing",
+        "repairing",
+        "confirm",
+        "new capabilities",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+    {
+        "warning"
+    } else if [
+        "saved",
+        "completed",
+        "enabled",
+        "disabled",
+        "installed",
+        "restored",
+        "updated",
+        "removed",
+        "cleared",
+        "selected",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+    {
+        "success"
+    } else {
+        "info"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{feedback_duration_ms, feedback_kind};
+
+    #[test]
+    fn feedback_kind_distinguishes_status_intent() {
+        assert_eq!(feedback_kind("Calculator enabled."), "success");
+        assert_eq!(feedback_kind("Restoring Aliases…"), "warning");
+        assert_eq!(feedback_kind("Could not save settings."), "error");
+        assert_eq!(feedback_kind("No changes to apply."), "info");
+    }
+
+    #[test]
+    fn feedback_duration_scales_from_a_readable_minimum() {
+        assert_eq!(feedback_duration_ms("Saved."), 4_200);
+        assert!(feedback_duration_ms(&"warning ".repeat(15)) > 4_200);
+        assert_eq!(feedback_duration_ms(&"very long ".repeat(100)), 10_000);
+    }
 }
