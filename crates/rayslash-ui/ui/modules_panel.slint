@@ -6,32 +6,34 @@ component ModuleTab inherits Rectangle {
     in property <bool> light;
     callback clicked();
 
-    height: 34px;
-    border-radius: 7px;
-    background: root.selected
-        ? root.light ? #202020 : #d6d6d6
-        : tab-touch.has-hover ? root.light ? #eeeeee : #292929 : transparent;
-
-    animate background { duration: 90ms; }
+    height: 44px;
+    background: transparent;
 
     Text {
-        width: 100%;
-        height: 100%;
+        width: 100%; height: 100%;
         text: root.label;
         color: root.selected
-            ? root.light ? #ffffff : #181818
-            : root.light ? #333333 : #dddddd;
+            ? root.light ? #202020 : #f1f1f1
+            : tab-touch.has-hover ? root.light ? #353535 : #d4d4d4
+            : root.light ? #737373 : #9c9c9c;
         font-size: 12px;
-        font-weight: 700;
+        font-weight: root.selected ? 700 : 600;
         horizontal-alignment: center;
         vertical-alignment: center;
     }
 
+    Rectangle {
+        x: 12px;
+        y: parent.height - 2px;
+        width: parent.width - 24px;
+        height: 2px;
+        border-radius: 1px;
+        background: root.selected ? root.light ? #242424 : #eeeeee : transparent;
+    }
+
     tab-touch := TouchArea {
         mouse-cursor: pointer;
-        clicked => {
-            root.clicked();
-        }
+        clicked => { root.clicked(); }
     }
 }
 
@@ -41,35 +43,34 @@ component ModuleSwitch inherits Rectangle {
     in property <bool> light;
     callback toggled(bool);
 
-    width: 38px;
+    width: 40px;
     height: 22px;
     border-radius: 11px;
-    opacity: root.available ? 1 : 0.45;
-    background: root.light
-        ? root.checked ? #202020 : #dedede
-        : root.checked ? #d6d6d6 : #343434;
+    opacity: root.available ? 1 : 0.42;
+    background: root.checked
+        ? root.light ? #292929 : #d8d8d8
+        : root.light ? #dddddd : #343434;
     border-width: 1px;
-    border-color: root.light ? #999999 : #666666;
+    border-color: root.checked
+        ? root.light ? #292929 : #eeeeee
+        : root.light ? #b6b6b6 : #565656;
 
     Rectangle {
-        x: root.checked ? 18px : 2px;
-        y: 2px;
+        x: root.checked ? 21px : 3px;
+        y: 3px;
         width: 16px;
         height: 16px;
         border-radius: 8px;
-        background: root.light
-            ? root.checked ? #ffffff : #777777
-            : root.checked ? #181818 : #b8b8b8;
-
+        background: root.checked
+            ? root.light ? #ffffff : #1c1c1c
+            : root.light ? #7d7d7d : #bdbdbd;
         animate x { duration: 100ms; }
     }
 
-    switch-touch := TouchArea {
+    TouchArea {
         enabled: root.available;
         mouse-cursor: root.available ? pointer : default;
-        clicked => {
-            root.toggled(!root.checked);
-        }
+        clicked => { root.toggled(!root.checked); }
     }
 }
 
@@ -78,25 +79,73 @@ component ModuleIcon inherits Rectangle {
     in property <string> text;
     in property <bool> light;
 
-    width: 38px;
-    height: 38px;
-    border-radius: 9px;
-    background: root.light ? #e8e8e8 : #343434;
-    private property <color> glyph: root.light ? #4d4d4d : #d0d0d0;
+    width: 48px;
+    height: 48px;
+    border-radius: 11px;
+    background: root.light ? #e9e9e9 : #2d2d2d;
+    border-width: 1px;
+    border-color: root.light ? #dddddd : #363636;
+    private property <color> glyph: root.light ? #555555 : #d2d2d2;
 
     Text {
-        width: 100%; height: 100%; text: root.text; color: root.glyph;
-        font-size: 16px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center;
+        width: 100%; height: 100%;
+        text: root.text;
+        color: root.glyph;
+        font-size: 18px;
+        font-weight: 800;
+        horizontal-alignment: center;
+        vertical-alignment: center;
         visible: root.text != "";
     }
-    Rectangle { x: 9px; y: 6px; width: 20px; height: 26px; border-radius: 3px; background: transparent; border-width: 2px; border-color: root.glyph; visible: root.kind == "calculator"; }
-    Rectangle { x: 14px; y: 12px; width: 10px; height: 2px; background: root.glyph; visible: root.kind == "calculator"; }
-    Rectangle { x: 8px; y: 8px; width: 22px; height: 22px; border-radius: 11px; background: transparent; border-width: 2px; border-color: root.glyph; visible: root.kind == "time" || root.kind == "stopwatch"; }
-    Rectangle { x: 18px; y: 12px; width: 2px; height: 9px; border-radius: 1px; background: root.glyph; visible: root.kind == "time" || root.kind == "stopwatch"; }
-    Rectangle { x: 18px; y: 19px; width: 7px; height: 2px; border-radius: 1px; background: root.glyph; visible: root.kind == "time" || root.kind == "stopwatch"; }
-    if root.kind == "stopwatch": Path { x: 12px; y: 4px; width: 14px; height: 8px; viewbox-width: 14; viewbox-height: 8; commands: "M3 6 L7 2 L11 6"; stroke: root.glyph; stroke-width: 2px; fill: transparent; }
-    if root.kind == "search": Path { x: 8px; y: 7px; width: 22px; height: 22px; viewbox-width: 24; viewbox-height: 24; commands: "M10.5 4 A6.5 6.5 0 1 0 10.5 17 A6.5 6.5 0 1 0 10.5 4 M15.5 15.5 L21 21"; stroke: root.glyph; stroke-width: 2px; fill: transparent; }
-    if root.kind == "link": Path { x: 7px; y: 7px; width: 24px; height: 24px; viewbox-width: 24; viewbox-height: 24; commands: "M10 13a5 5 0 0 0 7.1.1l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7 M14 11a5 5 0 0 0-7.1-.1l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7"; stroke: root.glyph; stroke-width: 2px; fill: transparent; }
+    Rectangle { x: 11px; y: 8px; width: 26px; height: 32px; border-radius: 4px; background: transparent; border-width: 2px; border-color: root.glyph; visible: root.kind == "calculator"; }
+    Rectangle { x: 17px; y: 15px; width: 14px; height: 2px; background: root.glyph; visible: root.kind == "calculator"; }
+    Rectangle { x: 10px; y: 10px; width: 28px; height: 28px; border-radius: 14px; background: transparent; border-width: 2px; border-color: root.glyph; visible: root.kind == "time" || root.kind == "stopwatch"; }
+    Rectangle { x: 23px; y: 15px; width: 2px; height: 10px; border-radius: 1px; background: root.glyph; visible: root.kind == "time" || root.kind == "stopwatch"; }
+    Rectangle { x: 23px; y: 23px; width: 8px; height: 2px; border-radius: 1px; background: root.glyph; visible: root.kind == "time" || root.kind == "stopwatch"; }
+    if root.kind == "stopwatch": Path { x: 15px; y: 5px; width: 18px; height: 9px; viewbox-width: 14; viewbox-height: 8; commands: "M3 6 L7 2 L11 6"; stroke: root.glyph; stroke-width: 2px; fill: transparent; }
+    if root.kind == "search": Path { x: 11px; y: 10px; width: 27px; height: 27px; viewbox-width: 24; viewbox-height: 24; commands: "M10.5 4 A6.5 6.5 0 1 0 10.5 17 A6.5 6.5 0 1 0 10.5 4 M15.5 15.5 L21 21"; stroke: root.glyph; stroke-width: 2px; fill: transparent; }
+    if root.kind == "link": Path { x: 10px; y: 10px; width: 28px; height: 28px; viewbox-width: 24; viewbox-height: 24; commands: "M10 13a5 5 0 0 0 7.1.1l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7 M14 11a5 5 0 0 0-7.1-.1l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7"; stroke: root.glyph; stroke-width: 2px; fill: transparent; }
+}
+
+component ActionButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> available;
+    in property <bool> primary;
+    in property <bool> destructive;
+    in property <bool> light;
+    callback clicked();
+
+    width: 100px;
+    height: 28px;
+    border-radius: 7px;
+    opacity: root.available ? 1 : 0.42;
+    background: root.destructive
+        ? action-touch.pressed ? #5d2424 : action-touch.has-hover ? #482626 : transparent
+        : root.primary
+        ? action-touch.pressed ? root.light ? #444444 : #bbbbbb : action-touch.has-hover ? root.light ? #333333 : #e8e8e8 : root.light ? #242424 : #d8d8d8
+        : action-touch.pressed ? root.light ? #dddddd : #353535 : action-touch.has-hover ? root.light ? #eeeeee : #2c2c2c : transparent;
+    border-width: root.primary ? 0px : 1px;
+    border-color: root.destructive ? root.light ? #b95353 : #7b3939 : root.light ? #b9b9b9 : #4b4b4b;
+
+    Text {
+        width: 100%; height: 100%;
+        text: root.label;
+        color: root.destructive
+            ? root.light ? #a32f2f : #ef9292
+            : root.primary ? root.light ? #ffffff : #1a1a1a
+            : root.light ? #303030 : #e0e0e0;
+        font-size: 11px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    action-touch := TouchArea {
+        enabled: root.available;
+        mouse-cursor: root.available ? pointer : default;
+        clicked => { root.clicked(); }
+    }
 }
 
 component ModuleCard inherits Rectangle {
@@ -106,21 +155,21 @@ component ModuleCard inherits Rectangle {
     callback toggle-requested(string, bool);
     callback action-requested(string, string);
 
-    private property <bool> has-feedback: root.item.operation_summary != "";
-    private property <length> feedback-height: !root.has-feedback ? 0px
-        : root.item.operation_details_expanded ? 94px : 38px;
-    height: root.shown ? 136px + root.feedback-height : 0px;
+    private property <bool> show-confirmation: root.item.operation_confirmation && root.item.operation_summary != "";
+    height: root.shown ? 96px + (root.show-confirmation ? 36px : 0px) : 0px;
     visible: root.shown;
     border-radius: 10px;
-    background: root.light ? #ffffff : #202020;
+    background: card-touch.has-hover ? root.light ? #fafafa : #202020 : root.light ? #ffffff : #1d1d1d;
     border-width: 1px;
-    border-color: root.light ? #d0d0d0 : #3a3a3a;
+    border-color: card-touch.has-hover ? root.light ? #bdbdbd : #4b4b4b : root.light ? #d2d2d2 : #373737;
+
+    card-touch := TouchArea { }
 
     HorizontalLayout {
-        padding-left: 12px;
-        padding-right: 12px;
+        padding-left: 14px;
+        padding-right: 14px;
         padding-top: 10px;
-        padding-bottom: 10px;
+        padding-bottom: root.show-confirmation ? 46px : 10px;
         spacing: 11px;
 
         ModuleIcon {
@@ -131,299 +180,345 @@ component ModuleCard inherits Rectangle {
         }
 
         VerticalLayout {
-            spacing: 3px;
+            spacing: 0px;
+            alignment: center;
 
             HorizontalLayout {
-                height: 21px;
+                height: 18px;
                 spacing: 7px;
 
                 Text {
                     text: root.item.name;
-                    color: root.light ? #1f1f1f : #f2f2f2;
+                    color: root.light ? #202020 : #f2f2f2;
                     font-size: 14px;
                     font-weight: 700;
                     overflow: elide;
                     vertical-alignment: center;
+                    horizontal-stretch: 0;
                 }
 
                 Rectangle {
-                    width: root.item.official ? 52px : 0px;
+                    width: root.item.official ? 50px : 0px;
                     height: 18px;
                     visible: root.item.official;
                     border-radius: 5px;
-                    background: root.light ? #e2e2e2 : #393939;
+                    background: root.light ? #e7e7e7 : #353535;
                     horizontal-stretch: 0;
-
-                    Text {
-                        width: 100%;
-                        height: 100%;
-                        text: "Official";
-                        color: root.light ? #454545 : #cfcfcf;
-                        font-size: 9px;
-                        font-weight: 700;
-                        horizontal-alignment: center;
-                        vertical-alignment: center;
-                    }
+                    Text { text: "Official"; color: root.light ? #4e4e4e : #cfcfcf; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                 }
+
+                if root.item.update_available: Rectangle {
+                    width: 76px; height: 18px; border-radius: 5px;
+                    background: root.light ? #fff4d6 : #45391e;
+                    horizontal-stretch: 0;
+                    Text { text: "Update ready"; color: root.light ? #805e12 : #e6c76e; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                }
+
+                Rectangle { horizontal-stretch: 1; background: transparent; }
             }
 
             Text {
-                height: 18px;
+                height: 16px;
                 text: root.item.description;
-                color: root.light ? #555555 : #b8b8b8;
+                color: root.light ? #5d5d5d : #b8b8b8;
                 font-size: 11px;
                 overflow: elide;
                 vertical-alignment: center;
             }
 
-            Text {
+            HorizontalLayout {
                 height: 16px;
-                text: root.item.permissions;
-                color: root.light ? #6d5a38 : #c5aa78;
-                font-size: 9px;
-                overflow: elide;
-                vertical-alignment: center;
+                spacing: 7px;
+
+                Text { text: root.item.category; color: root.light ? #626262 : #aaaaaa; font-size: 10px; horizontal-stretch: 0; vertical-alignment: center; }
+                Text { text: "•"; color: root.light ? #a0a0a0 : #686868; font-size: 9px; horizontal-stretch: 0; vertical-alignment: center; }
+                Text { text: "by " + root.item.author; color: root.light ? #737373 : #929292; font-size: 10px; horizontal-stretch: 0; vertical-alignment: center; overflow: elide; }
+                Text { text: root.item.version == "" ? "" : "•  v" + root.item.version; color: root.light ? #787878 : #8e8e8e; font-size: 10px; horizontal-stretch: 0; vertical-alignment: center; }
+                Text {
+                    text: root.item.stars == "" ? "" : "•  ★ " + root.item.stars;
+                    color: root.item.stars != "" && root.item.stars != "0" ? #d7a92e : root.light ? #838383 : #858585;
+                    font-size: 10px; horizontal-stretch: 0; vertical-alignment: center;
+                }
+                Text { text: root.item.license == "" ? "" : "•  " + root.item.license; color: root.light ? #787878 : #8e8e8e; font-size: 10px; horizontal-stretch: 0; vertical-alignment: center; }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
             }
 
             HorizontalLayout {
-                height: 18px;
-                spacing: 6px;
-
-                Text {
-                    text: "by " + root.item.author;
-                    color: root.light ? #707070 : #929292;
-                    font-size: 10px;
-                    overflow: elide;
-                    vertical-alignment: center;
+                height: 26px;
+                spacing: 8px;
+                Text { text: root.item.repository == "" ? "" : "Source code"; color: source-touch.has-hover ? root.light ? #235f9e : #87bdf1 : root.light ? #3476b9 : #70a8df; font-size: 10px; horizontal-stretch: 0; vertical-alignment: center;
+                    source-touch := TouchArea { enabled: root.item.repository != ""; mouse-cursor: pointer; clicked => { root.action-requested(root.item.id, "Source"); } }
                 }
-
-                Text {
-                    text: root.item.version == "" ? "" : "v" + root.item.version;
-                    color: root.light ? #777777 : #888888;
-                    font-size: 10px;
-                    horizontal-stretch: 0;
-                    vertical-alignment: center;
+                Text { text: root.item.repository == "" ? "" : "•  Report issues"; color: issues-touch.has-hover ? root.light ? #9a5523 : #ffc087 : root.light ? #b96b31 : #e59a5f; font-size: 10px; horizontal-stretch: 0; vertical-alignment: center;
+                    issues-touch := TouchArea { enabled: root.item.repository != ""; mouse-cursor: pointer; clicked => { root.action-requested(root.item.id, "Issues"); } }
                 }
-
-                Text {
-                    text: root.item.stars == "" ? "" : "★ " + root.item.stars;
-                    color: root.light ? #777777 : #888888;
-                    font-size: 10px;
-                    horizontal-stretch: 0;
-                    vertical-alignment: center;
-                }
-
-                Text {
-                    text: root.item.license == "" ? "" : root.item.license + " · " + root.item.review_status;
-                    color: root.light ? #777777 : #888888;
-                    font-size: 9px;
-                    horizontal-stretch: 0;
-                    vertical-alignment: center;
-                }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
             }
 
-            Text {
-                height: 18px;
-                text: root.item.operation_pending ? root.item.operation_label : root.item.status;
-                color: root.item.operation_failed
-                    ? root.light ? #9b3030 : #f29a9a
-                    : root.item.operation_pending ? root.light ? #765b18 : #e4c46b
-                    : root.item.installed && root.item.enabled
-                    ? root.light ? #2f6a43 : #86c99d
-                    : root.light ? #777777 : #969696;
-                font-size: 10px;
-                font-weight: 600;
-                vertical-alignment: center;
-            }
-
-            if root.has-feedback: Rectangle {
-                height: root.feedback-height;
-                border-radius: 6px;
-                background: root.item.operation_failed
-                    ? root.light ? #fff0f0 : #3b2424
-                    : root.light ? #eef5ef : #243329;
-
-                VerticalLayout {
-                    padding-left: 7px; padding-right: 7px; padding-top: 4px; padding-bottom: 4px;
-                    spacing: 2px;
-                    Text {
-                        text: root.item.operation_summary;
-                        color: root.item.operation_failed
-                            ? root.light ? #852828 : #f0aaaa
-                            : root.light ? #315f3d : #9bcba7;
-                        font-size: 9px; font-weight: 600;
-                        wrap: word-wrap;
-                    }
-                    if root.item.operation_details_expanded: Text {
-                        text: root.item.operation_details;
-                        color: root.light ? #555555 : #c0c0c0;
-                        font-size: 9px;
-                        wrap: word-wrap;
-                        overflow: elide;
-                    }
-                    if root.item.operation_details != root.item.operation_summary: Text {
-                        text: root.item.operation_details_expanded ? "Hide details" : "Show details";
-                        color: details-touch.has-hover
-                            ? root.light ? #111111 : #ffffff
-                            : root.light ? #555555 : #bcbcbc;
-                        font-size: 8px;
-                        details-touch := TouchArea {
-                            enabled: !root.item.operation_pending;
-                            mouse-cursor: pointer;
-                            clicked => { root.action-requested(root.item.id, "Details"); }
-                        }
-                    }
-                }
-            }
         }
 
         VerticalLayout {
-            width: 62px;
-            spacing: 5px;
-            alignment: center;
+            width: 208px;
+            spacing: 0px;
 
-            Rectangle {
-                height: 22px;
-                background: transparent;
-
-                ModuleSwitch {
-                    x: (parent.width - self.width) / 2;
-                    checked: root.item.enabled;
-                    available: root.item.installed && !root.item.operation_pending;
-                    light: root.light;
-                    toggled(enabled) => {
-                        root.toggle-requested(root.item.id, enabled);
-                    }
-                }
-            }
-
-            Text {
-                text: root.item.enabled ? "Enabled" : "Disabled";
-                color: root.light ? #666666 : #9a9a9a;
-                font-size: 9px;
-                horizontal-alignment: center;
-            }
-
-            Rectangle {
-                height: 24px;
-                border-radius: 6px;
-                background: action-touch.has-hover
-                    ? root.light ? #d6d6d6 : #444444
-                    : root.light ? #e7e7e7 : #343434;
-                border-width: 1px;
-                border-color: root.light ? #bdbdbd : #555555;
+            HorizontalLayout {
+                height: 26px;
+                alignment: end;
+                spacing: 10px;
 
                 Text {
-                    width: 100%; height: 100%;
-                    text: root.item.operation_pending ? root.item.operation_label : root.item.action;
-                    color: root.light ? #333333 : #dddddd;
-                    font-size: 9px; font-weight: 700;
-                    horizontal-alignment: center; vertical-alignment: center;
+                    text: root.item.operation_pending ? root.item.operation_label
+                        : root.item.installed ? root.item.enabled ? "Enabled" : "Disabled"
+                        : root.item.has_saved_data ? "Ready to restore" : "Not installed";
+                    color: root.item.operation_pending ? root.light ? #876615 : #dfc266
+                        : root.item.installed && root.item.enabled ? root.light ? #2f7247 : #75c88e
+                        : root.item.installed ? root.light ? #916b16 : #e4b842
+                        : root.light ? #777777 : #9b9b9b;
+                    font-size: 11px;
+                    font-weight: 600;
+                    horizontal-stretch: 0;
+                    vertical-alignment: center;
                 }
-                action-touch := TouchArea {
-                    enabled: root.item.action_available && !root.item.operation_pending;
-                    mouse-cursor: root.item.action_available && !root.item.operation_pending ? pointer : default;
+
+                if root.item.installed: ModuleSwitch {
+                    checked: root.item.enabled;
+                    available: !root.item.operation_pending;
+                    light: root.light;
+                    toggled(enabled) => { root.toggle-requested(root.item.id, enabled); }
+                }
+            }
+
+            Rectangle { vertical-stretch: 1; background: transparent; }
+
+            HorizontalLayout {
+                height: 28px;
+                alignment: end;
+                spacing: 8px;
+
+                if root.item.secondary_action_available: ActionButton {
+                    label: root.item.secondary_action;
+                    available: !root.item.operation_pending;
+                    primary: false;
+                    destructive: root.item.secondary_action == "Delete data" || root.item.secondary_action == "Confirm delete";
+                    light: root.light;
+                    clicked => { root.action-requested(root.item.id, root.item.secondary_action); }
+                }
+
+                ActionButton {
+                    label: root.item.operation_pending ? root.item.operation_label : root.item.action;
+                    available: root.item.action_available && !root.item.operation_pending;
+                    primary: root.item.action != "Remove" && root.item.action != "Unavailable";
+                    destructive: false;
+                    light: root.light;
                     clicked => { root.action-requested(root.item.id, root.item.action); }
-                }
-            }
-
-            Text {
-                height: root.item.installed ? 14px : 0px;
-                visible: root.item.installed;
-                text: "Remove + data";
-                color: remove-all-touch.has-hover
-                    ? root.light ? #8a2f2f : #ef9a9a
-                    : root.light ? #777777 : #999999;
-                font-size: 8px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-                remove-all-touch := TouchArea {
-                    enabled: !root.item.operation_pending;
-                    mouse-cursor: root.item.operation_pending ? default : pointer;
-                    clicked => { root.action-requested(root.item.id, "Remove all"); }
-                }
-            }
-
-            Text {
-                height: root.item.repository == "" ? 0px : 14px;
-                visible: root.item.repository != "";
-                text: "Source";
-                color: source-touch.has-hover
-                    ? root.light ? #222222 : #eeeeee
-                    : root.light ? #666666 : #aaaaaa;
-                font-size: 9px;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-                source-touch := TouchArea {
-                    mouse-cursor: pointer;
-                    clicked => { root.action-requested(root.item.id, "Source"); }
                 }
             }
         }
     }
+
+    if root.show-confirmation: Rectangle {
+        x: 75px;
+        y: parent.height - 37px;
+        width: parent.width - 90px;
+        height: 28px;
+        border-radius: 6px;
+        background: root.light ? #fff3e2 : #3c3021;
+        Text {
+            x: 9px; width: parent.width - 78px; height: 100%;
+            text: root.item.operation_summary;
+            color: root.light ? #865b1d : #dfbd7b;
+            font-size: 9px;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            x: parent.width - 67px; width: 58px; height: 100%;
+            text: "Cancel";
+            color: cancel-delete.has-hover ? root.light ? #4c2d0a : #ffe1a6 : root.light ? #865b1d : #dfbd7b;
+            font-size: 9px;
+            font-weight: 700;
+            horizontal-alignment: right;
+            vertical-alignment: center;
+            cancel-delete := TouchArea { mouse-cursor: pointer; clicked => { root.action-requested(root.item.id, "Cancel delete"); } }
+        }
+    }
+}
+
+component MenuOption inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> light;
+    callback clicked();
+    height: 34px;
+    border-radius: 6px;
+    background: option-touch.has-hover ? root.light ? #e8e8e8 : #303030 : transparent;
+    Text { x: 9px; width: parent.width - 18px; height: 100%; text: (root.selected ? "✓  " : "    ") + root.label; color: root.light ? #303030 : #dedede; font-size: 10px; font-weight: root.selected ? 700 : 500; vertical-alignment: center; }
+    option-touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
 }
 
 export component ModulesPanel inherits FocusScope {
     in property <[ModuleItem]> modules;
     in property <bool> light;
+    in-out property <string> sort-order: "name-asc";
     callback module-toggle-requested(string, bool);
     callback module-action-requested(string, string);
+    callback cancel-requested();
+    pure callback module-matches(string, string) -> bool;
+    pure callback visible-module-count(string, string, bool, bool, int) -> int;
+    callback sort-requested(string);
 
     private property <string> selected-tab: "installed";
+    private property <string> search-query: "";
+    private property <bool> sort-menu-open: false;
+    private property <bool> filter-menu-open: false;
+    private property <bool> updates-only: false;
+    private property <bool> saved-data-only: false;
+    private property <int> installed-count: root.modules.length > 0 ? root.modules[0].installed_count : 0;
+    private property <int> restorable-count: root.modules.length > 0 ? root.modules[0].restorable_count : 0;
+    private property <int> official-count: root.modules.length > 0 ? root.modules[0].official_count : 0;
+    private property <int> community-count: root.modules.length > 0 ? root.modules[0].community_count : 0;
+    private property <int> visible-count: root.visible-module-count(root.selected-tab, root.search-query, root.updates-only, root.saved-data-only, root.modules.length);
 
     public function reset-scroll() {
         module-scroll.viewport-y = 0px;
+        root.sort-menu-open = false;
+        root.filter-menu-open = false;
+    }
+
+    public function focus-modules() {
+        root.focus();
+    }
+
+    key-pressed(event) => {
+        if (event.text == Key.Escape) {
+            root.cancel-requested();
+            accept
+        } else {
+            reject
+        }
+    }
+
+    function choose-sort(order: string) {
+        root.sort-order = order;
+        root.sort-menu-open = false;
+        root.sort-requested(order);
+        root.reset-scroll();
     }
 
     VerticalLayout {
-        spacing: 8px;
+        spacing: 7px;
 
         Text {
             height: 18px;
-            text: "Manage optional modules without changing the launcher core.";
-            color: root.light ? #666666 : #9a9a9a;
-            font-size: 11px;
+            text: root.visible-count == 0
+                ? root.search-query != "" || root.updates-only || root.saved-data-only
+                    ? "No modules found. Try another search or clear the active filters."
+                    : root.selected-tab == "installed"
+                    ? "No modules installed. Browse Official or Community to add launcher features."
+                    : root.selected-tab == "official"
+                    ? "No official modules found in the current catalog."
+                    : "No community modules found in the current catalog."
+                : root.selected-tab == "installed"
+                ? root.installed-count == 0 && root.restorable-count == 0
+                    ? "No modules installed. Browse Official or Community to add launcher features."
+                    : root.restorable-count > 0
+                    ? "Removed modules with retained settings can be restored here or have their data deleted."
+                    : "Installed modules can be enabled, updated, or removed here."
+                : root.selected-tab == "official"
+                ? root.official-count == 0 ? "No official modules are available in the current catalog." : "Official modules are maintained by the rayslash project."
+                : root.community-count == 0 ? "No community modules are available in the current catalog." : "Community modules come from the signed, verified registry.";
+            color: root.light ? #676767 : #a0a0a0;
+            font-size: 10px;
             vertical-alignment: center;
+            overflow: elide;
         }
 
         Rectangle {
-            height: 38px;
+            height: 92px;
             border-radius: 9px;
-            background: root.light ? #e7e7e7 : #222222;
+            background: root.light ? #f5f5f5 : #1c1c1c;
             border-width: 1px;
-            border-color: root.light ? #d0d0d0 : #3a3a3a;
+            border-color: root.light ? #d1d1d1 : #383838;
+            z: 20;
 
-            HorizontalLayout {
-                padding: 2px;
-                spacing: 2px;
+            VerticalLayout {
+                padding: 8px;
+                spacing: 8px;
 
-                ModuleTab {
-                    label: "Installed";
-                    selected: root.selected-tab == "installed";
-                    light: root.light;
-                    clicked => {
-                        root.selected-tab = "installed";
-                        root.reset-scroll();
+                HorizontalLayout {
+                    height: 34px;
+                    spacing: 0px;
+                    HorizontalLayout {
+                        width: 240px;
+                        spacing: 0px;
+                        ModuleTab { height: 34px; label: "Installed"; selected: root.selected-tab == "installed"; light: root.light; clicked => { root.selected-tab = "installed"; root.reset-scroll(); } }
+                        ModuleTab { height: 34px; label: "Official"; selected: root.selected-tab == "official"; light: root.light; clicked => { root.selected-tab = "official"; root.reset-scroll(); } }
+                        ModuleTab { height: 34px; label: "Community"; selected: root.selected-tab == "community"; light: root.light; clicked => { root.selected-tab = "community"; root.reset-scroll(); } }
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                }
+
+                HorizontalLayout {
+                    height: 34px;
+                    spacing: 8px;
+
+                    Rectangle {
+                    horizontal-stretch: 1;
+                    border-radius: 8px;
+                    background: root.light ? #ffffff : #181818;
+                    border-width: 1px;
+                    border-color: module-search.has-focus ? root.light ? #777777 : #858585 : root.light ? #cacaca : #404040;
+                    Path { x: 10px; y: 7px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; commands: "M10.5 4 A6.5 6.5 0 1 0 10.5 17 A6.5 6.5 0 1 0 10.5 4 M15.5 15.5 L21 21"; stroke: root.light ? #666666 : #a8a8a8; stroke-width: 2px; fill: transparent; }
+                    Text { x: 38px; width: parent.width - 50px; height: 100%; text: "Search modules…"; visible: module-search.text == ""; color: root.light ? #858585 : #808080; font-size: 11px; vertical-alignment: center; }
+                    module-search := TextInput {
+                        x: 38px; width: parent.width - 50px; height: 100%;
+                        text: root.search-query;
+                        color: root.light ? #242424 : #e8e8e8;
+                        font-size: 11px;
+                        single-line: true;
+                        vertical-alignment: center;
+                        edited => { root.search-query = self.text; root.reset-scroll(); }
                     }
                 }
 
-                ModuleTab {
-                    label: "Official";
-                    selected: root.selected-tab == "official";
-                    light: root.light;
-                    clicked => {
-                        root.selected-tab = "official";
-                        root.reset-scroll();
+                    sort-control := Rectangle {
+                    width: 134px;
+                    border-radius: 8px;
+                    background: sort-touch.has-hover || root.sort-menu-open ? root.light ? #eeeeee : #292929 : root.light ? #ffffff : #1c1c1c;
+                    border-width: 1px;
+                    border-color: root.light ? #c8c8c8 : #414141;
+                    Text { x: 12px; width: parent.width - 32px; height: 100%; text: root.sort-order == "name-desc" ? "Name (Z–A)" : root.sort-order == "stars" ? "Most starred" : "Name (A–Z)"; color: root.light ? #3f3f3f : #c9c9c9; font-size: 10px; font-weight: 600; vertical-alignment: center; overflow: elide; }
+                    Text { x: parent.width - 21px; width: 12px; height: 100%; text: root.sort-menu-open ? "⌃" : "⌄"; color: root.light ? #555555 : #bcbcbc; font-size: 12px; vertical-alignment: center; }
+                    sort-touch := TouchArea { mouse-cursor: pointer; clicked => { root.sort-menu-open = !root.sort-menu-open; root.filter-menu-open = false; } }
+                    if root.sort-menu-open: Rectangle {
+                        x: 0px; y: 36px; width: parent.width; height: 110px; border-radius: 8px;
+                        background: root.light ? #ffffff : #202020; border-width: 1px; border-color: root.light ? #c8c8c8 : #454545; z: 100;
+                        VerticalLayout { padding: 4px; spacing: 1px;
+                            MenuOption { label: "Name (A–Z)"; selected: root.sort-order == "name-asc"; light: root.light; clicked => { root.choose-sort("name-asc"); } }
+                            MenuOption { label: "Name (Z–A)"; selected: root.sort-order == "name-desc"; light: root.light; clicked => { root.choose-sort("name-desc"); } }
+                            MenuOption { label: "Most starred"; selected: root.sort-order == "stars"; light: root.light; clicked => { root.choose-sort("stars"); } }
+                        }
                     }
                 }
 
-                ModuleTab {
-                    label: "Community";
-                    selected: root.selected-tab == "community";
-                    light: root.light;
-                    clicked => {
-                        root.selected-tab = "community";
-                        root.reset-scroll();
+                    filter-control := Rectangle {
+                    width: 82px;
+                    border-radius: 8px;
+                    background: filter-touch.has-hover || root.filter-menu-open ? root.light ? #eeeeee : #292929 : root.light ? #ffffff : #1c1c1c;
+                    border-width: 1px;
+                    border-color: root.updates-only || root.saved-data-only ? root.light ? #777777 : #8a8a8a : root.light ? #c8c8c8 : #414141;
+                    Path { x: 9px; y: 7px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; commands: "M3 5 H21 L14 13 V20 L10 18 V13 Z"; stroke: root.light ? #555555 : #bcbcbc; stroke-width: 1.8px; fill: transparent; }
+                    Text { x: 31px; width: parent.width - 34px; height: 100%; text: "Filters"; color: root.light ? #414141 : #c9c9c9; font-size: 10px; font-weight: 600; vertical-alignment: center; }
+                    filter-touch := TouchArea { mouse-cursor: pointer; clicked => { root.filter-menu-open = !root.filter-menu-open; root.sort-menu-open = false; } }
+                    if root.filter-menu-open: Rectangle {
+                        x: parent.width - 160px; y: 36px; width: 160px; height: 78px; border-radius: 8px;
+                        background: root.light ? #ffffff : #202020; border-width: 1px; border-color: root.light ? #c8c8c8 : #454545; z: 100;
+                        VerticalLayout { padding: 4px; spacing: 1px;
+                            MenuOption { label: "Updates only"; selected: root.updates-only; light: root.light; clicked => { root.updates-only = !root.updates-only; root.reset-scroll(); root.filter-menu-open = true; } }
+                            MenuOption { label: "Saved data"; selected: root.saved-data-only; light: root.light; clicked => { root.saved-data-only = !root.saved-data-only; root.reset-scroll(); root.filter-menu-open = true; } }
+                        }
+                    }
                     }
                 }
             }
@@ -433,84 +528,29 @@ export component ModulesPanel inherits FocusScope {
             min-height: 0px;
             vertical-stretch: 1;
             viewport-width: self.width;
-            viewport-height: root.modules.length * 246px + 72px;
+            viewport-height: max(self.height, module-content.preferred-height);
             interactive: true;
 
-            VerticalLayout {
+            module-content := VerticalLayout {
                 width: module-scroll.width;
-                spacing: 8px;
+                spacing: 0px;
 
-                for item in root.modules: ModuleCard {
-                    item: item;
-                    shown: root.selected-tab == "installed"
-                        ? item.installed
-                        : root.selected-tab == "official" ? item.official : !item.official;
-                    light: root.light;
-                    toggle-requested(id, enabled) => {
-                        root.module-toggle-requested(id, enabled);
-                    }
-                    action-requested(id, action) => {
-                        root.module-action-requested(id, action);
-                    }
-                }
+                for item in root.modules: Rectangle {
+                    private property <bool> matches: (root.selected-tab == "installed" ? item.installed || item.has_saved_data : root.selected-tab == "official" ? item.official : !item.official)
+                        && (!root.updates-only || item.update_available)
+                        && (!root.saved-data-only || item.has_saved_data)
+                        && root.module-matches(item.id + " " + item.name + " " + item.description + " " + item.author + " " + item.category, root.search-query);
+                    height: self.matches ? module-card.height + 8px : 0px;
+                    visible: self.matches;
+                    background: transparent;
 
-                if root.selected-tab == "installed": Rectangle {
-                    height: 64px;
-                    border-radius: 10px;
-                    background: root.light ? #eeeeee : #202020;
-                    border-width: 1px;
-                    border-color: root.light ? #d4d4d4 : #3a3a3a;
-
-                    VerticalLayout {
-                        padding-left: 12px;
-                        padding-right: 12px;
-                        padding-top: 9px;
-                        padding-bottom: 9px;
-                        spacing: 3px;
-
-                        Text {
-                            text: "Add a module";
-                            color: root.light ? #333333 : #d8d8d8;
-                            font-size: 11px;
-                            font-weight: 700;
-                        }
-
-                        Text {
-                            text: "Browse Official or Community to install modules on demand.";
-                            color: root.light ? #707070 : #929292;
-                            font-size: 10px;
-                            overflow: elide;
-                        }
-                    }
-                }
-
-                if root.selected-tab == "community": Rectangle {
-                    height: 64px;
-                    border-radius: 10px;
-                    background: root.light ? #eeeeee : #202020;
-                    border-width: 1px;
-                    border-color: root.light ? #d4d4d4 : #3a3a3a;
-
-                    VerticalLayout {
-                        padding-left: 12px;
-                        padding-right: 12px;
-                        padding-top: 9px;
-                        padding-bottom: 9px;
-                        spacing: 3px;
-
-                        Text {
-                            text: "Community modules";
-                            color: root.light ? #333333 : #d8d8d8;
-                            font-size: 11px;
-                            font-weight: 700;
-                        }
-
-                        Text {
-                            text: "Community modules are loaded from the verified registry.";
-                            color: root.light ? #707070 : #929292;
-                            font-size: 10px;
-                            overflow: elide;
-                        }
+                    module-card := ModuleCard {
+                        width: parent.width;
+                        item: item;
+                        shown: parent.matches;
+                        light: root.light;
+                        toggle-requested(id, enabled) => { root.module-toggle-requested(id, enabled); }
+                        action-requested(id, action) => { root.module-action-requested(id, action); }
                     }
                 }
             }

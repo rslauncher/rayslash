@@ -59,10 +59,18 @@ Pass criteria:
 11. Disable Tooltips and hover a toggle row again.
 12. Open Modules and toggle Web Search, Units, Currency, Time, Calculator, Timers, and Aliases.
 13. Confirm each module card uses its result-style glyph, including `U` for Units and `$` for Currency.
-14. Open the new search-engine editor, fill one field, switch to another window to copy a URL, and return to rayslash.
-15. Cancel that editor and confirm no row was added, then create a YouTube engine using `https://www.youtube.com/results?search_query=%s`.
-16. Edit the YouTube engine, disable and re-enable it, then delete it from the editor.
-17. Add, edit, and delete an alias row using `name | keyword | kind | target`.
+14. Search Modules by name, description, author, category, and a mixed-case query.
+15. Enter a query with no matches on Official and Community and confirm the helper line reports that no modules were found.
+16. Try Name (A–Z), Name (Z–A), and Most starred sorting, then apply Updates only and Saved data filters.
+17. Remove an installed module without deleting its data and confirm it remains in Installed with a single primary Restore action.
+18. On that removed module, choose Delete data once, verify the warning, then use Cancel or choose Confirm delete to finish.
+19. Open Source code and Report issues and confirm they open the repository and issue tracker respectively.
+20. Scroll to the final module card and confirm the viewport stops at its bottom edge without a large blank tail.
+21. Switch to Modules, press Escape, and confirm rayslash returns to the main launcher just as it does from General.
+22. Open the new search-engine editor, fill one field, switch to another window to copy a URL, and return to rayslash.
+23. Cancel that editor and confirm no row was added, then create a YouTube engine using `https://www.youtube.com/results?search_query=%s`.
+24. Edit the YouTube engine, disable and re-enable it, then delete it from the editor.
+25. Add, edit, and delete an alias row using `name | keyword | kind | target`.
 
 Pass criteria:
 
@@ -73,6 +81,16 @@ Pass criteria:
 - Tooltips sits next to Alt opener, and Max results appears after those toggles before Appearance.
 - Theme and density read as mutually exclusive segmented controls, not unrelated buttons.
 - Module toggles fit without text overlap, save immediately, and use provider-specific result glyphs.
+- Module search is case-insensitive, sorting and filters immediately change the visible list, and the controls remain aligned at the normal launcher size.
+- The module toolbar has visible padding around both rows, and the search, sort, and filter controls do not touch the tab row or outer border.
+- Empty tabs and searches with no matches show a clear top-side “No modules found” message.
+- Removed modules with retained data stay in Installed. Restore occupies the same primary action slot as Install, while permanent data deletion is separate and requires confirmation.
+- Normal module cards omit the capabilities row; Source code and Report issues share the final line with the compact action buttons.
+- Module scrolling ends with the final visible card, and hidden or filtered cards do not add blank scroll range.
+- Operation feedback appears as a temporary bottom notification rather than changing failed card heights; success uses a green check, errors use a red indicator, and in-progress warnings use orange.
+- Escape closes Settings from both General and Modules, including after using the module search field.
+- Source code uses the normal link color; Report issues uses the distinct issue color and opens the repository issue tracker.
+- Zero-star modules keep a muted star, while positive star counts use the highlighted star color.
 - Add and Edit use the same compact in-window editor; switching applications leaves it open with entered values intact.
 - Cancel does not persist a new row, invalid values keep the editor open, and Delete appears only when editing a removable existing engine.
 - Search-engine list rows show a compact favicon container, name and URL, mildly rounded keyword flair, centered switch, and centered Edit button without a Delete or warning action.

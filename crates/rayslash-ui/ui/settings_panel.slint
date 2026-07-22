@@ -34,6 +34,40 @@ component SegmentButton inherits Rectangle {
     }
 }
 
+component SettingsTab inherits Rectangle {
+    in property <string> label;
+    in property <bool> selected;
+    in property <bool> light;
+    callback clicked();
+
+    height: 40px;
+    background: transparent;
+
+    Text {
+        width: 100%; height: 100%;
+        text: root.label;
+        color: root.selected
+            ? root.light ? #202020 : #f1f1f1
+            : tab-touch.has-hover ? root.light ? #3d3d3d : #d5d5d5
+            : root.light ? #737373 : #999999;
+        font-size: 13px;
+        font-weight: root.selected ? 700 : 600;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    Rectangle {
+        x: 10px;
+        y: parent.height - 2px;
+        width: parent.width - 20px;
+        height: 2px;
+        border-radius: 1px;
+        background: root.selected ? root.light ? #242424 : #eeeeee : transparent;
+    }
+
+    tab-touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+}
+
 component MiniToggle inherits Rectangle {
     in-out property <bool> checked;
     in property <bool> light;
@@ -75,6 +109,7 @@ component EngineField inherits Rectangle {
 
 export component SettingsPanel inherits FocusScope {
     in-out property <bool> open;
+    in-out property <string> status-text;
     in property <[AppChoiceItem]> alternate-opener-choices;
     in property <bool> light;
     in-out property <string> folder-sources;
@@ -83,6 +118,7 @@ export component SettingsPanel inherits FocusScope {
     in property <[AliasItem]> aliases;
     in property <[WebSearchItem]> web-searches;
     in property <[ModuleItem]> modules;
+    in-out property <string> module-sort-order: "name-asc";
     in-out property <string> alternate-folder-opener-command;
     in-out property <bool> provider-apps;
     in-out property <bool> provider-folders;
@@ -120,6 +156,10 @@ export component SettingsPanel inherits FocusScope {
     callback web-search-remove-requested(int) -> bool;
     callback module-toggle-requested(string, bool);
     callback module-action-requested(string, string);
+    pure callback module-matches(string, string) -> bool;
+    pure callback visible-module-count(string, string, bool, bool, int) -> int;
+    callback module-sort-requested(string);
+    pure callback feedback-kind(string) -> string;
     callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     private property <string> settings-section: "general";
@@ -128,6 +168,23 @@ export component SettingsPanel inherits FocusScope {
     private property <string> web-search-editor-keyword: "";
     private property <string> web-search-editor-url: "";
     private property <bool> web-search-editor-enabled: true;
+    private property <string> notice-kind: root.feedback-kind(root.status-text);
+
+    status-dismiss := Timer {
+        interval: 4200ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.status-text = "";
+        }
+    }
+
+    changed status-text => {
+        status-dismiss.running = false;
+        if (root.status-text != "" && root.open) {
+            status-dismiss.running = true;
+        }
+    }
 
     private property <color> text-strong: root.light ? #1f1f1f : #f2f2f2;
     private property <color> text-main: root.light ? #2d2d2d : #d8d8d8;
@@ -200,6 +257,10 @@ export component SettingsPanel inherits FocusScope {
 
     changed open => {
         if (root.open) {
+            if (root.status-text != "") {
+                status-dismiss.running = false;
+                status-dismiss.running = true;
+            }
             root.settings-section = "general";
             settings-scroll.viewport-y = 0px;
             modules-panel.reset-scroll();
@@ -221,69 +282,64 @@ export component SettingsPanel inherits FocusScope {
         }
     }
 
-    Text {
+    Rectangle {
         x: 0px;
         y: 0px;
         width: 100%;
-        height: 24px;
-        text: "Settings";
-        color: root.text-strong;
-        font-size: 18px;
-        font-weight: 700;
-        vertical-alignment: center;
-    }
+        height: 41px;
+        background: transparent;
+        border-width: 0px;
 
-    Rectangle {
-        x: 0px;
-        y: 30px;
-        width: 100%;
-        height: 38px;
-        border-radius: 9px;
-        background: root.light ? #e7e7e7 : #222222;
-        border-width: 1px;
-        border-color: root.field-border;
+        Rectangle {
+            x: 0px;
+            y: parent.height - 1px;
+            width: 100%;
+            height: 1px;
+            background: root.field-border;
+        }
 
-        HorizontalLayout {
-            padding: 2px;
-            spacing: 2px;
-
-            SegmentButton {
-                label: "General";
-                selected: root.settings-section == "general";
-                light: root.light;
-                clicked => {
-                    root.settings-section = "general";
-                    settings-scroll.viewport-y = 0px;
-                }
+        SettingsTab {
+            x: 0px;
+            width: 94px;
+            label: "General";
+            selected: root.settings-section == "general";
+            light: root.light;
+            clicked => {
+                root.settings-section = "general";
+                settings-scroll.viewport-y = 0px;
+                root.focus();
             }
+        }
 
-            SegmentButton {
-                label: "Modules";
-                selected: root.settings-section == "modules";
-                light: root.light;
-                clicked => {
-                    root.settings-section = "modules";
-                    modules-panel.reset-scroll();
-                }
+        SettingsTab {
+            x: 104px;
+            width: 94px;
+            label: "Modules";
+            selected: root.settings-section == "modules";
+            light: root.light;
+            clicked => {
+                root.settings-section = "modules";
+                modules-panel.reset-scroll();
+                modules-panel.focus-modules();
             }
         }
     }
 
     settings-scroll := Flickable {
-        y: 76px;
+        y: 47px;
         width: 100%;
-        height: parent.height - 76px;
+        height: parent.height - 47px;
         visible: root.settings-section == "general";
         viewport-width: self.width;
-        viewport-height: root.open ? (root.alternate-picker-open ? 1139px : 989px) + root.aliases.length * 134px + root.web-searches.length * 72px : 0px;
+        viewport-height: root.open ? max(self.height, settings-content.preferred-height) : 0px;
         interactive: root.open && root.settings-section == "general";
 
-        VerticalLayout {
+        settings-content := VerticalLayout {
             width: settings-scroll.width;
             spacing: 9px;
 
             Text {
-                text: "Folder source";
+                text: "Folder sources";
                 color: root.text-main;
                 font-size: 12px;
                 font-weight: 700;
@@ -624,7 +680,7 @@ export component SettingsPanel inherits FocusScope {
             }
 
             Text {
-                text: "Search features";
+                text: "Launcher content";
                 color: root.text-main;
                 font-size: 12px;
                 font-weight: 700;
@@ -864,7 +920,7 @@ export component SettingsPanel inherits FocusScope {
                 }
 
                 Rectangle {
-                    width: 238px;
+                    horizontal-stretch: 1;
                     height: 72px;
                     border-radius: 8px;
                     background: root.field-bg;
@@ -916,6 +972,13 @@ export component SettingsPanel inherits FocusScope {
             Rectangle {
                 height: 8px;
                 background: transparent;
+            }
+
+            Text {
+                text: "Diagnostics";
+                color: root.text-main;
+                font-size: 12px;
+                font-weight: 700;
             }
 
             HorizontalLayout {
@@ -1000,11 +1063,12 @@ export component SettingsPanel inherits FocusScope {
     }
 
     modules-panel := ModulesPanel {
-        y: 76px;
+        y: 47px;
         width: 100%;
-        height: parent.height - 76px;
+        height: parent.height - 47px;
         visible: root.settings-section == "modules";
         modules: root.modules;
+        sort-order <=> root.module-sort-order;
         light: root.light;
 
         module-toggle-requested(id, enabled) => {
@@ -1012,6 +1076,18 @@ export component SettingsPanel inherits FocusScope {
         }
         module-action-requested(id, action) => {
             root.module-action-requested(id, action);
+        }
+        cancel-requested => {
+            root.cancel-requested();
+        }
+        module-matches(haystack, query) => {
+            return root.module-matches(haystack, query);
+        }
+        visible-module-count(tab, query, updates-only, saved-data-only, model-length) => {
+            return root.visible-module-count(tab, query, updates-only, saved-data-only, model-length);
+        }
+        sort-requested(order) => {
+            root.module-sort-requested(order);
         }
     }
 
@@ -1110,6 +1186,84 @@ export component SettingsPanel inherits FocusScope {
                     }
                 }
             }
+        }
+    }
+
+    if root.status-text != "" && !root.web-search-editor-open: Rectangle {
+        x: max(0px, (parent.width - self.width) / 2);
+        y: parent.height - 50px;
+        width: min(parent.width, 560px);
+        height: 42px;
+        border-radius: 9px;
+        background: root.light ? #242424 : #101010;
+        border-width: 1px;
+        border-color: root.notice-kind == "success"
+            ? root.light ? #2f8051 : #376c4d
+            : root.notice-kind == "error"
+            ? root.light ? #a94747 : #7a3b3b
+            : root.notice-kind == "warning"
+            ? root.light ? #a7662e : #795331
+            : root.light ? #111111 : #4a4a4a;
+        z: 400;
+
+        Rectangle {
+            width: 3px;
+            height: parent.height - 12px;
+            x: 0px;
+            y: 6px;
+            border-radius: 2px;
+            background: root.notice-kind == "success"
+                ? #51b873
+                : root.notice-kind == "error"
+                ? #df6b6b
+                : root.notice-kind == "warning"
+                ? #e59a5f
+                : root.light ? #bcbcbc : #858585;
+        }
+
+        Rectangle {
+            x: 12px; y: 11px; width: 20px; height: 20px;
+            border-radius: 10px;
+            background: root.notice-kind == "success"
+                ? #51b873
+                : root.notice-kind == "error"
+                ? #df6b6b
+                : root.notice-kind == "warning"
+                ? #e59a5f
+                : root.light ? #e9e9e9 : #d5d5d5;
+
+            if root.notice-kind == "success": Path {
+                x: 5px; y: 6px; width: 10px; height: 8px;
+                viewbox-width: 12; viewbox-height: 10;
+                commands: "M1 5 L4.5 8.5 L11 1.5";
+                stroke: #ffffff;
+                stroke-width: 2px;
+                fill: transparent;
+            }
+
+            if root.notice-kind != "success": Text {
+                width: 100%; height: 100%;
+                text: root.notice-kind == "info" ? "i" : "!";
+                color: root.notice-kind == "info" ? #242424 : #ffffff;
+                font-size: 11px;
+                font-weight: 800;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        Text {
+            x: 42px; width: parent.width - 78px; height: 100%;
+            text: root.status-text;
+            color: #eeeeee;
+            font-size: 10px;
+            font-weight: 600;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+
+        Text { x: parent.width - 34px; width: 24px; height: 100%; text: "×"; color: notice-close.has-hover ? #ffffff : #aaaaaa; font-size: 20px; horizontal-alignment: center; vertical-alignment: center;
+            notice-close := TouchArea { mouse-cursor: pointer; clicked => { root.status-text = ""; } }
         }
     }
 }

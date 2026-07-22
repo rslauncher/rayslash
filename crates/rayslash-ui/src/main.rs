@@ -325,14 +325,16 @@ fn run_gui(
         move || match registry_rx.try_recv() {
             Ok(Ok(registry)) => {
                 *module_catalog.borrow_mut() = registry.index.modules;
-                module_model.set_vec(module_items(
-                    &module_state.borrow(),
-                    &module_catalog.borrow(),
-                ));
-                if let Some(ui) = weak.upgrade()
-                    && registry.from_cache
-                {
-                    ui.set_status_text("Using the last verified module catalog.".into());
+                if let Some(ui) = weak.upgrade() {
+                    ui.invoke_settings_module_sort_requested(ui.get_settings_module_sort_order());
+                    if registry.from_cache {
+                        ui.set_status_text("Using the last verified module catalog.".into());
+                    }
+                } else {
+                    module_model.set_vec(module_items(
+                        &module_state.borrow(),
+                        &module_catalog.borrow(),
+                    ));
                 }
             }
             Ok(Err(error)) => {

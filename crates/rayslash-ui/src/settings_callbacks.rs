@@ -51,6 +51,8 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         profile,
     } = context;
 
+    ui.on_settings_feedback_kind(|message| feedback_kind(message.as_str()).into());
+
     ui.on_settings_requested({
         let weak = ui.as_weak();
         let config_state = config_state.clone();
@@ -640,4 +642,69 @@ fn set_ephemeral_status(ui: &AppWindow, message: &str) {
             ui.set_status_text(DEFAULT_STATUS_TEXT.into());
         }
     });
+}
+
+fn feedback_kind(message: &str) -> &'static str {
+    let message = message.to_ascii_lowercase();
+
+    if [
+        "could not",
+        "failed",
+        "cannot",
+        "must be",
+        "required",
+        "invalid",
+        "unknown",
+        "unavailable",
+        "read-only",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+    {
+        "error"
+    } else if [
+        "installing",
+        "restoring",
+        "updating",
+        "removing",
+        "repairing",
+        "confirm",
+        "new capabilities",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+    {
+        "warning"
+    } else if [
+        "saved",
+        "completed",
+        "enabled",
+        "disabled",
+        "installed",
+        "restored",
+        "updated",
+        "removed",
+        "cleared",
+        "selected",
+    ]
+    .iter()
+    .any(|needle| message.contains(needle))
+    {
+        "success"
+    } else {
+        "info"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::feedback_kind;
+
+    #[test]
+    fn feedback_kind_distinguishes_status_intent() {
+        assert_eq!(feedback_kind("Calculator enabled."), "success");
+        assert_eq!(feedback_kind("Restoring Aliases…"), "warning");
+        assert_eq!(feedback_kind("Could not save settings."), "error");
+        assert_eq!(feedback_kind("No changes to apply."), "info");
+    }
 }

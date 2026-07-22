@@ -154,6 +154,7 @@ export component AppWindow inherits Window {
     in property <[AliasItem]> settings-aliases;
     in property <[WebSearchItem]> settings-web-searches;
     in property <[ModuleItem]> settings-modules;
+    in-out property <string> settings-module-sort-order: "name-asc";
     in-out property <string> settings-alternate-folder-opener-command: "xdg-terminal-exec";
     in-out property <bool> settings-provider-apps: true;
     in-out property <bool> settings-provider-folders: true;
@@ -209,6 +210,10 @@ export component AppWindow inherits Window {
     callback settings-web-search-remove-requested(int) -> bool;
     callback settings-module-toggle-requested(string, bool);
     callback settings-module-action-requested(string, string);
+    pure callback settings-module-matches(string, string) -> bool;
+    pure callback settings-visible-module-count(string, string, bool, bool, int) -> int;
+    callback settings-module-sort-requested(string);
+    pure callback settings-feedback-kind(string) -> string;
     callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     public function focus-search() {
@@ -320,7 +325,7 @@ export component AppWindow inherits Window {
                 VerticalLayout {
                     padding-left: 22px;
                     padding-right: 22px;
-                    padding-top: 20px;
+                    padding-top: root.settings-open ? 16px : 20px;
                     padding-bottom: 8px;
                     spacing: 0px;
 
@@ -334,7 +339,7 @@ export component AppWindow inherits Window {
                     }
 
                     Rectangle {
-                        height: root.settings-open ? 8px : 12px;
+                        height: root.settings-open ? 0px : 12px;
                         background: transparent;
                     }
 
@@ -394,6 +399,7 @@ export component AppWindow inherits Window {
 
                     settings-panel := SettingsPanel {
                         open <=> root.settings-open;
+                        status-text <=> root.status-text;
                         alternate-opener-choices: root.alternate-opener-choices;
                         folder-sources <=> root.settings-folder-sources;
                         aliases-text <=> root.settings-aliases-text;
@@ -401,6 +407,7 @@ export component AppWindow inherits Window {
                         aliases: root.settings-aliases;
                         web-searches: root.settings-web-searches;
                         modules: root.settings-modules;
+                        module-sort-order <=> root.settings-module-sort-order;
                         alternate-folder-opener-command <=> root.settings-alternate-folder-opener-command;
                         provider-apps <=> root.settings-provider-apps;
                         provider-folders <=> root.settings-provider-folders;
@@ -447,6 +454,10 @@ export component AppWindow inherits Window {
                         web-search-remove-requested(index) => { return root.settings-web-search-remove-requested(index); }
                         module-toggle-requested(id, enabled) => { root.settings-module-toggle-requested(id, enabled); }
                         module-action-requested(id, action) => { root.settings-module-action-requested(id, action); }
+                        module-matches(haystack, query) => { return root.settings-module-matches(haystack, query); }
+                        visible-module-count(tab, query, updates-only, saved-data-only, model-length) => { return root.settings-visible-module-count(tab, query, updates-only, saved-data-only, model-length); }
+                        module-sort-requested(order) => { root.settings-module-sort-requested(order); }
+                        feedback-kind(message) => { return root.settings-feedback-kind(message); }
                         save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, provider-utility-actions, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {
                             root.settings-save-requested(
                                 folder-sources,
