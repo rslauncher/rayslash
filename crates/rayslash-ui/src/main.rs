@@ -369,10 +369,9 @@ fn run_gui(
         let suppress_next_focus_hide = suppress_next_focus_hide.clone();
         move |_, event| {
             if matches!(event, winit::event::WindowEvent::Focused(false)) {
-                if weak
-                    .upgrade()
-                    .is_some_and(|ui| ui.get_settings_web_search_editor_open())
-                {
+                if weak.upgrade().is_some_and(|ui| {
+                    ui.get_settings_web_search_editor_open() || ui.get_settings_alias_editor_open()
+                }) {
                     return EventResult::Propagate;
                 }
                 if suppress_next_focus_hide.replace(false) {

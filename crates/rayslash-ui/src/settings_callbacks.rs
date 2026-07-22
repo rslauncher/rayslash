@@ -300,20 +300,35 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let socket_path = socket_path.clone();
         move |index, name, keyword, kind, target| {
             let Some(ui) = weak.upgrade() else {
-                return;
+                return false;
             };
             let mut next = config_state.borrow().clone();
-            let Some(alias) = next.aliases.get_mut(index as usize) else {
-                return;
-            };
             if name.trim().is_empty() || keyword.trim().is_empty() || target.trim().is_empty() {
                 ui.set_status_text("Alias name, keyword, and target are required.".into());
-                return;
+                return false;
             }
-            alias.name = name.trim().to_owned();
-            alias.query = keyword.trim().to_owned();
-            alias.target = target.trim().to_owned();
-            alias.kind = parse_alias_kind(kind.as_str());
+            let kind_text = kind.trim();
+            let kind = parse_alias_kind(kind_text);
+            if !kind_text.is_empty() && kind.is_none() {
+                ui.set_status_text("Alias kind must be URL, file, folder, or command.".into());
+                return false;
+            }
+            let updated = config::AliasConfig {
+                name: name.trim().to_owned(),
+                query: keyword.trim().to_owned(),
+                target: target.trim().to_owned(),
+                kind,
+            };
+            if let Some(alias) = next.aliases.get_mut(index as usize) {
+                *alias = updated;
+            } else if index as usize == next.aliases.len() {
+                next.aliases.push(updated);
+            } else {
+                return false;
+            }
+            if next.clone().normalized() == *config_state.borrow() {
+                return true;
+            }
             save_collection_change(
                 &ui,
                 &config_state,
@@ -325,40 +340,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
-            );
-        }
-    });
-    ui.on_settings_alias_add_requested({
-        let weak = ui.as_weak();
-        let config_state = config_state.clone();
-        let projects = projects.clone();
-        let apps = apps.clone();
-        let ranking_state = ranking_state.clone();
-        let icon_cache = icon_cache.clone();
-        let socket_path = socket_path.clone();
-        move || {
-            let Some(ui) = weak.upgrade() else {
-                return;
-            };
-            let mut next = config_state.borrow().clone();
-            next.aliases.push(config::AliasConfig {
-                name: "New alias".into(),
-                query: "alias".into(),
-                target: "https://example.com".into(),
-                kind: Some(config::AliasKind::Url),
-            });
-            save_collection_change(
-                &ui,
-                &config_state,
-                next,
-                settings_save_blocked,
-                "Alias added.",
-                &projects.borrow(),
-                &apps.borrow(),
-                &ranking_state.borrow(),
-                &icon_cache,
-                &socket_path,
-            );
+            )
         }
     });
     ui.on_settings_alias_remove_requested({
@@ -371,11 +353,13 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let socket_path = socket_path.clone();
         move |index| {
             let Some(ui) = weak.upgrade() else {
-                return;
+                return false;
             };
             let mut next = config_state.borrow().clone();
             if (index as usize) < next.aliases.len() {
                 next.aliases.remove(index as usize);
+            } else {
+                return false;
             }
             save_collection_change(
                 &ui,
@@ -388,7 +372,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
-            );
+            )
         }
     });
     ui.on_settings_web_search_save_requested({

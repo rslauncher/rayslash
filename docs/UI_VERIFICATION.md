@@ -72,7 +72,10 @@ Pass criteria:
 24. Open the new search-engine editor, fill one field, switch to another window to copy a URL, and return to rayslash.
 25. Cancel that editor and confirm no row was added, then create a YouTube engine using `https://www.youtube.com/results?search_query=%s`.
 26. Edit the YouTube engine, disable and re-enable it, then delete it from the editor.
-27. Add, edit, and delete an alias row using `name | keyword | kind | target`.
+27. Add an alias, fill part of the editor, switch to another window, and return to rayslash.
+28. Cancel that editor and confirm no row was added, then add a complete URL alias.
+29. Edit the alias, switch its type, save it, and delete it from the editor.
+30. Remove Web Search and Aliases while retaining their data, then reinstall them.
 
 Pass criteria:
 
@@ -80,7 +83,7 @@ Pass criteria:
 - Settings content scrolls to the diagnostics and does not push outside the launcher panel.
 - Toggle label/description text remains readable, and hovering the full toggle row for at least 800ms shows the full label/description detail above other settings content.
 - Disabling Tooltips suppresses delayed detail tooltips for settings toggles and result rows.
-- Tooltips sits next to Alt opener, and Max results appears after those toggles before Appearance.
+- Max results is a compact control in the Launcher content row next to Apps and Folders; Tooltips sits next to Alt opener.
 - Theme and density read as mutually exclusive segmented controls, not unrelated buttons.
 - Module toggles fit without text overlap, save immediately, and use provider-specific result glyphs.
 - Module search is case-insensitive, sorting and filters immediately change the visible list, and the controls remain aligned at the normal launcher size.
@@ -95,12 +98,14 @@ Pass criteria:
 - Zero-star modules keep a muted star, while positive star counts use the highlighted star color.
 - Text selection uses neutral, theme-aware foreground/background colors instead of the toolkit accent color.
 - Update shows the installed and target versions, verifies the signed package metadata and digest, probes the replacement before committing it, preserves the module's enabled state, and leaves the old version active if installation fails.
-- Add and Edit use the same compact in-window editor; switching applications leaves it open with entered values intact.
+- Alias and search-engine Add/Edit actions use compact in-window editors; switching applications leaves them open with entered values intact.
 - Cancel does not persist a new row, invalid values keep the editor open, and Delete appears only when editing a removable existing engine.
+- Alias list rows show an icon, name and target, centered keyword/type flairs, and a centered Edit button; Delete is available only inside the editor.
 - Search-engine list rows show a compact favicon container, name and URL, mildly rounded keyword flair, centered switch, and centered Edit button without a Delete or warning action.
 - Search-engine switches are vertically centered and use the same sharp track/knob proportions as normal feature switches.
 - After the YouTube favicon is fetched, it appears in the settings card and the `Search YouTube for...` result; the keyword fallback remains available if fetching fails.
-- Alias fields and the search-engine editor fit inside the settings panel and reject invalid rows with a clear status message instead of overwriting config.
+- Alias and search-engine editors fit inside the settings panel and reject invalid rows with a clear status message instead of overwriting config.
+- Alias and search-engine configuration sections are visible only while their modules are installed. Removing a module with retained data hides its section; reinstalling it restores the saved rows.
 - Light mode keeps header, search, result rows, settings fields, toggles, and diagnostics readable.
 - Invalid Max results and empty enabled alternate opener values show a clear status message and do not save.
 - Successful saves refresh the current result count and diagnostics.

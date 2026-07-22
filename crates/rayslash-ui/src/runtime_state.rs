@@ -382,6 +382,17 @@ pub(crate) fn refresh_settings_dependent_ui(
     icon_cache: &Rc<RefCell<IconImageCache>>,
     socket_path: &Path,
 ) {
+    let installed_modules = modules::load_installed_modules().unwrap_or_default();
+    ui.set_settings_aliases_installed(
+        installed_modules
+            .modules
+            .contains_key(modules::ALIASES_MODULE_ID),
+    );
+    ui.set_settings_web_search_installed(
+        installed_modules
+            .modules
+            .contains_key(modules::WEB_SEARCH_MODULE_ID),
+    );
     ui.set_alternate_folder_opener_enabled(config.actions.alternate_folder_opener_enabled);
     set_alternate_opener_visual(
         ui,

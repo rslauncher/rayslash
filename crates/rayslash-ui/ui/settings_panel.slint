@@ -119,6 +119,8 @@ export component SettingsPanel inherits FocusScope {
     in-out property <string> web-searches-text;
     in property <[AliasItem]> aliases;
     in property <[WebSearchItem]> web-searches;
+    in property <bool> aliases-installed;
+    in property <bool> web-search-installed;
     in property <[ModuleItem]> modules;
     in-out property <string> module-sort-order: "name-asc";
     in-out property <string> alternate-folder-opener-command;
@@ -146,14 +148,14 @@ export component SettingsPanel inherits FocusScope {
     in property <string> ranking-entry-count;
     in-out property <bool> alternate-picker-open;
     in-out property <bool> web-search-editor-open;
+    in-out property <bool> alias-editor-open;
 
     callback cancel-requested();
     callback browse-folder-requested(string);
     callback choose-alternate-opener-requested(string);
     callback clear-ranking-requested();
-    callback alias-save-requested(int, string, string, string, string);
-    callback alias-add-requested();
-    callback alias-remove-requested(int);
+    callback alias-save-requested(int, string, string, string, string) -> bool;
+    callback alias-remove-requested(int) -> bool;
     callback web-search-save-requested(int, string, string, string, bool) -> bool;
     callback web-search-remove-requested(int) -> bool;
     callback module-toggle-requested(string, bool);
@@ -171,6 +173,11 @@ export component SettingsPanel inherits FocusScope {
     private property <string> web-search-editor-keyword: "";
     private property <string> web-search-editor-url: "";
     private property <bool> web-search-editor-enabled: true;
+    private property <int> alias-editor-index: -1;
+    private property <string> alias-editor-name: "";
+    private property <string> alias-editor-keyword: "";
+    private property <string> alias-editor-kind: "url";
+    private property <string> alias-editor-target: "";
     private property <string> notice-kind: root.feedback-kind(root.status-text);
 
     status-dismiss := Timer {
@@ -209,6 +216,29 @@ export component SettingsPanel inherits FocusScope {
     public function cancel-web-search-editor() {
         root.web-search-editor-open = false;
         root.web-search-editor-index = -1;
+    }
+
+    public function cancel-alias-editor() {
+        root.alias-editor-open = false;
+        root.alias-editor-index = -1;
+    }
+
+    function add-alias() {
+        root.alias-editor-index = root.aliases.length;
+        root.alias-editor-name = "";
+        root.alias-editor-keyword = "";
+        root.alias-editor-kind = "url";
+        root.alias-editor-target = "";
+        root.alias-editor-open = true;
+    }
+
+    function edit-alias(index: int) {
+        root.alias-editor-index = index;
+        root.alias-editor-name = root.aliases[index].name;
+        root.alias-editor-keyword = root.aliases[index].keyword;
+        root.alias-editor-kind = root.aliases[index].kind;
+        root.alias-editor-target = root.aliases[index].target;
+        root.alias-editor-open = true;
     }
 
     function add-web-search() {
@@ -268,13 +298,16 @@ export component SettingsPanel inherits FocusScope {
             settings-scroll.viewport-y = 0px;
             modules-panel.reset-scroll();
         } else {
+            root.cancel-alias-editor();
             root.cancel-web-search-editor();
         }
     }
 
     key-pressed(event) => {
         if (event.text == Key.Escape) {
-            if (root.web-search-editor-open) {
+            if (root.alias-editor-open) {
+                root.cancel-alias-editor();
+            } else if (root.web-search-editor-open) {
                 root.cancel-web-search-editor();
             } else {
                 root.cancel-requested();
@@ -607,56 +640,69 @@ export component SettingsPanel inherits FocusScope {
                 font-size: 11px;
             }
 
-            Text {
-                text: "Aliases";
-                color: root.text-main;
-                font-size: 12px;
-                font-weight: 700;
-            }
+            if root.aliases-installed: VerticalLayout {
+                spacing: 9px;
 
-            Rectangle { height: 34px; border-radius: 8px; background: alias-add.pressed ? root.field-bg-pressed : alias-add.has-hover ? root.field-bg-hover : root.field-bg;
-                Text { text: "+  Add alias"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-                alias-add := TouchArea { mouse-cursor: pointer; clicked => { root.alias-add-requested(); } }
-            }
+                Text {
+                    text: "Aliases";
+                    color: root.text-main;
+                    font-size: 12px;
+                    font-weight: 700;
+                }
 
-            for alias[index] in root.aliases: Rectangle {
-                height: 126px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
-                VerticalLayout { padding: 8px; spacing: 6px;
-                    HorizontalLayout { height: 34px; spacing: 9px;
-                        Rectangle { width: 34px; border-radius: 8px; background: root.field-bg-hover;
-                            Path { x: 8px; y: 8px; width: 18px; height: 18px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M10 13a5 5 0 0 0 7.1.1l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7 M14 11a5 5 0 0 0-7.1-.1l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7"; }
+                Rectangle { height: 34px; border-radius: 8px; background: alias-add.pressed ? root.field-bg-pressed : alias-add.has-hover ? root.field-bg-hover : root.field-bg;
+                    Text { text: "+  Add alias"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    alias-add := TouchArea { mouse-cursor: pointer; clicked => { root.add-alias(); } }
+                }
+
+                for alias[index] in root.aliases: Rectangle {
+                    height: 64px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
+                    HorizontalLayout { padding: 7px; spacing: 10px;
+                        Rectangle { width: 46px; height: 50px; background: transparent;
+                            Rectangle { x: 1px; y: 3px; width: 44px; height: 44px; border-radius: 9px; background: root.field-bg-hover; border-width: 1px; border-color: root.field-border;
+                                Path { x: 11px; y: 11px; width: 22px; height: 22px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M10 13a5 5 0 0 0 7.1.1l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7 M14 11a5 5 0 0 0-7.1-.1l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7"; }
+                            }
                         }
-                        VerticalLayout { spacing: 1px; Text { text: alias.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; } Text { text: alias.keyword; color: root.text-muted; font-size: 10px; overflow: elide; } }
-                    }
-                    HorizontalLayout { height: 26px; spacing: 6px;
-                        EngineField { value <=> alias.name; light: root.light; hint: "Alias name"; }
-                        EngineField { width: 145px; value <=> alias.keyword; light: root.light; hint: "Keyword"; }
-                    }
-                    HorizontalLayout { height: 26px; spacing: 6px;
-                        EngineField { width: 112px; value <=> alias.kind; light: root.light; hint: "Kind"; }
-                        EngineField { value <=> alias.target; light: root.light; hint: "Target URL, path, or command"; }
-                        Rectangle { width: 28px; border-radius: 6px; background: save-alias.pressed ? root.field-bg-pressed : save-alias.has-hover ? root.field-bg-hover : transparent; Text { text: "✓"; color: root.text-main; font-size: 15px; horizontal-alignment: center; vertical-alignment: center; } save-alias := TouchArea { mouse-cursor: pointer; clicked => { root.alias-save-requested(index, alias.name, alias.keyword, alias.kind, alias.target); } } }
-                        Rectangle { width: 28px; border-radius: 6px; background: remove-alias.pressed ? #6f2020 : remove-alias.has-hover ? #4c2424 : transparent;
-                            Path { x: 6px; y: 5px; width: 16px; height: 16px; viewbox-width: 24; viewbox-height: 24; stroke: #ef7777; stroke-width: 2px; fill: transparent; commands: "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 10v6 M14 10v6"; }
-                            remove-alias := TouchArea { mouse-cursor: pointer; clicked => { root.alias-remove-requested(index); } }
+                        VerticalLayout { height: 50px; alignment: center; spacing: 3px;
+                            Text { text: alias.name; color: root.text-strong; font-size: 14px; font-weight: 700; overflow: elide; vertical-alignment: bottom; }
+                            Text { text: alias.target; color: root.text-muted; font-size: 10px; overflow: elide; vertical-alignment: top; }
+                        }
+                        Rectangle { width: min(100px, max(52px, alias-keyword-label.preferred-width + 18px)); height: 50px; background: transparent;
+                            Rectangle { y: 14px; width: 100%; height: 22px; border-radius: 6px; background: root.light ? #e7e7e7 : #2d2d2d; border-width: 1px; border-color: root.field-border;
+                                alias-keyword-label := Text { text: alias.keyword; color: root.text-soft; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                            }
+                        }
+                        Rectangle { width: 62px; height: 50px; background: transparent;
+                            Rectangle { y: 14px; width: 100%; height: 22px; border-radius: 6px; background: transparent; border-width: 1px; border-color: root.field-border;
+                                Text { text: alias.kind == "" ? "auto" : alias.kind; color: root.text-muted; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                            }
+                        }
+                        Rectangle { width: 42px; height: 50px; background: transparent;
+                            Rectangle { y: 4px; width: 42px; height: 42px; border-radius: 9px; background: edit-alias.pressed ? root.field-bg-pressed : edit-alias.has-hover ? root.field-bg-hover : transparent; border-width: 1px; border-color: root.field-border;
+                                Path { x: 10px; y: 10px; width: 22px; height: 22px; viewbox-width: 24; viewbox-height: 24; stroke: root.icon-fill; stroke-width: 2px; fill: transparent; commands: "M12 20 H4 V12 L14.5 1.5 A2.1 2.1 0 0 1 17.5 1.5 L22.5 6.5 A2.1 2.1 0 0 1 22.5 9.5 Z M13 3 L21 11"; }
+                                edit-alias := TouchArea { mouse-cursor: pointer; clicked => { root.edit-alias(index); } }
+                            }
                         }
                     }
                 }
             }
 
-            Text {
-                text: "Search engines";
-                color: root.text-main;
-                font-size: 12px;
-                font-weight: 700;
-            }
+            if root.web-search-installed: VerticalLayout {
+                spacing: 9px;
+
+                Text {
+                    text: "Search engines";
+                    color: root.text-main;
+                    font-size: 12px;
+                    font-weight: 700;
+                }
 
             Rectangle { height: 34px; border-radius: 8px; background: search-add.pressed ? root.field-bg-pressed : search-add.has-hover ? root.field-bg-hover : root.field-bg;
                 Text { text: "+  Add search engine"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                 search-add := TouchArea { mouse-cursor: pointer; clicked => { root.add-web-search(); } }
             }
 
-            for engine[index] in root.web-searches: Rectangle {
+                for engine[index] in root.web-searches: Rectangle {
                 height: 64px; border-radius: 10px; background: root.field-bg; border-width: 1px; border-color: root.field-border;
                 HorizontalLayout { padding: 7px; spacing: 10px;
                     Rectangle { width: 46px; height: 50px; background: transparent;
@@ -683,6 +729,7 @@ export component SettingsPanel inherits FocusScope {
                             edit-engine := TouchArea { mouse-cursor: pointer; clicked => { root.edit-web-search(index); } }
                         }
                     }
+                }
                 }
             }
 
@@ -716,6 +763,68 @@ export component SettingsPanel inherits FocusScope {
                     checked <=> root.provider-folders;
                     toggled => {
                         root.save-settings();
+                    }
+                }
+
+                Rectangle {
+                    width: 138px;
+                    height: 58px;
+                    border-radius: 8px;
+                    background: root.field-bg;
+                    border-width: 1px;
+                    border-color: root.field-border;
+
+                    HorizontalLayout {
+                        padding: 9px;
+                        spacing: 8px;
+
+                        VerticalLayout {
+                            spacing: 2px;
+                            Text { text: "Max results"; color: root.text-main; font-size: 12px; font-weight: 700; vertical-alignment: bottom; }
+                            Text { text: "Visible rows"; color: root.text-muted; font-size: 10px; vertical-alignment: top; }
+                        }
+
+                        Rectangle {
+                            width: 44px;
+                            height: 32px;
+                            border-radius: 7px;
+                            background: root.light ? #f6f6f6 : #191919;
+                            border-width: 1px;
+                            border-color: settings-max-results-input.has-focus ? root.field-border-focus : root.field-border;
+
+                            settings-max-results-input := TextInput {
+                                x: 6px;
+                                width: parent.width - 12px;
+                                height: 100%;
+                                text: root.max-results;
+                                color: root.text-strong;
+                                selection-background-color: root.light ? #303030 : #d4d4d4;
+                                selection-foreground-color: root.light ? #ffffff : #181818;
+                                font-size: 12px;
+                                font-weight: 700;
+                                single-line: true;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+
+                                key-pressed(event) => {
+                                    if (event.text == Key.Return) {
+                                        root.save-settings();
+                                        accept
+                                    } else if (event.text == Key.Escape) {
+                                        root.cancel-requested();
+                                        accept
+                                    } else {
+                                        reject
+                                    }
+                                }
+
+                                changed has-focus => {
+                                    if (!self.has-focus) {
+                                        root.save-settings();
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -798,62 +907,6 @@ export component SettingsPanel inherits FocusScope {
                     checked <=> root.show-tooltips;
                     toggled => {
                         root.save-settings();
-                    }
-                }
-            }
-
-            HorizontalLayout {
-                height: 42px;
-                spacing: 8px;
-
-                VerticalLayout {
-                    spacing: 4px;
-
-                    Text {
-                        text: "Max results";
-                        color: root.text-main;
-                        font-size: 12px;
-                        font-weight: 700;
-                    }
-
-                    Rectangle {
-                        height: 26px;
-                        border-radius: 7px;
-                        background: root.field-bg;
-                        border-width: 1px;
-                        border-color: settings-max-results-input.has-focus ? root.field-border-focus : root.field-border;
-
-                        settings-max-results-input := TextInput {
-                            x: 10px;
-                            y: 0px;
-                            width: parent.width - 20px;
-                            height: parent.height;
-                            text: root.max-results;
-                            color: root.text-strong;
-                            selection-background-color: root.light ? #303030 : #d4d4d4;
-                            selection-foreground-color: root.light ? #ffffff : #181818;
-                            font-size: 12px;
-                            single-line: true;
-                            vertical-alignment: center;
-
-                            key-pressed(event) => {
-                                if (event.text == Key.Return) {
-                                    root.save-settings();
-                                    accept
-                                } else if (event.text == Key.Escape) {
-                                    root.cancel-requested();
-                                    accept
-                                } else {
-                                    reject
-                                }
-                            }
-
-                            changed has-focus => {
-                                if (!self.has-focus) {
-                                    root.save-settings();
-                                }
-                            }
-                        }
                     }
                 }
             }
@@ -1100,6 +1153,122 @@ export component SettingsPanel inherits FocusScope {
         }
     }
 
+    if root.alias-editor-open: Rectangle {
+        x: 0px;
+        y: 0px;
+        width: 100%;
+        height: 100%;
+        background: root.light ? #f3f3f3 : #181818;
+
+        TouchArea { }
+
+        Rectangle {
+            x: 0px;
+            y: (parent.height - self.height) / 2;
+            width: 100%;
+            height: 336px;
+            border-radius: 12px;
+            background: root.field-bg;
+            border-width: 1px;
+            border-color: root.field-border-focus;
+
+            VerticalLayout {
+                padding: 14px;
+                spacing: 8px;
+
+                VerticalLayout {
+                    height: 38px;
+                    spacing: 1px;
+                    Text { text: root.alias-editor-index < root.aliases.length ? "Edit alias" : "New alias"; color: root.text-strong; font-size: 17px; font-weight: 700; }
+                    Text { text: "Create a keyword shortcut to a URL, file, folder, or command"; color: root.text-muted; font-size: 10px; }
+                }
+
+                HorizontalLayout {
+                    height: 58px;
+                    spacing: 8px;
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: "Name"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                        EngineField { height: 38px; value <=> root.alias-editor-name; light: root.light; hint: "Project documentation"; }
+                    }
+                    VerticalLayout {
+                        width: 180px;
+                        spacing: 4px;
+                        Text { text: "Keyword"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                        EngineField { height: 38px; value <=> root.alias-editor-keyword; light: root.light; hint: "docs"; }
+                    }
+                }
+
+                VerticalLayout {
+                    height: 58px;
+                    spacing: 4px;
+                    Text { text: "Type"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                    Rectangle {
+                        height: 38px;
+                        border-radius: 8px;
+                        background: root.light ? #e7e7e7 : #222222;
+                        border-width: 1px;
+                        border-color: root.field-border;
+                        HorizontalLayout {
+                            padding: 2px;
+                            spacing: 2px;
+                            SegmentButton { label: "Auto"; selected: root.alias-editor-kind == ""; light: root.light; clicked => { root.alias-editor-kind = ""; } }
+                            SegmentButton { label: "URL"; selected: root.alias-editor-kind == "url"; light: root.light; clicked => { root.alias-editor-kind = "url"; } }
+                            SegmentButton { label: "File"; selected: root.alias-editor-kind == "file"; light: root.light; clicked => { root.alias-editor-kind = "file"; } }
+                            SegmentButton { label: "Folder"; selected: root.alias-editor-kind == "folder"; light: root.light; clicked => { root.alias-editor-kind = "folder"; } }
+                            SegmentButton { label: "Command"; selected: root.alias-editor-kind == "command"; light: root.light; clicked => { root.alias-editor-kind = "command"; } }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    height: 58px;
+                    spacing: 4px;
+                    Text { text: root.alias-editor-kind == "command" ? "Command" : root.alias-editor-kind == "url" ? "URL" : root.alias-editor-kind == "" ? "Target" : "Path"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                    EngineField {
+                        height: 38px;
+                        value <=> root.alias-editor-target;
+                        light: root.light;
+                        hint: root.alias-editor-kind == "command" ? "program --argument" : root.alias-editor-kind == "url" ? "https://example.com" : root.alias-editor-kind == "" ? "URL, path, or command" : "~/Documents";
+                    }
+                }
+
+                Text {
+                    height: 16px;
+                    text: root.alias-editor-kind == "command" ? "Commands run directly without a shell." : root.alias-editor-kind == "" ? "Auto detects URLs, paths, and explicit commands." : "Enter the complete destination opened by this alias.";
+                    color: root.text-muted;
+                    font-size: 10px;
+                    vertical-alignment: center;
+                }
+
+                HorizontalLayout {
+                    height: 40px;
+                    spacing: 8px;
+
+                    Rectangle {
+                        width: root.alias-editor-index >= 0 && root.alias-editor-index < root.aliases.length ? 86px : 0px;
+                        visible: root.alias-editor-index >= 0 && root.alias-editor-index < root.aliases.length;
+                        border-radius: 8px;
+                        background: delete-alias.pressed ? #6f2020 : delete-alias.has-hover ? #4c2424 : transparent;
+                        border-width: 1px;
+                        border-color: root.light ? #c44f4f : #7a3434;
+                        Text { text: "Delete"; color: #ef7777; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        delete-alias := TouchArea { mouse-cursor: pointer; clicked => { if (root.alias-remove-requested(root.alias-editor-index)) { root.cancel-alias-editor(); } } }
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    Rectangle { width: 86px; border-radius: 8px; background: cancel-alias.pressed ? root.field-bg-pressed : cancel-alias.has-hover ? root.field-bg-hover : transparent; border-width: 1px; border-color: root.field-border;
+                        Text { text: "Cancel"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        cancel-alias := TouchArea { mouse-cursor: pointer; clicked => { root.cancel-alias-editor(); } }
+                    }
+                    Rectangle { width: 86px; border-radius: 8px; background: save-alias.pressed ? (root.light ? #303030 : #d6d6d6) : save-alias.has-hover ? (root.light ? #474747 : #eeeeee) : (root.light ? #202020 : #c8c8c8);
+                        Text { text: "Save"; color: root.light ? #ffffff : #181818; font-size: 12px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+                        save-alias := TouchArea { mouse-cursor: pointer; clicked => { if (root.alias-save-requested(root.alias-editor-index, root.alias-editor-name, root.alias-editor-keyword, root.alias-editor-kind, root.alias-editor-target)) { root.cancel-alias-editor(); } } }
+                    }
+                }
+            }
+        }
+    }
+
     if root.web-search-editor-open: Rectangle {
         x: 0px;
         y: 0px;
@@ -1198,7 +1367,7 @@ export component SettingsPanel inherits FocusScope {
         }
     }
 
-    if root.status-text != "" && !root.web-search-editor-open: Rectangle {
+    if root.status-text != "" && !root.alias-editor-open && !root.web-search-editor-open: Rectangle {
         x: max(0px, (parent.width - self.width) / 2);
         y: parent.height - 50px;
         width: min(parent.width, 560px);
