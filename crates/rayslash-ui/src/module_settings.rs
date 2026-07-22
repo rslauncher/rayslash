@@ -92,7 +92,8 @@ fn apply_completed_operation(
     installed: Option<&modules::InstalledModule>,
 ) {
     if let Some(installed) = installed {
-        config.set_installed(module_id, &installed.version.to_string(), true);
+        let enabled = config.is_enabled(module_id).unwrap_or(installed.enabled);
+        config.set_installed(module_id, &installed.version.to_string(), enabled);
     } else if action != "Remove" {
         config.remove(module_id);
     }
@@ -200,10 +201,14 @@ fn module_items_with_installed(
                     .is_some_and(|(installed, target)| {
                         permissions_expand(&installed.permissions, target)
                     });
-            let version = installed_module
-                .map(|installed| installed.version.to_string())
-                .or_else(|| latest.map(|latest| latest.version.to_string()))
-                .unwrap_or_default();
+            let version = match (installed_module, latest) {
+                (Some(installed), Some(latest)) if latest.version > installed.version => {
+                    format!("{} → {}", installed.version, latest.version)
+                }
+                (Some(installed), _) => installed.version.to_string(),
+                (None, Some(latest)) => latest.version.to_string(),
+                (None, None) => String::new(),
+            };
             let (icon_kind, icon_text) = module_icon(&module.id);
             let operation = operations.get(&module.id).cloned().unwrap_or_default();
             let has_saved_data = config.is_enabled(&module.id).is_some();
@@ -1618,7 +1623,7 @@ mod tests {
                     source: "https://github.com/example/notes".into(),
                     source_commit: "b".repeat(40),
                     install_path: "/missing/module".into(),
-                    enabled: true,
+                    enabled: false,
                     permissions: modules::PackagePermissions::default(),
                 },
             )]
@@ -1626,7 +1631,7 @@ mod tests {
             ..Default::default()
         };
         let mut config = modules::ModulesConfig::empty();
-        config.set_installed(module_id, "1.0.0", true);
+        config.set_installed(module_id, "1.0.0", false);
 
         let items =
             module_items_with_installed(&config, &catalog, &BTreeMap::new(), &installed, None);
@@ -1634,6 +1639,15 @@ mod tests {
         assert!(item.update_available);
         assert_eq!(item.action.as_str(), "Update");
         assert_eq!(item.secondary_action.as_str(), "Remove");
+        assert_eq!(item.version.as_str(), "1.0.0 → 1.1.0");
+        assert!(!item.enabled);
+
+        let updated = modules::InstalledModule {
+            version: Version::new(1, 1, 0),
+            ..installed.modules[module_id].clone()
+        };
+        apply_completed_operation(&mut config, module_id, "Update", Some(&updated));
+        assert_eq!(config.is_enabled(module_id), Some(false));
     }
 
     #[test]

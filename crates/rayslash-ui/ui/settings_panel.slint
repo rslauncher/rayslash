@@ -101,6 +101,8 @@ component EngineField inherits Rectangle {
     field := TextInput {
         x: 8px; width: parent.width - 16px; height: parent.height; enabled: root.editable; text <=> root.value;
         color: root.editable ? root.light ? #222222 : #eeeeee : root.light ? #777777 : #888888;
+        selection-background-color: root.light ? #303030 : #d4d4d4;
+        selection-foreground-color: root.light ? #ffffff : #181818;
         font-size: 11px; single-line: true; vertical-alignment: center;
         edited => { save-delay.running = false; save-delay.running = true; }
         changed has-focus => { if (!self.has-focus && root.editable) { save-delay.running = false; root.focus-lost(); } }
@@ -160,6 +162,7 @@ export component SettingsPanel inherits FocusScope {
     pure callback visible-module-count(string, string, bool, bool, int) -> int;
     callback module-sort-requested(string);
     pure callback feedback-kind(string) -> string;
+    pure callback feedback-duration-ms(string) -> int;
     callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     private property <string> settings-section: "general";
@@ -171,7 +174,7 @@ export component SettingsPanel inherits FocusScope {
     private property <string> notice-kind: root.feedback-kind(root.status-text);
 
     status-dismiss := Timer {
-        interval: 4200ms;
+        interval: root.feedback-duration-ms(root.status-text) * 1ms;
         running: false;
         triggered => {
             self.running = false;
@@ -363,6 +366,8 @@ export component SettingsPanel inherits FocusScope {
                         height: parent.height;
                         text: root.folder-sources;
                         color: root.text-strong;
+                        selection-background-color: root.light ? #303030 : #d4d4d4;
+                        selection-foreground-color: root.light ? #ffffff : #181818;
                         font-size: 13px;
                         single-line: true;
                         vertical-alignment: center;
@@ -452,6 +457,8 @@ export component SettingsPanel inherits FocusScope {
                         height: parent.height;
                         text: root.alternate-folder-opener-command;
                         color: root.text-strong;
+                        selection-background-color: root.light ? #303030 : #d4d4d4;
+                        selection-foreground-color: root.light ? #ffffff : #181818;
                         font-size: 13px;
                         single-line: true;
                         vertical-alignment: center;
@@ -823,6 +830,8 @@ export component SettingsPanel inherits FocusScope {
                             height: parent.height;
                             text: root.max-results;
                             color: root.text-strong;
+                            selection-background-color: root.light ? #303030 : #d4d4d4;
+                            selection-foreground-color: root.light ? #ffffff : #181818;
                             font-size: 12px;
                             single-line: true;
                             vertical-alignment: center;

@@ -60,17 +60,19 @@ Pass criteria:
 12. Open Modules and toggle Web Search, Units, Currency, Time, Calculator, Timers, and Aliases.
 13. Confirm each module card uses its result-style glyph, including `U` for Units and `$` for Currency.
 14. Search Modules by name, description, author, category, and a mixed-case query.
-15. Enter a query with no matches on Official and Community and confirm the helper line reports that no modules were found.
+15. Enter a query with no matches on Official and Community and confirm a compact “No modules found” result appears without replacing the tab helper line.
 16. Try Name (A–Z), Name (Z–A), and Most starred sorting, then apply Updates only and Saved data filters.
 17. Remove an installed module without deleting its data and confirm it remains in Installed with a single primary Restore action.
 18. On that removed module, choose Delete data once, verify the warning, then use Cancel or choose Confirm delete to finish.
 19. Open Source code and Report issues and confirm they open the repository and issue tracker respectively.
 20. Scroll to the final module card and confirm the viewport stops at its bottom edge without a large blank tail.
 21. Switch to Modules, press Escape, and confirm rayslash returns to the main launcher just as it does from General.
-22. Open the new search-engine editor, fill one field, switch to another window to copy a URL, and return to rayslash.
-23. Cancel that editor and confirm no row was added, then create a YouTube engine using `https://www.youtube.com/results?search_query=%s`.
-24. Edit the YouTube engine, disable and re-enable it, then delete it from the editor.
-25. Add, edit, and delete an alias row using `name | keyword | kind | target`.
+22. Select text in the launcher search, module search, folder source, alternate opener, Max results, alias, and search-engine inputs in both light and dark themes.
+23. Install an older module version from a test catalog, refresh to a catalog containing a newer compatible version, and use Update.
+24. Open the new search-engine editor, fill one field, switch to another window to copy a URL, and return to rayslash.
+25. Cancel that editor and confirm no row was added, then create a YouTube engine using `https://www.youtube.com/results?search_query=%s`.
+26. Edit the YouTube engine, disable and re-enable it, then delete it from the editor.
+27. Add, edit, and delete an alias row using `name | keyword | kind | target`.
 
 Pass criteria:
 
@@ -83,14 +85,16 @@ Pass criteria:
 - Module toggles fit without text overlap, save immediately, and use provider-specific result glyphs.
 - Module search is case-insensitive, sorting and filters immediately change the visible list, and the controls remain aligned at the normal launcher size.
 - The module toolbar has visible padding around both rows, and the search, sort, and filter controls do not touch the tab row or outer border.
-- Empty tabs and searches with no matches show a clear top-side “No modules found” message.
+- Empty tabs and searches with no matches show a compact “No modules found” result while retaining the contextual helper copy above the toolbar.
 - Removed modules with retained data stay in Installed. Restore occupies the same primary action slot as Install, while permanent data deletion is separate and requires confirmation.
-- Normal module cards omit the capabilities row; Source code and Report issues share the final line with the compact action buttons.
+- Normal module cards omit the capabilities row; compact action buttons end at the Source code/Report issues text baseline rather than extending beneath it.
 - Module scrolling ends with the final visible card, and hidden or filtered cards do not add blank scroll range.
-- Operation feedback appears as a temporary bottom notification rather than changing failed card heights; success uses a green check, errors use a red indicator, and in-progress warnings use orange.
+- Operation feedback appears as a temporary bottom notification rather than changing failed card heights; success uses a green check, errors use a red indicator, and in-progress warnings use orange. Short messages remain for at least 4.2 seconds and longer messages receive additional reading time.
 - Escape closes Settings from both General and Modules, including after using the module search field.
 - Source code uses the normal link color; Report issues uses the distinct issue color and opens the repository issue tracker.
 - Zero-star modules keep a muted star, while positive star counts use the highlighted star color.
+- Text selection uses neutral, theme-aware foreground/background colors instead of the toolkit accent color.
+- Update shows the installed and target versions, verifies the signed package metadata and digest, probes the replacement before committing it, preserves the module's enabled state, and leaves the old version active if installation fails.
 - Add and Edit use the same compact in-window editor; switching applications leaves it open with entered values intact.
 - Cancel does not persist a new row, invalid values keep the editor open, and Delete appears only when editing a removable existing engine.
 - Search-engine list rows show a compact favicon container, name and URL, mildly rounded keyword flair, centered switch, and centered Edit button without a Delete or warning action.

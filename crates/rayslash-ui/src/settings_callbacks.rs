@@ -52,6 +52,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
     } = context;
 
     ui.on_settings_feedback_kind(|message| feedback_kind(message.as_str()).into());
+    ui.on_settings_feedback_duration_ms(|message| feedback_duration_ms(message.as_str()));
 
     ui.on_settings_requested({
         let weak = ui.as_weak();
@@ -635,13 +636,21 @@ fn set_ephemeral_status(ui: &AppWindow, message: &str) {
 
     let expected = message.to_owned();
     let weak = ui.as_weak();
-    Timer::single_shot(Duration::from_millis(1800), move || {
-        if let Some(ui) = weak.upgrade()
-            && ui.get_status_text().as_str() == expected
-        {
-            ui.set_status_text(DEFAULT_STATUS_TEXT.into());
-        }
-    });
+    Timer::single_shot(
+        Duration::from_millis(feedback_duration_ms(message) as u64),
+        move || {
+            if let Some(ui) = weak.upgrade()
+                && ui.get_status_text().as_str() == expected
+            {
+                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+            }
+        },
+    );
+}
+
+fn feedback_duration_ms(message: &str) -> i32 {
+    let characters = message.chars().count() as i32;
+    (1_200 + (characters * 1_000 + 17) / 18).clamp(4_200, 10_000)
 }
 
 fn feedback_kind(message: &str) -> &'static str {
@@ -698,7 +707,7 @@ fn feedback_kind(message: &str) -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::feedback_kind;
+    use super::{feedback_duration_ms, feedback_kind};
 
     #[test]
     fn feedback_kind_distinguishes_status_intent() {
@@ -706,5 +715,12 @@ mod tests {
         assert_eq!(feedback_kind("Restoring Aliases…"), "warning");
         assert_eq!(feedback_kind("Could not save settings."), "error");
         assert_eq!(feedback_kind("No changes to apply."), "info");
+    }
+
+    #[test]
+    fn feedback_duration_scales_from_a_readable_minimum() {
+        assert_eq!(feedback_duration_ms("Saved."), 4_200);
+        assert!(feedback_duration_ms(&"warning ".repeat(15)) > 4_200);
+        assert_eq!(feedback_duration_ms(&"very long ".repeat(100)), 10_000);
     }
 }

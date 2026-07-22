@@ -115,9 +115,9 @@ component ActionButton inherits Rectangle {
     in property <bool> light;
     callback clicked();
 
-    width: 100px;
-    height: 28px;
-    border-radius: 7px;
+    width: 82px;
+    height: 24px;
+    border-radius: 6px;
     opacity: root.available ? 1 : 0.42;
     background: root.destructive
         ? action-touch.pressed ? #5d2424 : action-touch.has-hover ? #482626 : transparent
@@ -156,7 +156,7 @@ component ModuleCard inherits Rectangle {
     callback action-requested(string, string);
 
     private property <bool> show-confirmation: root.item.operation_confirmation && root.item.operation_summary != "";
-    height: root.shown ? 96px + (root.show-confirmation ? 36px : 0px) : 0px;
+    height: root.shown ? 80px + (root.show-confirmation ? 36px : 0px) : 0px;
     visible: root.shown;
     border-radius: 10px;
     background: card-touch.has-hover ? root.light ? #fafafa : #202020 : root.light ? #ffffff : #1d1d1d;
@@ -166,10 +166,10 @@ component ModuleCard inherits Rectangle {
     card-touch := TouchArea { }
 
     HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 14px;
-        padding-top: 10px;
-        padding-bottom: root.show-confirmation ? 46px : 10px;
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 8px;
+        padding-bottom: root.show-confirmation ? 44px : 8px;
         spacing: 11px;
 
         ModuleIcon {
@@ -218,7 +218,7 @@ component ModuleCard inherits Rectangle {
             }
 
             Text {
-                height: 16px;
+                height: 15px;
                 text: root.item.description;
                 color: root.light ? #5d5d5d : #b8b8b8;
                 font-size: 11px;
@@ -227,7 +227,7 @@ component ModuleCard inherits Rectangle {
             }
 
             HorizontalLayout {
-                height: 16px;
+                height: 15px;
                 spacing: 7px;
 
                 Text { text: root.item.category; color: root.light ? #626262 : #aaaaaa; font-size: 10px; horizontal-stretch: 0; vertical-alignment: center; }
@@ -244,7 +244,7 @@ component ModuleCard inherits Rectangle {
             }
 
             HorizontalLayout {
-                height: 26px;
+                height: 16px;
                 spacing: 8px;
                 Text { text: root.item.repository == "" ? "" : "Source code"; color: source-touch.has-hover ? root.light ? #235f9e : #87bdf1 : root.light ? #3476b9 : #70a8df; font-size: 10px; horizontal-stretch: 0; vertical-alignment: center;
                     source-touch := TouchArea { enabled: root.item.repository != ""; mouse-cursor: pointer; clicked => { root.action-requested(root.item.id, "Source"); } }
@@ -258,11 +258,11 @@ component ModuleCard inherits Rectangle {
         }
 
         VerticalLayout {
-            width: 208px;
+            width: 170px;
             spacing: 0px;
 
             HorizontalLayout {
-                height: 26px;
+                height: 24px;
                 alignment: end;
                 spacing: 10px;
 
@@ -288,12 +288,12 @@ component ModuleCard inherits Rectangle {
                 }
             }
 
-            Rectangle { vertical-stretch: 1; background: transparent; }
+            Rectangle { height: 13px; background: transparent; }
 
             HorizontalLayout {
-                height: 28px;
+                height: 24px;
                 alignment: end;
-                spacing: 8px;
+                spacing: 6px;
 
                 if root.item.secondary_action_available: ActionButton {
                     label: root.item.secondary_action;
@@ -313,6 +313,8 @@ component ModuleCard inherits Rectangle {
                     clicked => { root.action-requested(root.item.id, root.item.action); }
                 }
             }
+
+            Rectangle { height: 3px; background: transparent; }
         }
     }
 
@@ -411,15 +413,7 @@ export component ModulesPanel inherits FocusScope {
 
         Text {
             height: 18px;
-            text: root.visible-count == 0
-                ? root.search-query != "" || root.updates-only || root.saved-data-only
-                    ? "No modules found. Try another search or clear the active filters."
-                    : root.selected-tab == "installed"
-                    ? "No modules installed. Browse Official or Community to add launcher features."
-                    : root.selected-tab == "official"
-                    ? "No official modules found in the current catalog."
-                    : "No community modules found in the current catalog."
-                : root.selected-tab == "installed"
+            text: root.selected-tab == "installed"
                 ? root.installed-count == 0 && root.restorable-count == 0
                     ? "No modules installed. Browse Official or Community to add launcher features."
                     : root.restorable-count > 0
@@ -475,6 +469,8 @@ export component ModulesPanel inherits FocusScope {
                         x: 38px; width: parent.width - 50px; height: 100%;
                         text: root.search-query;
                         color: root.light ? #242424 : #e8e8e8;
+                        selection-background-color: root.light ? #303030 : #d4d4d4;
+                        selection-foreground-color: root.light ? #ffffff : #181818;
                         font-size: 11px;
                         single-line: true;
                         vertical-alignment: center;
@@ -534,6 +530,50 @@ export component ModulesPanel inherits FocusScope {
             module-content := VerticalLayout {
                 width: module-scroll.width;
                 spacing: 0px;
+
+                if root.visible-count == 0: Rectangle {
+                    height: 50px;
+                    border-radius: 9px;
+                    background: root.light ? #fafafa : #1d1d1d;
+                    border-width: 1px;
+                    border-color: root.light ? #d2d2d2 : #373737;
+
+                    Rectangle {
+                        x: 12px; y: 12px; width: 26px; height: 26px;
+                        border-radius: 13px;
+                        background: root.light ? #e8e8e8 : #2d2d2d;
+                        Path {
+                            x: 6px; y: 6px; width: 14px; height: 14px;
+                            viewbox-width: 24; viewbox-height: 24;
+                            commands: "M10.5 4 A6.5 6.5 0 1 0 10.5 17 A6.5 6.5 0 1 0 10.5 4 M15.5 15.5 L21 21";
+                            stroke: root.light ? #666666 : #bcbcbc;
+                            stroke-width: 2px;
+                            fill: transparent;
+                        }
+                    }
+
+                    Text {
+                        x: 48px; y: 7px; width: parent.width - 60px; height: 18px;
+                        text: "No modules found";
+                        color: root.light ? #303030 : #e5e5e5;
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+
+                    Text {
+                        x: 48px; y: 24px; width: parent.width - 60px; height: 18px;
+                        text: root.search-query != "" || root.updates-only || root.saved-data-only
+                            ? "Try another search or clear the active filters."
+                            : root.selected-tab == "installed"
+                            ? "Browse Official or Community to install one."
+                            : "Nothing is available in this catalog section yet.";
+                        color: root.light ? #707070 : #929292;
+                        font-size: 9px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                    }
+                }
 
                 for item in root.modules: Rectangle {
                     private property <bool> matches: (root.selected-tab == "installed" ? item.installed || item.has_saved_data : root.selected-tab == "official" ? item.official : !item.official)

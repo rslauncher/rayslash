@@ -214,6 +214,7 @@ export component AppWindow inherits Window {
     pure callback settings-visible-module-count(string, string, bool, bool, int) -> int;
     callback settings-module-sort-requested(string);
     pure callback settings-feedback-kind(string) -> string;
+    pure callback settings-feedback-duration-ms(string) -> int;
     callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     public function focus-search() {
@@ -458,6 +459,7 @@ export component AppWindow inherits Window {
                         visible-module-count(tab, query, updates-only, saved-data-only, model-length) => { return root.settings-visible-module-count(tab, query, updates-only, saved-data-only, model-length); }
                         module-sort-requested(order) => { root.settings-module-sort-requested(order); }
                         feedback-kind(message) => { return root.settings-feedback-kind(message); }
+                        feedback-duration-ms(message) => { return root.settings-feedback-duration-ms(message); }
                         save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, provider-utility-actions, alternate-opener-enabled, ranking-learn-from-usage, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {
                             root.settings-save-requested(
                                 folder-sources,

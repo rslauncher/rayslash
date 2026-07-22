@@ -275,7 +275,7 @@ pub fn install_registry_version(
             source: module.repository.clone(),
             source_commit: version.source_commit.clone(),
             install_path: destination.clone(),
-            enabled: true,
+            enabled: installed_enabled_after_update(existing.as_ref()),
             permissions: manifest.permissions.clone(),
         };
         let mut state = load_installed_modules()?;
@@ -309,6 +309,10 @@ pub fn install_registry_version(
         remove_dir_if_empty(&modules_dir.join(&module.id));
     }
     result
+}
+
+fn installed_enabled_after_update(existing: Option<&InstalledModule>) -> bool {
+    existing.is_none_or(|installed| installed.enabled)
 }
 
 fn download_package(url: &str) -> Result<Vec<u8>, PackageError> {
@@ -1001,6 +1005,9 @@ mod tests {
             "io.github.example.module",
             &installed
         ));
+        assert!(installed_enabled_after_update(None));
+        installed.enabled = false;
+        assert!(!installed_enabled_after_update(Some(&installed)));
 
         installed.install_path = PathBuf::from("/tmp/unmanaged");
         assert!(!valid_installed_path(
