@@ -62,7 +62,9 @@ desktop-file-validate packaging/linux/dev.rayan6ms.rayslash.desktop
 appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xml
 ```
 
-The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs formatting, clippy, tests, build, desktop-entry validation, AppStream validation, inventory consistency checks, and frozen/offline Fedora rebuilds on x86_64 and aarch64. Each Fedora job fetches the architecture-matched host RPM from the immutable host v0.1.2 release, verifies both pinned and published checksums, runs RPM digest and rpmlint validation, and proves with a DNF dry run that installing `rayslash` resolves the separate host dependency. The `fedora-44-x86_64-package-set` and `fedora-44-aarch64-package-set` workflow artifacts are retained for fourteen days.
+The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs formatting, clippy, tests, build, desktop-entry validation, AppStream validation, inventory consistency checks, and frozen/offline Fedora rebuilds on x86_64 and aarch64. Each Fedora job fetches the architecture-matched host RPM from the immutable host v0.1.2 release, verifies its pinned checksum, runs RPM digest and rpmlint validation, and proves with a DNF dry run that installing `rayslash` resolves the separate host dependency.
+
+[release.yml](../.github/workflows/release.yml) can run without publishing from a branch for pre-release verification. Semantic-version tags run the same native x86_64 and ARM64 RPM, DEB, AppImage, and Flatpak builds, verify that Cargo, RPM, and Arch versions match the tag, check the expected ten user-facing binaries, create a single `SHA256SUMS`, and publish the GitHub release. Source RPMs, debuginfo/debugsource packages, per-file checksum sidecars, and transient build products remain CI-internal instead of cluttering the public release.
 
 ## Standards To Follow
 
@@ -74,24 +76,15 @@ The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflow
 
 ## Public Distribution Strategy
 
-The first public package targets are Fedora RPM and Arch/AUR on x86_64 and aarch64. Their app packages require the separately maintained host package, so module installation needs no additional user setup. Flatpak remains a prototype and bundles the digest-pinned host executable. A local prototype manifest lives at:
+GitHub releases provide Fedora 44 RPM, DEB, AppImage, and Flatpak downloads for x86_64 and ARM64. RPM keeps the separately maintained host as a package dependency and publishes the matching host RPM beside the app RPM. DEB, AppImage, and Flatpak embed the digest-pinned host so each is a single app download. No format bundles optional modules.
+
+Arch/AUR packaging remains available as a source recipe. The Flatpak manifest lives at:
 
 ```sh
 packaging/flatpak/dev.rayan6ms.rayslash.yml
 ```
 
-The manifest is intentionally a prototype because host desktop-entry discovery and launching host applications from a sandbox still need real testing.
-
-Suggested order:
-
-1. Stabilize install layout, app ID, desktop entry, icon, and metainfo.
-2. Add validation for desktop entry and AppStream metadata.
-3. Build and verify Fedora RPM packaging in `packaging/fedora/rayslash.spec`.
-4. Build and verify Arch/AUR packaging in `packaging/arch/PKGBUILD`.
-5. Evaluate and harden the Flatpak prototype and bundled-host boundary.
-6. Keep AppImage deferred until update, desktop integration, and shortcut documentation expectations are clear.
-
-This order can change if the project chooses distro-native packages as the first public path.
+The direct Flatpak bundle is deliberately not presented as a Flathub submission: a general desktop launcher needs read access to host application metadata and configured folders, plus `org.freedesktop.Flatpak` access to execute selected host applications. Those permissions are explicit in the manifest and should be reconsidered if a narrower launcher portal becomes available.
 
 ## Fedora
 
@@ -119,7 +112,7 @@ sources_dir="$(mktemp -d)"
 packaging/fedora/prepare-sources.sh "$sources_dir" HEAD
 ```
 
-The helper runs `cargo vendor --locked --versioned-dirs`, creates `rayslash-0.1.1.tar.gz` from the selected commit, and creates a deterministic `rayslash-0.1.1-vendor.tar.xz`. It prints both SHA-256 hashes. Network access is allowed only during this source-preparation step so Cargo can populate missing registry packages. `Cargo.lock` remains authoritative and source preparation fails if its dependency graph cannot be vendored.
+The helper runs `cargo vendor --locked --versioned-dirs`, creates `rayslash-0.2.0.tar.gz` from the selected commit, and creates a deterministic `rayslash-0.2.0-vendor.tar.xz`. It prints both SHA-256 hashes. Network access is allowed only during this source-preparation step so Cargo can populate missing registry packages. `Cargo.lock` remains authoritative and source preparation fails if its dependency graph cannot be vendored.
 
 Build the SRPM from a literal copy of the checked-in spec in a fresh top directory:
 
@@ -142,7 +135,7 @@ resultdir="$(mktemp -d)"
 mock \
   -r fedora-44-x86_64 \
   --resultdir="$resultdir" \
-  --rebuild "$topdir/SRPMS/rayslash-0.1.1-1.fc44.src.rpm"
+  --rebuild "$topdir/SRPMS/rayslash-0.2.0-1.fc44.src.rpm"
 ```
 
 The spec installs `packaging/fedora/cargo-config.toml`, which replaces crates.io with the unpacked `vendor` directory and enables Cargo offline mode. Both `%build` and `%check` use `--frozen`, so a missing/stale vendor entry or lockfile change fails instead of accessing the registry. They cap Cargo at two jobs because clean Slint builds can otherwise run enough concurrent compiler processes to exhaust a 16 GiB workstation. `%check` uses the release profile so it reuses the packaged build's optimized dependency graph instead of compiling the full Slint stack a second time in the debug profile.
@@ -162,16 +155,15 @@ The package installs AppStream/metainfo metadata.
 
 ### Official Fedora package set
 
-The [Rayslash v0.1.1 release](https://github.com/rslauncher/rayslash/releases/tag/v0.1.1) publishes the app RPMs together with the verified, separately packaged host RPM for x86_64 and aarch64. The same host RPMs remain independently available from the [host v0.1.2 release](https://github.com/rslauncher/rayslash-module-host/releases/tag/v0.1.2). No optional module is included in either RPM.
+The [Rayslash v0.2.0 release](https://github.com/rslauncher/rayslash/releases/tag/v0.2.0) publishes the app RPMs together with the verified, separately packaged host RPM for x86_64 and aarch64. The same host RPMs remain independently available from the [host v0.1.2 release](https://github.com/rslauncher/rayslash-module-host/releases/tag/v0.1.2). No optional module is included in either RPM.
 
-Download the app RPM, the matching host RPM, and their `.sha256` files for the machine architecture. Verify them in the download directory and install both official files in one DNF transaction:
+Download the app RPM, the matching host RPM, and `SHA256SUMS`. Verify them in the download directory and install both official files in one DNF transaction:
 
 ```sh
-sha256sum --check --strict rayslash-0.1.1-1.fc44."$(uname -m)".rpm.sha256
-sha256sum --check --strict rayslash-module-host-0.1.2-1.fc44."$(uname -m)".rpm.sha256
+sha256sum --check --ignore-missing SHA256SUMS
 sudo dnf install \
   ./rayslash-module-host-0.1.2-1.fc44."$(uname -m)".rpm \
-  ./rayslash-0.1.1-1.fc44."$(uname -m)".rpm
+  ./rayslash-0.2.0-1.fc44."$(uname -m)".rpm
 ```
 
 This installs the host as a dependency-owned infrastructure package. It does not install Calculator, Units, Currency, Time, Web Search, Timers, Aliases, or any community module.
@@ -186,7 +178,7 @@ packaging/arch/PKGBUILD
 
 The `PKGBUILD` builds the Rust workspace and installs the resulting binary as `rayslash`.
 
-`pkgver` is `0.1.1` and `pkgrel` is `1`, matching the first release that publishes complete architecture-matched app and host package sets.
+`pkgver` is `0.2.0` and `pkgrel` is `1`.
 
 Expected package behavior:
 
@@ -197,34 +189,38 @@ Expected package behavior:
 - Install AppStream/metainfo metadata.
 - Require `rayslash-module-host`, supplied directly or through the `rayslash-module-host-bin` provider.
 
+## DEB
+
+`packaging/debian/build-deb.sh` creates an architecture-native Debian package containing the launcher, module host, desktop entry, icon, metainfo, license, and install notes. The release workflow builds on Ubuntu 22.04 and validates both package metadata and installed paths with `dpkg-deb`.
+
+Install a release package with:
+
+```sh
+sudo apt install ./rayslash_0.2.0_amd64.deb
+```
+
 ## Flatpak
 
-Flatpak packaging has a prototype manifest at `packaging/flatpak/dev.rayan6ms.rayslash.yml`. It should be evaluated before broad public release because it can provide a single distribution path across many Linux distros.
+Flatpak packaging lives at `packaging/flatpak/dev.rayan6ms.rayslash.yml`.
 
 The manifest installs the pinned host release at `/app/libexec/rayslash/rayslash-module-host`. It contains no official or community module package.
 
-The sandbox shares network access because the app must fetch the signed catalog and user-selected package assets, and because reviewed modules such as Currency and Time use narrowly allowlisted HTTPS services through the host. Module-level origin checks still apply; Flatpak network access does not grant a guest module ambient sockets.
+The sandbox shares network access because the app must fetch the signed catalog and user-selected package assets, and because reviewed modules such as Currency and Time use narrowly allowlisted HTTPS services through the host. It reads host desktop entries/icons and executes selected external actions through `flatpak-spawn --host`. Module-level origin checks still apply; Flatpak network access does not grant a guest module ambient sockets.
 
-Open questions:
+Install and invoke the direct bundle with:
 
-- Whether the resident `rayslash toggle` model works cleanly with the Flatpak command wrapper.
-- How users should bind desktop shortcuts to the Flatpak command.
-- Whether clipboard access through `arboard` behaves as expected in the sandbox.
-- Whether app discovery should inspect host desktop entries from inside Flatpak, use portals, or require a different package model.
-- Whether launching host apps from inside a sandbox is acceptable or too limited for this launcher.
-
-Flatpak may reveal that distro-native packages are a better first public target. That decision should be based on a prototype, not assumptions.
+```sh
+flatpak install --user ./rayslash-0.2.0-x86_64.flatpak
+flatpak run dev.rayan6ms.rayslash toggle
+```
 
 ## AppImage
 
-AppImage packaging is deferred. Do not build or publish an AppImage from this pass. The current revisit note lives at:
+`packaging/appimage/build-appimage.sh` assembles the standard install layout in an AppDir and invokes a digest-pinned linuxdeploy build. The bundled `AppRun` forwards arguments and resolves the included module host. Invoke it with:
 
 ```sh
-packaging/appimage/README.md
+chmod +x rayslash-0.2.0-x86_64.AppImage
+./rayslash-0.2.0-x86_64.AppImage toggle
 ```
 
-A future AppImage should still expose the `rayslash` command internally and should document how users bind their desktop shortcut to the AppImage equivalent of:
-
-```sh
-rayslash toggle
-```
+AppImages are explicitly download-and-replace artifacts; no silent updater or zsync metadata is published. See [APPIMAGE.md](APPIMAGE.md).

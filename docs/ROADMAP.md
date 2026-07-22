@@ -120,7 +120,7 @@ Goal: make public installation reliable across common distributions.
 - Revisit AppImage after the normal install layout, desktop entry, and icon model are validated.
 - Improve standards compliance for desktop discovery and icon lookup before packaging broadly.
 
-Phase 10 implementation is complete for the current public-readiness pass. The repo now has a packaging inventory, AppStream/metainfo metadata, a metadata validation script, CI validation, a Flatpak prototype manifest, Fedora RPM spec, Arch/AUR `PKGBUILD`, and an AppImage deferral note. Desktop-entry discovery now parses localized labels, keywords, desktop actions, and `DBusActivatable`, while icon lookup covers more app icon directory shapes and WPS-style reverse-DNS suffix fallbacks.
+Phase 10 implementation is complete. The repo now has a packaging inventory, AppStream/metainfo metadata, metadata and release-asset validation, Fedora RPM and Arch/AUR recipes, DEB and AppImage builders, a direct Flatpak manifest, and tag-driven x86_64/ARM64 GitHub releases. Desktop-entry discovery parses localized labels, keywords, desktop actions, and `DBusActivatable`; icon lookup covers more app icon directory shapes and WPS-style reverse-DNS suffix fallbacks. Flatpak builds additionally discover host desktop/icon exports and launch selected host actions through `flatpak-spawn`.
 
 ## Phase 11 - Project Maturity
 

@@ -81,6 +81,7 @@ Pass criteria:
 
 - Each valid change saves without closing Settings.
 - Settings content scrolls to the diagnostics and does not push outside the launcher panel.
+- Diagnostics uses one bordered card: config/state locations share equal aligned columns above a divider, while Folders, Apps, Icons, and the runtime socket use aligned cells below it without overlap or irregular gaps.
 - Toggle label/description text remains readable, and hovering the full toggle row for at least 800ms shows the full label/description detail above other settings content.
 - Disabling Tooltips suppresses delayed detail tooltips for settings toggles and result rows.
 - Max results is a compact control in the Launcher content row next to Apps and Folders; Tooltips sits next to Alt opener.

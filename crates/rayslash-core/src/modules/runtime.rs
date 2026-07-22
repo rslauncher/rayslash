@@ -651,6 +651,11 @@ fn module_host_path() -> PathBuf {
             if let Some(home) = dirs::home_dir() {
                 candidates.push(home.join(".local/libexec/rayslash/rayslash-module-host"));
             }
+            if let Ok(executable) = env::current_exe()
+                && let Some(binary_dir) = executable.parent()
+            {
+                candidates.push(binary_dir.join("../libexec/rayslash/rayslash-module-host"));
+            }
             candidates.into_iter().find(|path| path.is_file())
         })
         .unwrap_or_else(|| PathBuf::from("rayslash-module-host"))

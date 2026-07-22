@@ -1,0 +1,246 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: version
+        name: Verify release version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(awk -F '"' '$1 ~ /^version = / { print $2; exit }' crates/rayslash-ui/Cargo.toml)
+          fi
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          manifest_version=$(awk -F '"' '$1 ~ /^version = / { print $2; exit }' crates/rayslash-ui/Cargo.toml)
+          spec_version=$(awk '$1 == "Version:" { print $2; exit }' packaging/fedora/rayslash.spec)
+          pkgbuild_version=$(awk -F= '$1 == "pkgver" { print $2; exit }' packaging/arch/PKGBUILD)
+          test "$version" = "$manifest_version"
+          test "$version" = "$spec_version"
+          test "$version" = "$pkgbuild_version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Validate metadata
+        run: packaging/validate-metadata.sh
+
+  native:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            architecture: x86_64
+            linuxdeploy_sha256: c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
+          - runner: ubuntu-24.04-arm
+            architecture: aarch64
+            linuxdeploy_sha256: 620095110d693282b8ebeb244a95b5e911cf8f65f76c88b4b47d16ae6346fcff
+    runs-on: ${{ matrix.runner }}
+    container: ubuntu:22.04
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            appstream ca-certificates curl desktop-file-utils dpkg-dev file \
+            gcc git libfontconfig1 libfontconfig1-dev make pkg-config
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binary
+        run: cargo build --release --locked -p rayslash
+      - name: Fetch verified module host
+        run: packaging/release/install-host.sh "$RUNNER_TEMP/rayslash-module-host"
+      - name: Build Debian package
+        run: |
+          packaging/debian/build-deb.sh \
+            target/release/rayslash \
+            "$RUNNER_TEMP/rayslash-module-host" \
+            "$GITHUB_WORKSPACE/release-assets"
+      - name: Fetch pinned linuxdeploy
+        env:
+          LINUXDEPLOY_SHA256: ${{ matrix.linuxdeploy_sha256 }}
+        run: |
+          tool="$RUNNER_TEMP/linuxdeploy-${{ matrix.architecture }}.AppImage"
+          curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$tool" \
+            "https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-${{ matrix.architecture }}.AppImage"
+          printf '%s  %s\n' "$LINUXDEPLOY_SHA256" "$tool" | sha256sum --check --strict
+          chmod +x "$tool"
+      - name: Build AppImage
+        run: |
+          packaging/appimage/build-appimage.sh \
+            target/release/rayslash \
+            "$RUNNER_TEMP/rayslash-module-host" \
+            "$RUNNER_TEMP/linuxdeploy-${{ matrix.architecture }}.AppImage" \
+            "$GITHUB_WORKSPACE/release-assets"
+          file release-assets/*.AppImage
+      - uses: actions/upload-artifact@v7
+        with:
+          name: native-${{ matrix.architecture }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  rpm:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            architecture: x86_64
+          - runner: ubuntu-24.04-arm
+            architecture: aarch64
+    runs-on: ${{ matrix.runner }}
+    container: fedora:44
+    steps:
+      - name: Install packaging tools
+        run: dnf install -y appstream cargo createrepo_c curl desktop-file-utils fontconfig-devel gcc git rpm-build rpmlint rust xz
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Trust the container workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Prepare and rebuild offline RPM
+        run: |
+          packaging/fedora/prepare-sources.sh "$RUNNER_TEMP/sources" "$GITHUB_SHA"
+          mkdir -p "$RUNNER_TEMP/rpmbuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          cp "$RUNNER_TEMP/sources"/* "$RUNNER_TEMP/rpmbuild/SOURCES/"
+          cp packaging/fedora/rayslash.spec "$RUNNER_TEMP/rpmbuild/SPECS/"
+          rpmbuild -bs \
+            --define "_topdir $RUNNER_TEMP/rpmbuild" \
+            "$RUNNER_TEMP/rpmbuild/SPECS/rayslash.spec"
+          mkdir -p "$RUNNER_TEMP/rebuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
+          CARGO_NET_OFFLINE=true rpmbuild --rebuild \
+            --define "_topdir $RUNNER_TEMP/rebuild" \
+            "$RUNNER_TEMP/rpmbuild/SRPMS/"*.src.rpm
+      - name: Assemble the user-facing RPM set
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          mkdir -p release-assets rpm-validation
+          app_rpm=$(find "$RUNNER_TEMP/rebuild/RPMS" -type f \
+            -name "rayslash-${VERSION}-1.fc44.${{ matrix.architecture }}.rpm" -print -quit)
+          test -n "$app_rpm"
+          cp "$app_rpm" release-assets/
+          packaging/fedora/fetch-host-rpm.sh "${{ matrix.architecture }}" rpm-validation
+          cp rpm-validation/rayslash-module-host-*.rpm release-assets/
+          rpm -Kv release-assets/*.rpm
+          rpmlint release-assets/*.rpm
+          mkdir rpm-validation/repo
+          cp release-assets/*.rpm rpm-validation/repo/
+          createrepo_c rpm-validation/repo >/dev/null
+          dnf --disablerepo='*' \
+            --repofrompath=rayslash-local,"file://$PWD/rpm-validation/repo" \
+            --setopt=rayslash-local.gpgcheck=0 --refresh \
+            install rayslash --assumeno | tee rpm-validation/transaction.txt
+          grep -F rayslash-module-host rpm-validation/transaction.txt
+          grep -F rayslash rpm-validation/transaction.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rpm-${{ matrix.architecture }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  flatpak:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            architecture: x86_64
+          - runner: ubuntu-24.04-arm
+            architecture: aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub \
+            org.freedesktop.Platform//24.08 \
+            org.freedesktop.Sdk//24.08 \
+            org.freedesktop.Sdk.Extension.rust-stable//24.08
+      - name: Vendor Cargo dependencies for the sandboxed build
+        run: |
+          mkdir -p .cargo
+          cargo vendor --locked --versioned-dirs vendor > .cargo/config.toml
+      - name: Build and validate Flatpak bundle
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          flatpak-builder --user --force-clean --disable-rofiles-fuse \
+            --default-branch=stable \
+            --repo="$RUNNER_TEMP/flatpak-repo" \
+            "$RUNNER_TEMP/flatpak-build" \
+            packaging/flatpak/dev.rayan6ms.rayslash.yml
+          mkdir -p release-assets
+          bundle="release-assets/rayslash-${VERSION}-${{ matrix.architecture }}.flatpak"
+          flatpak build-bundle \
+            --arch=${{ matrix.architecture }} \
+            "$RUNNER_TEMP/flatpak-repo" \
+            "$bundle" \
+            dev.rayan6ms.rayslash stable
+          flatpak install --user --noninteractive "$bundle"
+          flatpak info dev.rayan6ms.rayslash
+          flatpak run --command=test dev.rayan6ms.rayslash \
+            -x /app/bin/rayslash \
+            -x /app/libexec/rayslash/rayslash-module-host
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak-${{ matrix.architecture }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [prepare, native, rpm, flatpak]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: '*'
+          path: release-assets
+          merge-multiple: true
+      - name: Validate the release surface and checksums
+        run: packaging/release/validate-assets.sh release-assets '${{ needs.prepare.outputs.version }}'
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --title "rayslash $GITHUB_REF_NAME" \
+              --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+          fi

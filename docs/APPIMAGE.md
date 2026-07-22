@@ -1,15 +1,12 @@
-# AppImage Status
+# AppImage
 
-AppImage remains deferred for the first public packaging pass.
+Release tags build architecture-specific AppImages with the pinned module host, desktop entry, scalable icon, AppStream metadata, and required non-system shared libraries. The build uses a digest-pinned `linuxdeploy` release and runs on Ubuntu 22.04 to retain a conservative glibc baseline.
 
-The normal Linux install layout is now defined by `packaging/linux/inventory.toml`,
-the desktop entry, the hicolor SVG icon, and the AppStream metainfo file. Fedora,
-Arch/AUR, and Flatpak packaging can install those files directly into standard
-locations and validate them with the same metadata commands.
+The bundled `AppRun` adds the internal binary directory to `PATH`, points `RAYSLASH_MODULE_HOST` at the bundled host, and forwards all arguments. After downloading and verifying the release:
 
-Before adding an AppImage build, decide:
+```sh
+chmod +x rayslash-0.2.0-x86_64.AppImage
+./rayslash-0.2.0-x86_64.AppImage toggle
+```
 
-- How `rayslash toggle` should be exposed from the AppImage path users bind to a desktop shortcut.
-- Whether AppImage desktop integration should install or update the desktop entry, icon, and metainfo.
-- How update metadata and signature expectations will be handled.
-- Whether host desktop-entry scanning and icon lookup behave the same when launched from an AppImage mount.
+Bind the absolute AppImage path followed by `toggle` to the desktop shortcut. Updating is an explicit download-and-replace operation; the project does not silently install updates or publish a zsync stream.

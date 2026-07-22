@@ -77,7 +77,10 @@ fn parse_available_desktop_entry(
     let entry = parse_desktop_entry_fields(contents);
     let app = desktop_app_from_entry(entry.clone(), id, desktop_file)?;
 
-    if !matches_current_desktop(&entry) || !desktop_entry_is_available(&entry, &app.command) {
+    if !matches_current_desktop(&entry)
+        || std::env::var_os("FLATPAK_ID").is_none()
+            && !desktop_entry_is_available(&entry, &app.command)
+    {
         return None;
     }
 
@@ -115,10 +118,10 @@ fn desktop_app_from_entry(
         &locale_preferences,
     );
     let exec = entry.exec.clone().unwrap_or_default();
-    let command = if entry.dbus_activatable {
+    let command = if entry.dbus_activatable && std::env::var_os("FLATPAK_ID").is_none() {
         desktop_file_launch_command(&desktop_file)
     } else {
-        parse_exec_command(&exec)?
+        parse_exec_command(&exec).unwrap_or_else(|| desktop_file_launch_command(&desktop_file))
     };
 
     Some(DesktopApp {

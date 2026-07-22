@@ -97,6 +97,8 @@ packaging/linux/dev.rayan6ms.rayslash.desktop
 
 It uses app ID `dev.rayan6ms.rayslash`, `Name=rayslash`, `Exec=rayslash toggle`, `Icon=dev.rayan6ms.rayslash`, and `StartupWMClass=dev.rayan6ms.rayslash`. It is marked `NoDisplay=true` because the app is primarily shortcut-driven and should not add a redundant menu item by default. The desktop shortcut command remains `rayslash toggle` even when the desktop entry is installed. At runtime, the UI selects the Slint backend before component construction, sets Slint's XDG app ID to the same value, and sets the window icon from `icons/rayslash-icon.svg` so Wayland/X11 panels can match the installed desktop entry and icon.
 
+Semantic-version tags drive native x86_64 and ARM64 RPM, DEB, AppImage, and Flatpak builds. RPM keeps the module host as a separately installable dependency; DEB, AppImage, and Flatpak include the same digest-pinned host executable. AppImage resolves that host relative to its mounted executable. Flatpak desktop discovery adds host desktop/icon exports, skips sandbox-local `TryExec` rejection for those verified host entries, and wraps external launcher actions with `flatpak-spawn --host`. Release publication accepts exactly ten user-facing binaries and one checksum manifest, keeping source/debug packages and build intermediates out of the public asset list.
+
 ## Interaction model
 
 The UI crate should remain thin. It asks `rayslash-core` for config, searchable items, and executable actions, then renders and dispatches user intent back to core services.

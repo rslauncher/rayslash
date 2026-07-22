@@ -1043,77 +1043,99 @@ export component SettingsPanel inherits FocusScope {
                 font-weight: 700;
             }
 
-            HorizontalLayout {
-                height: 54px;
-                spacing: 12px;
+            Rectangle {
+                height: 116px;
+                border-radius: 10px;
+                background: root.field-bg;
+                border-width: 1px;
+                border-color: root.field-border;
 
                 VerticalLayout {
-                    spacing: 2px;
+                    padding: 10px;
+                    spacing: 8px;
 
-                    Text {
-                        text: "Config location";
-                        color: root.text-main;
-                        font-size: 11px;
-                        font-weight: 700;
+                    HorizontalLayout {
+                        height: 38px;
+                        spacing: 12px;
+
+                        VerticalLayout {
+                            spacing: 3px;
+
+                            Text {
+                                text: "Config location";
+                                color: root.text-main;
+                                font-size: 10px;
+                                font-weight: 700;
+                            }
+
+                            Text {
+                                text: root.config-path;
+                                color: root.text-muted;
+                                font-size: 10px;
+                                overflow: elide;
+                            }
+                        }
+
+                        Rectangle {
+                            width: 1px;
+                            background: root.field-border;
+                        }
+
+                        VerticalLayout {
+                            spacing: 3px;
+
+                            Text {
+                                text: "State location";
+                                color: root.text-main;
+                                font-size: 10px;
+                                font-weight: 700;
+                            }
+
+                            Text {
+                                text: root.state-path;
+                                color: root.text-muted;
+                                font-size: 10px;
+                                overflow: elide;
+                            }
+                        }
                     }
 
-                    Text {
-                        text: root.config-path;
-                        color: root.text-muted;
-                        font-size: 10px;
-                        overflow: elide;
-                    }
-                }
-
-                VerticalLayout {
-                    spacing: 2px;
-
-                    Text {
-                        text: "State location";
-                        color: root.text-main;
-                        font-size: 11px;
-                        font-weight: 700;
+                    Rectangle {
+                        height: 1px;
+                        background: root.field-border;
                     }
 
-                    Text {
-                        text: root.state-path;
-                        color: root.text-muted;
-                        font-size: 10px;
-                        overflow: elide;
+                    HorizontalLayout {
+                        height: 39px;
+                        spacing: 0px;
+
+                        VerticalLayout {
+                            width: 78px;
+                            spacing: 1px;
+                            Text { text: "Folders"; color: root.text-muted; font-size: 9px; font-weight: 600; }
+                            Text { text: root.project-count; color: root.text-strong; font-size: 12px; font-weight: 700; }
+                        }
+
+                        VerticalLayout {
+                            width: 70px;
+                            spacing: 1px;
+                            Text { text: "Apps"; color: root.text-muted; font-size: 9px; font-weight: 600; }
+                            Text { text: root.app-count; color: root.text-strong; font-size: 12px; font-weight: 700; }
+                        }
+
+                        VerticalLayout {
+                            width: 86px;
+                            spacing: 1px;
+                            Text { text: "Icons"; color: root.text-muted; font-size: 9px; font-weight: 600; }
+                            Text { text: root.icon-count; color: root.text-strong; font-size: 12px; font-weight: 700; }
+                        }
+
+                        VerticalLayout {
+                            spacing: 1px;
+                            Text { text: "Runtime socket"; color: root.text-muted; font-size: 9px; font-weight: 600; }
+                            Text { text: root.socket-path; color: root.text-soft; font-size: 10px; overflow: elide; }
+                        }
                     }
-                }
-            }
-
-            HorizontalLayout {
-                height: 18px;
-                spacing: 14px;
-
-                Text {
-                    text: "Folders: " + root.project-count;
-                    color: root.text-soft;
-                    font-size: 11px;
-                    horizontal-stretch: 0;
-                }
-
-                Text {
-                    text: "Apps: " + root.app-count;
-                    color: root.text-soft;
-                    font-size: 11px;
-                    horizontal-stretch: 0;
-                }
-
-                Text {
-                    text: "Icons: " + root.icon-count;
-                    color: root.text-soft;
-                    font-size: 11px;
-                    horizontal-stretch: 0;
-                }
-
-                Text {
-                    text: "Socket: " + root.socket-path;
-                    color: root.text-muted;
-                    font-size: 10px;
-                    overflow: elide;
                 }
             }
 
