@@ -49,7 +49,7 @@ require_file_text "$fedora_spec" "cargo build --release --frozen --jobs 2 -p ray
 require_file_text "$fedora_spec" "cargo test --release --frozen --jobs 2 --workspace"
 require_file_text "$arch_pkgbuild" "depends=('fontconfig' 'rayslash-module-host>=0.1.2')"
 require_file_text "$arch_pkgbuild" "pkgrel=1"
-require_file_text "$flatpak_manifest" "install -Dm0755 rayslash-module-host-v*/rayslash-module-host /app/libexec/rayslash/rayslash-module-host"
+require_file_text "$flatpak_manifest" "install -Dm0755 rayslash-module-host /app/libexec/rayslash/rayslash-module-host"
 require_file_text "$flatpak_manifest" "--talk-name=org.freedesktop.Flatpak"
 require_file_text "$flatpak_manifest" "--filesystem=xdg-data/applications:ro"
 require_file_text "$debian_builder" 'rayslash_${version}_${architecture}.deb'
