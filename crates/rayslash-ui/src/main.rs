@@ -135,8 +135,10 @@ fn run_gui(
     let profile = profile_enabled();
     let startup_started = Instant::now();
 
+    let stage_started = Instant::now();
     slint::BackendSelector::new().select()?;
     slint::set_xdg_app_id(rayslash_core::APP_ID)?;
+    profile_stage(profile, "backend select and app ID", stage_started);
 
     let stage_started = Instant::now();
     let ui = AppWindow::new()?;
@@ -253,10 +255,15 @@ fn run_gui(
         &mut icon_cache.borrow_mut(),
     )));
     profile_stage(profile, "initial result item build", stage_started);
-    profile_stage(profile, "startup before event loop", startup_started);
+    profile_stage(
+        profile,
+        "startup initial result model ready",
+        startup_started,
+    );
 
     let remote_search_generation = Arc::new(AtomicU64::new(0));
-    let (remote_result_tx, remote_result_rx) = mpsc::channel::<(u64, String, SearchResultSet)>();
+    let (remote_result_tx, remote_result_rx) =
+        mpsc::channel::<(u64, String, SearchResultSet, Instant)>();
     let remote_result_timer = Timer::default();
     remote_result_timer.start(TimerMode::Repeated, Duration::from_millis(24), {
         let weak = ui.as_weak();
@@ -269,7 +276,7 @@ fn run_gui(
             while let Ok(result) = remote_result_rx.try_recv() {
                 newest = Some(result);
             }
-            let Some((generation, query, result_set)) = newest else {
+            let Some((generation, query, result_set, query_started)) = newest else {
                 return;
             };
             if remote_search_generation.load(Ordering::Relaxed) != generation {
@@ -292,6 +299,11 @@ fn run_gui(
             if ui.get_status_text().as_str() == "Looking up…" {
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
             }
+            profile_stage(
+                profile,
+                &format!("remote query {query:?} end to end"),
+                query_started,
+            );
         }
     });
 
@@ -363,12 +375,19 @@ fn run_gui(
     );
     ui.invoke_focus_search();
 
+    let first_redraw_profiled = Rc::new(Cell::new(false));
     ui.window().on_winit_window_event({
         let weak = ui.as_weak();
         let is_visible = is_visible.clone();
         let suppress_next_focus_hide = suppress_next_focus_hide.clone();
+        let first_redraw_profiled = first_redraw_profiled.clone();
         move |_, event| {
-            if matches!(event, winit::event::WindowEvent::Focused(false)) {
+            if matches!(&event, winit::event::WindowEvent::RedrawRequested)
+                && !first_redraw_profiled.replace(true)
+            {
+                profile_stage(profile, "startup first redraw requested", startup_started);
+            }
+            if matches!(&event, winit::event::WindowEvent::Focused(false)) {
                 if weak.upgrade().is_some_and(|ui| {
                     ui.get_settings_web_search_editor_open() || ui.get_settings_alias_editor_open()
                 }) {
@@ -612,7 +631,12 @@ fn run_gui(
                             return;
                         }
 
-                        let _ = remote_result_tx.send((generation, effective_query, result_set));
+                        let _ = remote_result_tx.send((
+                            generation,
+                            effective_query,
+                            result_set,
+                            stage_started,
+                        ));
                     });
                     return;
                 }
@@ -702,14 +726,24 @@ fn run_gui(
     let weak = ui.as_weak();
     let ipc_visibility = is_visible.clone();
     ipc::start_server(listener, move |request| {
+        let request_started = Instant::now();
         let ipc_visibility = ipc_visibility.clone();
         if let Err(error) = weak.upgrade_in_event_loop(move |ui| {
             handle_ipc_request(&ui, ipc_visibility.as_ref(), request);
+            profile_stage(
+                profile,
+                &format!("IPC {request:?} queued-to-handled"),
+                request_started,
+            );
         }) {
             eprintln!("failed to queue rayslash IPC request on UI event loop: {error}");
         }
     });
 
+    profile_stage(profile, "startup callbacks and IPC ready", startup_started);
+    let show_started = Instant::now();
     ui.show()?;
+    profile_stage(profile, "startup show call", show_started);
+    profile_stage(profile, "startup ready for event loop", startup_started);
     slint::run_event_loop_until_quit()
 }

@@ -239,15 +239,17 @@ It uses `version = 1` and stores entries by stable result ID. Current learned ID
 
 ## Performance profiling
 
-`rayslash` intentionally discovers configured project folders and desktop apps at resident startup, then keeps those lists in memory so every query can be matched immediately on the UI thread. Project scanning is shallow: it reads only immediate visible child directories under configured roots. Desktop app discovery recursively scans XDG application directories, parses `.desktop` files, and resolves icon paths up front; Slint image objects are cached UI-side after they are first loaded. Desktop apps are also refreshed when settings opens, with repeated refreshes throttled, so normal resident use can pick up newly installed apps without adding discovery work to each typed query or every launcher show/reset.
+`rayslash` intentionally discovers configured project folders and desktop apps at resident startup, then keeps those lists in memory. Project scanning is shallow: it reads only immediate visible child directories under configured roots. Desktop app discovery recursively scans XDG application directories, parses `.desktop` files, and resolves icon paths up front; Slint image objects are cached UI-side after they are first loaded. Desktop apps are also refreshed synchronously when settings opens, with repeated refreshes throttled, so normal resident use can pick up newly installed apps without adding discovery work to every launcher show/reset.
 
-Set `RAYSLASH_PROFILE=1` to print lightweight timing lines for startup stages, settings-open app refresh, and query refresh phases such as core search, result-item conversion, model replacement, and UI property updates:
+With no installed module, queries are matched and rendered immediately on the UI thread. If any installed module is enabled, the current UI takes the remote path for every non-empty query: it waits 150 ms, performs core and module search on a worker, and delivers results through a channel polled every 24 ms. This is a measured optimization target rather than the intended final latency model; [PERFORMANCE.md](PERFORMANCE.md) recommends publishing core results immediately and merging routed module results later.
+
+Set `RAYSLASH_PROFILE=1` to print lightweight timing lines for corrected startup stages, first redraw request, IPC handling, settings-open app refresh, and local/remote query refresh:
 
 ```sh
-RAYSLASH_PROFILE=1 rayslash
+RAYSLASH_PROFILE=1 target/release/rayslash
 ```
 
-The profiling output is intentionally opt-in so normal shortcut launches stay quiet. It is meant to identify whether local cost is coming from config load, project scan, app discovery/icon path resolution, result item construction, Slint model replacement, app refresh, or per-query matching before changing the indexing strategy. A larger synthetic search probe is also available with `cargo test -p rayslash-core --test performance -- --ignored --nocapture`, and comparable results are recorded in [PERFORMANCE.md](PERFORMANCE.md).
+The profiling output is intentionally opt-in so normal shortcut launches stay quiet. It is meant to identify whether cost is coming from backend setup, config/state load, project scan, app discovery/icon path resolution, result construction, Slint model replacement, first redraw, IPC, or query scheduling. Release-mode search, discovery, action, module, memory, and fan-out probes are available as exact-name ignored tests. Their commands and comparable results are recorded in [PERFORMANCE.md](PERFORMANCE.md).
 
 Current provider flow:
 

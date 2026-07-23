@@ -9,6 +9,7 @@ use std::{
         mpsc,
     },
     thread,
+    time::Instant,
 };
 
 use rayslash_core::{
@@ -678,7 +679,7 @@ pub(crate) struct ModuleSettingsCallbackContext {
     pub icon_cache: Rc<RefCell<IconImageCache>>,
     pub socket_path: PathBuf,
     pub remote_search_generation: Arc<AtomicU64>,
-    pub remote_result_tx: mpsc::Sender<(u64, String, SearchResultSet)>,
+    pub remote_result_tx: mpsc::Sender<(u64, String, SearchResultSet, Instant)>,
     pub profile: bool,
 }
 
@@ -871,6 +872,7 @@ pub(crate) fn register_module_settings_callback(
                     ProviderExecutionHint::DebouncedNetwork { .. }
                 );
                 if needs_remote_lookup {
+                    let query_started = Instant::now();
                     let generation =
                         remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
                     let expected_generation = remote_search_generation.clone();
@@ -891,7 +893,12 @@ pub(crate) fn register_module_settings_callback(
                             &query,
                         );
                         if expected_generation.load(Ordering::Relaxed) == generation {
-                            let _ = remote_result_tx.send((generation, query, result_set));
+                            let _ = remote_result_tx.send((
+                                generation,
+                                query,
+                                result_set,
+                                query_started,
+                            ));
                         }
                     });
                 } else {
@@ -1260,6 +1267,7 @@ pub(crate) fn register_module_settings_callback(
             );
 
             if needs_remote_lookup {
+                let query_started = Instant::now();
                 let generation = remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
                 let expected_generation = remote_search_generation.clone();
                 let config = config_state.borrow().clone();
@@ -1279,7 +1287,12 @@ pub(crate) fn register_module_settings_callback(
                         &query,
                     );
                     if expected_generation.load(Ordering::Relaxed) == generation {
-                        let _ = remote_result_tx.send((generation, query, result_set));
+                        let _ = remote_result_tx.send((
+                            generation,
+                            query,
+                            result_set,
+                            query_started,
+                        ));
                     }
                 });
             } else {

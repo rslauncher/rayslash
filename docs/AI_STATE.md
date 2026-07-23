@@ -283,7 +283,7 @@ The current UI supports dark, dim, and light themes, keyboard and mouse selectio
 - The UI uses provider-aware placeholder results only when no enabled desktop apps, folders, or aliases are available and there is no calculator row.
 - When real entries exist but the query matches none of them, the UI shows a single provider-aware no-results placeholder row.
 - Calculator result clipboard writes use `arboard`; if clipboard access fails, the launcher stays visible and shows a status message.
-- Performance profiling is opt-in through `RAYSLASH_PROFILE=1`, the ignored `crates/rayslash-core/tests/performance.rs` probe prints synthetic search timings, and [PERFORMANCE.md](PERFORMANCE.md) records comparable history; no background indexer or on-disk cache exists yet.
+- Performance profiling is opt-in through `RAYSLASH_PROFILE=1`; it now covers corrected startup boundaries, first redraw request, synchronous and remote result refresh, and IPC handling. The ignored `crates/rayslash-core/tests/performance.rs` probes cover synthetic search distributions, live discovery, action dispatch, individual module cold/warm execution and memory, and full installed-module fan-out. [PERFORMANCE.md](PERFORMANCE.md) records the 2026-07-22 baseline and ranked optimization roadmap; no background indexer or persistent desktop catalog exists yet.
 
 ## Next recommended steps
 
@@ -293,7 +293,7 @@ The current UI supports dark, dim, and light themes, keyboard and mouse selectio
   - Run `cargo run -p rayslash -- toggle` from another terminal to hide/show the resident window.
   - Run `cargo run -p rayslash` from another terminal while the resident process is hidden and confirm it shows the launcher.
   - Confirm showing through IPC resets the query and focuses the search field.
-- Run `RAYSLASH_PROFILE=1 cargo run -p rayslash` on a real desktop session and compare startup/query/settings-open timings, plus `cargo test -p rayslash-core --test performance -- --ignored --nocapture` for synthetic core search timing, before deciding whether app discovery, icon loading, result conversion, model replacement, or indexing needs optimization.
+- Follow [PERFORMANCE.md](PERFORMANCE.md) for exact release-mode probe commands and environment-qualified comparisons. Run ignored probes by exact name because module probes require explicit host/component paths.
 - Manually run `cargo install --path crates/rayslash-ui`, confirm `command -v rayslash`, then bind a desktop shortcut to `rayslash toggle` using `docs/SHORTCUTS.md` and verify `Super+\` toggles the resident launcher.
 - Manually verify Phase 3 app launching with `cargo run -p rayslash` on a real desktop session, including that launched app warnings no longer appear in the rayslash terminal.
 - Keep AppImage builds, global shortcut capture/registration, full plugin marketplace work, clipboard history, snippets, script providers, and full freedesktop icon-theme lookup deferred until the relevant post-v1 phase is active.

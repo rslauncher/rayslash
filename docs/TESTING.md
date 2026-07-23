@@ -83,11 +83,14 @@ packaging/validate-metadata.sh
 Performance diagnostic probes are opt-in and ignored by default:
 
 ```sh
-cargo test -p rayslash-core --test performance -- --ignored --nocapture
-RAYSLASH_PROFILE=1 cargo run -p rayslash
+cargo test -p rayslash-core --release --test performance \
+  mixed_search_performance_probe -- --ignored --nocapture
+cargo test -p rayslash-core --release --test performance \
+  live_catalog_performance_probe -- --ignored --nocapture
+RAYSLASH_PROFILE=1 target/release/rayslash
 ```
 
-Use them when investigating search, result conversion, model replacement, or UI refresh latency. They are not CI pass/fail checks because timing thresholds vary by machine and desktop session.
+Run performance probes by exact test name: the module probes intentionally require paths and query settings through environment variables. Use them when investigating search, discovery, module cold/warm behavior, action dispatch, result conversion, model replacement, or UI refresh latency. They are not CI pass/fail checks because timing thresholds vary by machine and desktop session. [PERFORMANCE.md](PERFORMANCE.md) contains the complete commands, methodology, current baseline, and optimization order.
 
 Record comparable results in [PERFORMANCE.md](PERFORMANCE.md).
 
