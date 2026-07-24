@@ -10,11 +10,12 @@ use rayslash_core::{
     app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking, search,
     web_search,
 };
-use slint::VecModel;
+use slint::{Model, VecModel};
 
 use crate::{
     AppChoiceItem, AppWindow, ResultItem,
     opener_visual::{app_icon_count, set_alternate_opener_visual, to_app_choice_items},
+    persistence,
     result_items::{IconImageCache, to_result_items},
     settings::set_settings_properties,
 };
@@ -62,6 +63,18 @@ pub(crate) fn search_result_set(
     apps: &[apps::DesktopApp],
     query: &str,
 ) -> SearchResultSet {
+    let local = local_search_result_set(config, ranking_state, app_state, projects, apps, query);
+    merge_module_results(config, local, query)
+}
+
+pub(crate) fn local_search_result_set(
+    config: &config::Config,
+    ranking_state: &ranking::RankingState,
+    app_state: &app_state::AppInstallState,
+    projects: &[projects::Project],
+    apps: &[apps::DesktopApp],
+    query: &str,
+) -> SearchResultSet {
     let ranking = config.ranking.learn_from_usage.then_some(ranking_state);
     let mut core_providers = config.providers.clone();
     core_providers.calculator = false;
@@ -71,7 +84,7 @@ pub(crate) fn search_result_set(
     core_providers.currency_conversion = false;
     core_providers.time_lookup = false;
     core_providers.utility_actions = false;
-    let mut results = search::mixed_results_with_ranking_and_web_searches(
+    let results = search::mixed_results_with_ranking_and_web_searches(
         projects,
         apps,
         &config.aliases,
@@ -80,20 +93,37 @@ pub(crate) fn search_result_set(
         &core_providers,
         ranking,
     );
-    let mut module_results = if !should_query_modules(query) {
-        modules::ModuleQueryBatch::default()
-    } else {
-        let module_config = modules::load_modules_config(&config.providers)
-            .unwrap_or_else(|_| modules::ModulesConfig::empty());
-        let settings = module_settings(config);
-        modules::query_installed_modules(
-            query,
-            config.appearance.max_results,
-            &module_config,
-            &settings,
-        )
-    };
+    finalize_results(config, app_state, results)
+}
+
+pub(crate) fn merge_module_results(
+    config: &config::Config,
+    local: SearchResultSet,
+    query: &str,
+) -> SearchResultSet {
+    let module_config = modules::load_modules_config(&config.providers)
+        .unwrap_or_else(|_| modules::ModulesConfig::empty());
+    merge_module_results_with_config(config, &module_config, local, query)
+}
+
+pub(crate) fn merge_module_results_with_config(
+    config: &config::Config,
+    module_config: &modules::ModulesConfig,
+    mut local: SearchResultSet,
+    query: &str,
+) -> SearchResultSet {
+    if !should_query_modules(query) {
+        return local;
+    }
+    let settings = module_settings(config);
+    let mut module_results = modules::query_installed_modules(
+        query,
+        config.appearance.max_results,
+        module_config,
+        &settings,
+    );
     apply_web_search_favicons(&mut module_results.results, &config.web_searches);
+    let mut results = std::mem::take(&mut local.results);
     if module_results.exclusive {
         results = module_results.results;
     } else if !module_results.results.is_empty() {
@@ -119,6 +149,26 @@ pub(crate) fn search_result_set(
             },
         });
     }
+    let total_results = results.len();
+    let max_results = config.appearance.max_results;
+    if total_results > max_results {
+        results.truncate(max_results);
+    }
+    SearchResultSet {
+        results,
+        result_tip: if total_results > max_results {
+            format!("Max results: {max_results}")
+        } else {
+            String::new()
+        },
+    }
+}
+
+fn finalize_results(
+    config: &config::Config,
+    app_state: &app_state::AppInstallState,
+    mut results: Vec<search::SearchResult>,
+) -> SearchResultSet {
     apply_new_app_flairs(&mut results, app_state);
     let total_results = results.len();
     let max_results = config.appearance.max_results;
@@ -179,25 +229,15 @@ fn web_search_result_keyword(result: &search::SearchResult) -> Option<&str> {
         .map(|(keyword, _)| keyword)
 }
 
-pub(crate) fn query_execution_hint(config: &config::Config) -> ProviderExecutionHint {
-    let module_config = modules::load_modules_config(&config.providers)
-        .unwrap_or_else(|_| modules::ModulesConfig::empty());
-    let enabled_modules = modules::load_installed_modules()
-        .ok()
-        .is_some_and(|installed| {
-            installed
-                .modules
-                .iter()
-                .any(|(id, module)| module_config.is_enabled(id).unwrap_or(module.enabled))
-        });
-    if enabled_modules {
-        ProviderExecutionHint::DebouncedNetwork { debounce_ms: 150 }
-    } else {
-        ProviderExecutionHint::Local
-    }
+pub(crate) fn query_execution_hint_with_config(
+    config: &config::Config,
+    module_config: &modules::ModulesConfig,
+    query: &str,
+) -> ProviderExecutionHint {
+    modules::installed_module_execution_hint(query, module_config, &module_settings(config))
 }
 
-fn module_settings(config: &config::Config) -> BTreeMap<String, String> {
+pub(crate) fn module_settings(config: &config::Config) -> BTreeMap<String, String> {
     let mut settings = BTreeMap::new();
     settings.insert(
         modules::WEB_SEARCH_MODULE_ID.to_owned(),
@@ -219,16 +259,37 @@ pub(crate) fn refresh_desktop_apps(
     label: &str,
 ) {
     let stage_started = Instant::now();
-    let discovered_apps = apps::discover_desktop_apps();
+    let discovered_apps = apps::discover_and_cache_desktop_apps();
+    apply_desktop_apps(
+        apps_state,
+        app_install_state,
+        choices_model,
+        icon_cache,
+        discovered_apps,
+        (profile, label, stage_started),
+    );
+}
+
+pub(crate) fn apply_desktop_apps(
+    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
+    app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
+    choices_model: &Rc<VecModel<AppChoiceItem>>,
+    icon_cache: &Rc<RefCell<IconImageCache>>,
+    discovered_apps: Vec<apps::DesktopApp>,
+    profile_info: (bool, &str, Instant),
+) {
+    let (profile, label, stage_started) = profile_info;
     let app_count = discovered_apps.len();
     let icon_count = app_icon_count(&discovered_apps);
     sync_app_install_state(app_install_state, &discovered_apps);
 
     icon_cache.borrow_mut().clear();
-    choices_model.set_vec(to_app_choice_items(
-        &discovered_apps,
-        &mut icon_cache.borrow_mut(),
-    ));
+    if choices_model.row_count() > 0 {
+        choices_model.set_vec(to_app_choice_items(
+            &discovered_apps,
+            &mut icon_cache.borrow_mut(),
+        ));
+    }
     *apps_state.borrow_mut() = discovered_apps;
 
     profile_stage(
@@ -292,7 +353,7 @@ pub(crate) fn refresh_result_view(
 ) -> usize {
     let refresh_started = Instant::now();
     let search_started = Instant::now();
-    let result_set = search_result_set(
+    let result_set = local_search_result_set(
         context.config,
         context.ranking_state,
         context.app_state,
@@ -354,8 +415,8 @@ pub(crate) fn sync_app_install_state(
         .borrow_mut()
         .mark_discovered_app_ids(apps.iter().map(|app| app.id.clone()));
 
-    if changed && let Err(error) = app_state::save_app_state(&app_install_state.borrow()) {
-        eprintln!("{error}");
+    if changed {
+        persistence::save_app_state(app_install_state.borrow().clone());
     }
 }
 

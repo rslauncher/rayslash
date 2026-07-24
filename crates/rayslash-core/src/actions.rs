@@ -3,14 +3,16 @@ use std::{
     io,
     path::Path,
     process::{Child, Command, ExitStatus, Stdio},
+    sync::{Mutex, OnceLock},
     thread,
     time::{Duration, Instant},
 };
 
 use crate::apps::DesktopApp;
 use crate::search::ModuleAction;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandSpec {
     pub program: OsString,
     pub args: Vec<OsString>,
@@ -175,6 +177,17 @@ pub fn default_web_search_command_for_app(
 }
 
 pub fn default_web_browser_desktop_id() -> io::Result<String> {
+    const CACHE_TTL: Duration = Duration::from_secs(30);
+    static CACHE: OnceLock<Mutex<Option<(Instant, String)>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(None));
+    if let Some((cached_at, desktop_id)) = cache
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .as_ref()
+        && cached_at.elapsed() < CACHE_TTL
+    {
+        return Ok(desktop_id.clone());
+    }
     let output = command_builder(&CommandSpec {
         program: OsString::from("xdg-settings"),
         args: vec![OsString::from("get"), OsString::from("default-web-browser")],
@@ -197,6 +210,8 @@ pub fn default_web_browser_desktop_id() -> io::Result<String> {
         ));
     }
 
+    *cache.lock().unwrap_or_else(|error| error.into_inner()) =
+        Some((Instant::now(), desktop_id.clone()));
     Ok(desktop_id)
 }
 
@@ -255,16 +270,32 @@ fn command_from_arguments(arguments: &[String]) -> io::Result<CommandSpec> {
 
 fn schedule_command(command: CommandSpec, delay: Duration) -> io::Result<()> {
     if delay.is_zero() {
-        spawn_command_checked(&command).map(|_| ())
+        spawn_and_reap(command)
     } else {
         thread::spawn(move || {
             thread::sleep(delay);
-            if let Err(error) = spawn_command_checked(&command) {
+            if let Err(error) = spawn_and_reap(command) {
                 eprintln!("failed to run scheduled rayslash action: {error}");
             }
         });
         Ok(())
     }
+}
+
+fn spawn_and_reap(command: CommandSpec) -> io::Result<()> {
+    let mut child = spawn_command(&command)?;
+    thread::spawn(move || match child.wait() {
+        Ok(status) if status.success() => {}
+        Ok(status) => eprintln!(
+            "rayslash action `{}` exited with status {status}",
+            command_display(&command)
+        ),
+        Err(error) => eprintln!(
+            "failed to reap rayslash action `{}`: {error}",
+            command_display(&command)
+        ),
+    });
+    Ok(())
 }
 
 fn desktop_app_launch_command(desktop_file: &Path) -> CommandSpec {
@@ -369,6 +400,12 @@ fn try_focus_existing_app_window(
     app_name: &str,
     startup_wm_class: Option<&str>,
 ) -> bool {
+    if std::env::var("XDG_SESSION_TYPE")
+        .ok()
+        .is_some_and(|session| session.eq_ignore_ascii_case("wayland"))
+    {
+        return false;
+    }
     let mut class_targets = Vec::new();
     if let Some(startup_wm_class) = startup_wm_class
         && !startup_wm_class.trim().is_empty()
@@ -386,14 +423,40 @@ fn try_focus_existing_app_window(
         }
     }
 
-    for target in dedup_targets(class_targets) {
-        if command_status_success("wmctrl", ["-x", "-a", target.as_str()]) {
-            return true;
-        }
-    }
-
+    let class_targets = dedup_targets(class_targets);
     let app_name = app_name.trim();
-    !app_name.is_empty() && command_status_success("wmctrl", ["-a", app_name])
+    let output = command_builder(&CommandSpec {
+        program: OsString::from("wmctrl"),
+        args: vec![OsString::from("-lx")],
+    })
+    .stdout(Stdio::piped())
+    .output();
+    let Ok(output) = output else {
+        return false;
+    };
+    if !output.status.success() {
+        return false;
+    }
+    let windows = String::from_utf8_lossy(&output.stdout);
+    let window_id = windows.lines().find_map(|line| {
+        let fields = line.split_whitespace().collect::<Vec<_>>();
+        let id = *fields.first()?;
+        let class = fields.get(3).copied().unwrap_or_default();
+        let title = fields.get(4..).unwrap_or_default().join(" ");
+        (class_targets
+            .iter()
+            .any(|target| class.eq_ignore_ascii_case(target) || class_ends_with(class, target))
+            || (!app_name.is_empty() && title.eq_ignore_ascii_case(app_name)))
+        .then_some(id)
+    });
+    window_id.is_some_and(|id| command_status_success("wmctrl", ["-ia", id]))
+}
+
+fn class_ends_with(class: &str, target: &str) -> bool {
+    class
+        .rsplit_once('.')
+        .map_or(class, |(_instance, class)| class)
+        .eq_ignore_ascii_case(target.trim_end_matches(".desktop"))
 }
 
 fn command_status_success<const N: usize>(program: &str, args: [&str; N]) -> bool {

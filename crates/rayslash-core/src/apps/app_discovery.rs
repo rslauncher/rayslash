@@ -5,14 +5,38 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use serde::{Deserialize, Serialize};
+
 use super::{
     DesktopApp,
     desktop_entry::parse_desktop_file_with_id,
     icon_lookup::{DesktopIconResolver, desktop_icon_dirs},
 };
 
+const DESKTOP_CACHE_VERSION: u32 = 1;
+
+#[derive(Serialize, Deserialize)]
+struct DesktopCatalogCache {
+    version: u32,
+    environment: String,
+    apps: Vec<DesktopApp>,
+}
+
 pub fn discover_desktop_apps() -> Vec<DesktopApp> {
     discover_desktop_apps_in_dirs(&desktop_application_dirs())
+}
+
+pub fn discover_and_cache_desktop_apps() -> Vec<DesktopApp> {
+    let apps = discover_desktop_apps();
+    let _ = save_desktop_apps_cache(&apps);
+    apps
+}
+
+pub fn load_cached_desktop_apps() -> Option<Vec<DesktopApp>> {
+    cached_desktop_apps_from_bytes(
+        &fs::read(desktop_apps_cache_file()?).ok()?,
+        &desktop_environment(),
+    )
 }
 
 pub fn discover_desktop_apps_in_dirs(dirs: &[PathBuf]) -> Vec<DesktopApp> {
@@ -55,6 +79,57 @@ fn desktop_application_dirs() -> Vec<PathBuf> {
         dirs::home_dir(),
         std::env::var_os("FLATPAK_ID").is_some(),
     )
+}
+
+fn desktop_apps_cache_file() -> Option<PathBuf> {
+    dirs::cache_dir().map(|path| path.join("rayslash/desktop-apps-v1.json"))
+}
+
+fn save_desktop_apps_cache(apps: &[DesktopApp]) -> std::io::Result<()> {
+    let Some(path) = desktop_apps_cache_file() else {
+        return Ok(());
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let cache = DesktopCatalogCache {
+        version: DESKTOP_CACHE_VERSION,
+        environment: desktop_environment(),
+        apps: apps.to_vec(),
+    };
+    let contents = serde_json::to_vec(&cache).map_err(std::io::Error::other)?;
+    crate::atomic_write::write_bytes(&path, &contents)
+}
+
+fn cached_desktop_apps_from_bytes(contents: &[u8], environment: &str) -> Option<Vec<DesktopApp>> {
+    let cache: DesktopCatalogCache = serde_json::from_slice(contents).ok()?;
+    (cache.version == DESKTOP_CACHE_VERSION && cache.environment == environment)
+        .then_some(cache.apps)
+}
+
+fn desktop_environment() -> String {
+    [
+        "XDG_DATA_HOME",
+        "XDG_DATA_DIRS",
+        "PATH",
+        "XDG_CURRENT_DESKTOP",
+        "DESKTOP_SESSION",
+        "LANG",
+        "LC_ALL",
+        "LC_MESSAGES",
+        "FLATPAK_ID",
+    ]
+    .into_iter()
+    .map(|name| {
+        format!(
+            "{name}={}",
+            std::env::var_os(name)
+                .map(|value| value.to_string_lossy().into_owned())
+                .unwrap_or_default()
+        )
+    })
+    .collect::<Vec<_>>()
+    .join("\n")
 }
 
 fn desktop_application_dirs_from_env(
@@ -160,6 +235,15 @@ fn app_order(a: &DesktopApp, b: &DesktopApp) -> std::cmp::Ordering {
 mod tests {
     use super::*;
 
+    fn cache_bytes(version: u32, environment: &str) -> Vec<u8> {
+        serde_json::to_vec(&DesktopCatalogCache {
+            version,
+            environment: environment.to_owned(),
+            apps: Vec::new(),
+        })
+        .expect("cache fixture should serialize")
+    }
+
     #[test]
     fn desktop_application_dirs_follow_xdg_base_directories() {
         assert_eq!(
@@ -204,5 +288,31 @@ mod tests {
         );
 
         assert!(dirs.contains(&PathBuf::from("/run/host/usr/share/applications")));
+    }
+
+    #[test]
+    fn desktop_cache_requires_matching_version_and_environment() {
+        assert_eq!(
+            cached_desktop_apps_from_bytes(
+                &cache_bytes(DESKTOP_CACHE_VERSION, "current"),
+                "current"
+            ),
+            Some(Vec::new())
+        );
+        assert!(
+            cached_desktop_apps_from_bytes(
+                &cache_bytes(DESKTOP_CACHE_VERSION + 1, "current"),
+                "current"
+            )
+            .is_none()
+        );
+        assert!(
+            cached_desktop_apps_from_bytes(
+                &cache_bytes(DESKTOP_CACHE_VERSION, "different"),
+                "current"
+            )
+            .is_none()
+        );
+        assert!(cached_desktop_apps_from_bytes(b"not json", "current").is_none());
     }
 }

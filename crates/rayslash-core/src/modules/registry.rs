@@ -1,7 +1,7 @@
 use std::{
     fmt, fs, io,
     path::{Path, PathBuf},
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD};
@@ -714,6 +714,13 @@ fn read_limited(path: &Path, limit: u64) -> Result<Vec<u8>, RegistryError> {
 
 fn registry_cache_dir() -> Option<PathBuf> {
     dirs::cache_dir().map(|path| path.join(APP_NAME).join("module-registry"))
+}
+
+pub(super) fn registry_cache_pointer_modified() -> Option<SystemTime> {
+    fs::metadata(registry_cache_dir()?.join("CURRENT"))
+        .ok()?
+        .modified()
+        .ok()
 }
 
 fn sha256(bytes: &[u8]) -> String {

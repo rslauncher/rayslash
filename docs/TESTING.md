@@ -10,6 +10,7 @@ See [REFACTORING.md](REFACTORING.md) for the planned Phase 9 split between inlin
 - `rayslash-ui` has inline tests for private CLI parsing, IPC helpers, settings parsing, opener visuals, selected-index/search helper behavior, and extensionless icon format detection.
 - `crates/rayslash-core/tests/` covers core Apps/Folders behavior, configuration and version-1 module migration, signed registry and revocation verification, safe package paths, typed action boundaries, desktop discovery, icons, projects, ranking, and an opt-in live installer → host → Calculator integration probe. Extracted official provider logic is tested in each module repository rather than compiled into the app.
 - `rayslash-ui` inline tests cover settings parsing for folder sources, aliases, additional search-engine rows, max results, theme/density, effective active-search queries, opener visuals, selected-index/search helper behavior, and extensionless icon format detection.
+- Performance-sensitive behavior has correctness tests for module query routing, runtime-snapshot invalidation, persistent desktop-cache validation, background state persistence boundaries, and bounded/deduplicated config backups.
 - `crates/rayslash-core/tests/fixtures/` now has small reusable temp-dir, desktop-entry, icon-theme, config, project/app, and learned-ranking fixture helpers.
 - There are no UI crate integration tests yet.
 - Manual UI verification is still required for Slint behavior, window focus, scrolling, icon rendering, and desktop shortcut behavior. Use [UI_VERIFICATION.md](UI_VERIFICATION.md) for the current real-desktop checklist.
@@ -90,7 +91,9 @@ cargo test -p rayslash-core --release --test performance \
 RAYSLASH_PROFILE=1 target/release/rayslash
 ```
 
-Run performance probes by exact test name: the module probes intentionally require paths and query settings through environment variables. Use them when investigating search, discovery, module cold/warm behavior, action dispatch, result conversion, model replacement, or UI refresh latency. They are not CI pass/fail checks because timing thresholds vary by machine and desktop session. [PERFORMANCE.md](PERFORMANCE.md) contains the complete commands, methodology, current baseline, and optimization order.
+Run performance probes by exact test name: the module probes intentionally require paths and query settings through environment variables. Use them when investigating search, discovery, module cold/warm behavior, action dispatch, result conversion, model replacement, or UI refresh latency. They are not CI pass/fail checks because timing thresholds vary by machine and desktop session. [PERFORMANCE.md](PERFORMANCE.md) contains the complete commands, methodology, current baseline, and audit closure.
+
+Changes to the module runtime must also run `cargo test` in `rayslash-module-host` and each of the seven official module repositories, followed by release host/component builds. The persistent Wasmtime cache changes cold-process measurements after the first compile, so preserve and report both the first cache miss and subsequent fresh-process samples.
 
 Record comparable results in [PERFORMANCE.md](PERFORMANCE.md).
 

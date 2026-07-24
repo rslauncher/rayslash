@@ -4,7 +4,7 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
@@ -12,19 +12,16 @@ use std::{
     time::Instant,
 };
 
-use rayslash_core::{
-    app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking, search,
-};
+use rayslash_core::{app_state, apps, config, modules, projects, ranking, search};
 use semver::Version;
-use slint::{ComponentHandle, Model, Timer, TimerMode, VecModel};
+use slint::{ComponentHandle, Model, VecModel};
 
 use crate::{
     AppWindow, ModuleItem, ResultItem,
     result_items::IconImageCache,
     runtime_state::{
         ResultRefreshContext, ResultSelection, SearchResultSet, effective_search_query,
-        query_execution_hint, refresh_result_view, refresh_settings_dependent_ui,
-        search_result_set,
+        refresh_result_view, refresh_settings_dependent_ui, search_result_set,
     },
 };
 
@@ -46,6 +43,7 @@ struct ModuleOperationState {
 }
 
 type ModuleOperationResult = Result<Option<modules::InstalledModule>, String>;
+type ModuleOperationCompletion = (String, String, ModuleOperationResult);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum ModuleSortOrder {
@@ -686,7 +684,7 @@ pub(crate) struct ModuleSettingsCallbackContext {
 pub(crate) fn register_module_settings_callback(
     ui: &AppWindow,
     context: ModuleSettingsCallbackContext,
-) -> Timer {
+) {
     let ModuleSettingsCallbackContext {
         module_state,
         module_catalog,
@@ -706,7 +704,7 @@ pub(crate) fn register_module_settings_callback(
         profile,
     } = context;
 
-    let (install_tx, install_rx) = mpsc::channel::<(String, String, ModuleOperationResult)>();
+    let (install_tx, install_rx) = mpsc::channel::<ModuleOperationCompletion>();
     let operations = Rc::new(RefCell::new(BTreeMap::<String, ModuleOperationState>::new()));
     let sort_order = Rc::new(RefCell::new(ModuleSortOrder::NameAscending));
     let pending_permission_approvals = Rc::new(RefCell::new(BTreeSet::<String>::new()));
@@ -749,8 +747,9 @@ pub(crate) fn register_module_settings_callback(
             );
         }
     });
-    let install_timer = Timer::default();
-    install_timer.start(TimerMode::Repeated, std::time::Duration::from_millis(50), {
+    let pending_completions = Arc::new(Mutex::new(Vec::<ModuleOperationCompletion>::new()));
+    let pending_completions_for_ui = pending_completions.clone();
+    ui.on_apply_module_operations({
         let weak = ui.as_weak();
         let module_state = module_state.clone();
         let module_catalog = module_catalog.clone();
@@ -769,7 +768,11 @@ pub(crate) fn register_module_settings_callback(
         let remote_search_generation = remote_search_generation.clone();
         let remote_result_tx = remote_result_tx.clone();
         move || {
-            let completions = install_rx.try_iter().collect::<Vec<_>>();
+            let completions = std::mem::take(
+                &mut *pending_completions_for_ui
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()),
+            );
             if completions.is_empty() {
                 return;
             }
@@ -867,14 +870,26 @@ pub(crate) fn register_module_settings_callback(
                     query.as_str(),
                     ui.get_active_search_keyword().as_str(),
                 );
-                let needs_remote_lookup = matches!(
-                    query_execution_hint(&config_state.borrow()),
-                    ProviderExecutionHint::DebouncedNetwork { .. }
+                let generation =
+                    remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
+                refresh_result_view(
+                    &ui,
+                    ResultRefreshContext {
+                        config: &config_state.borrow(),
+                        ranking_state: &ranking_state.borrow(),
+                        app_state: &app_install_state.borrow(),
+                        projects: &projects.borrow(),
+                        apps: &apps.borrow(),
+                        current_results: &current_results,
+                        results_model: &results_model,
+                        icon_cache: &icon_cache,
+                        profile,
+                    },
+                    effective_query.as_str(),
+                    ResultSelection::QueryDefault,
                 );
-                if needs_remote_lookup {
+                if !effective_query.trim().is_empty() {
                     let query_started = Instant::now();
-                    let generation =
-                        remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
                     let expected_generation = remote_search_generation.clone();
                     let config = config_state.borrow().clone();
                     let ranking = ranking_state.borrow().clone();
@@ -901,24 +916,6 @@ pub(crate) fn register_module_settings_callback(
                             ));
                         }
                     });
-                } else {
-                    remote_search_generation.fetch_add(1, Ordering::Relaxed);
-                    refresh_result_view(
-                        &ui,
-                        ResultRefreshContext {
-                            config: &config_state.borrow(),
-                            ranking_state: &ranking_state.borrow(),
-                            app_state: &app_install_state.borrow(),
-                            projects: &projects.borrow(),
-                            apps: &apps.borrow(),
-                            current_results: &current_results,
-                            results_model: &results_model,
-                            icon_cache: &icon_cache,
-                            profile,
-                        },
-                        effective_query.as_str(),
-                        ResultSelection::QueryDefault,
-                    );
                 }
                 refresh_settings_dependent_ui(
                     &ui,
@@ -929,6 +926,23 @@ pub(crate) fn register_module_settings_callback(
                     &icon_cache,
                     &socket_path,
                 );
+            }
+        }
+    });
+    thread::spawn({
+        let weak = ui.as_weak();
+        move || {
+            while let Ok(completion) = install_rx.recv() {
+                pending_completions
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .push(completion);
+                if weak
+                    .upgrade_in_event_loop(|ui| ui.invoke_apply_module_operations())
+                    .is_err()
+                {
+                    break;
+                }
             }
         }
     });
@@ -1261,14 +1275,25 @@ pub(crate) fn register_module_settings_callback(
                 query.as_str(),
                 ui.get_active_search_keyword().as_str(),
             );
-            let needs_remote_lookup = matches!(
-                query_execution_hint(&config_state.borrow()),
-                ProviderExecutionHint::DebouncedNetwork { .. }
+            let generation = remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
+            refresh_result_view(
+                &ui,
+                ResultRefreshContext {
+                    config: &config_state.borrow(),
+                    ranking_state: &ranking_state.borrow(),
+                    app_state: &app_install_state.borrow(),
+                    projects: &projects.borrow(),
+                    apps: &apps.borrow(),
+                    current_results: &current_results,
+                    results_model: &results_model,
+                    icon_cache: &icon_cache,
+                    profile,
+                },
+                effective_query.as_str(),
+                ResultSelection::QueryDefault,
             );
-
-            if needs_remote_lookup {
+            if !effective_query.trim().is_empty() {
                 let query_started = Instant::now();
-                let generation = remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
                 let expected_generation = remote_search_generation.clone();
                 let config = config_state.borrow().clone();
                 let ranking = ranking_state.borrow().clone();
@@ -1295,24 +1320,6 @@ pub(crate) fn register_module_settings_callback(
                         ));
                     }
                 });
-            } else {
-                remote_search_generation.fetch_add(1, Ordering::Relaxed);
-                refresh_result_view(
-                    &ui,
-                    ResultRefreshContext {
-                        config: &config_state.borrow(),
-                        ranking_state: &ranking_state.borrow(),
-                        app_state: &app_install_state.borrow(),
-                        projects: &projects.borrow(),
-                        apps: &apps.borrow(),
-                        current_results: &current_results,
-                        results_model: &results_model,
-                        icon_cache: &icon_cache,
-                        profile,
-                    },
-                    effective_query.as_str(),
-                    ResultSelection::QueryDefault,
-                );
             }
             refresh_settings_dependent_ui(
                 &ui,
@@ -1338,8 +1345,6 @@ pub(crate) fn register_module_settings_callback(
             }
         }
     });
-
-    install_timer
 }
 
 #[cfg(test)]

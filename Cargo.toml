@@ -29,3 +29,9 @@ toml = "1.1.2"
 tar = "0.4.44"
 ureq = { version = "3.3.0", features = ["json"] }
 zstd = "0.13.3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

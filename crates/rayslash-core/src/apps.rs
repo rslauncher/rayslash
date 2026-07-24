@@ -5,12 +5,16 @@ mod icon_lookup;
 use std::path::PathBuf;
 
 use crate::actions::CommandSpec;
+use serde::{Deserialize, Serialize};
 
-pub use app_discovery::{discover_desktop_apps, discover_desktop_apps_in_dirs};
+pub use app_discovery::{
+    discover_and_cache_desktop_apps, discover_desktop_apps, discover_desktop_apps_in_dirs,
+    load_cached_desktop_apps,
+};
 pub use desktop_entry::{parse_desktop_entry, parse_exec_command};
 pub use icon_lookup::resolve_desktop_icon_in_dirs;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesktopAction {
     pub id: String,
     pub name: String,
@@ -18,7 +22,7 @@ pub struct DesktopAction {
     pub command: Option<CommandSpec>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesktopApp {
     pub id: String,
     pub name: String,

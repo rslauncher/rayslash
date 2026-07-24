@@ -21,7 +21,10 @@ pub use registry::{
     ReviewStatus, installed_revocation, load_cached_registry, refresh_registry,
     verify_registry_bytes,
 };
-pub use runtime::{ModuleQueryBatch, query_installed_modules};
+pub use runtime::{
+    ModuleQueryBatch, installed_module_execution_hint, prewarm_installed_modules,
+    query_installed_modules,
+};
 pub use state::{
     InitializeModulesConfigError, LoadModulesConfigError, MODULES_CONFIG_VERSION,
     ModuleEntryConfig, ModulesConfig, ModulesConfigLoadOutcome, SaveModulesConfigError,

@@ -197,6 +197,10 @@ export component AppWindow inherits Window {
 
     callback close-requested();
     callback query-changed(string);
+    callback apply-remote-results();
+    callback apply-module-operations();
+    callback apply-registry-refresh();
+    callback apply-desktop-refresh();
     callback activate-selected-result(int, bool);
     callback reset-requested();
     callback search-keyword-trigger-requested(string) -> bool;

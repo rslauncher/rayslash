@@ -9,7 +9,7 @@ use rayslash_core::{
 };
 use slint::ComponentHandle;
 
-use crate::{AppWindow, window_state::hide_launcher};
+use crate::{AppWindow, persistence, window_state::hide_launcher};
 
 pub(crate) struct ActivationCallbackContext {
     pub current_results: Rc<RefCell<Vec<search::SearchResult>>>,
@@ -220,8 +220,8 @@ fn mark_app_selected(
         return;
     };
     let changed = app_install_state.borrow_mut().mark_app_selected(app_id);
-    if changed && let Err(error) = app_state::save_app_state(&app_install_state.borrow()) {
-        eprintln!("{error}");
+    if changed {
+        persistence::save_app_state(app_install_state.borrow().clone());
     }
 }
 
@@ -247,9 +247,7 @@ fn record_learned_launch(
             std::time::SystemTime::now(),
         );
     }
-    if let Err(error) = ranking::save_ranking_state(&ranking_state.borrow()) {
-        eprintln!("{error}");
-    }
+    persistence::save_ranking_state(ranking_state.borrow().clone());
 }
 
 fn active_learning_ids(projects: &[projects::Project], apps: &[apps::DesktopApp]) -> Vec<String> {

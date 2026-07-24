@@ -239,9 +239,9 @@ It uses `version = 1` and stores entries by stable result ID. Current learned ID
 
 ## Performance profiling
 
-`rayslash` intentionally discovers configured project folders and desktop apps at resident startup, then keeps those lists in memory. Project scanning is shallow: it reads only immediate visible child directories under configured roots. Desktop app discovery recursively scans XDG application directories, parses `.desktop` files, and resolves icon paths up front; Slint image objects are cached UI-side after they are first loaded. Desktop apps are also refreshed synchronously when settings opens, with repeated refreshes throttled, so normal resident use can pick up newly installed apps without adding discovery work to every launcher show/reset.
+`rayslash` scans configured project folders at resident startup and loads a versioned desktop-app catalog from `~/.cache/rayslash/desktop-apps-v1.json`. Project scanning remains shallow. A worker reconciles the cached desktop catalog against XDG application directories after the UI is responsive and posts changes directly to the event loop. Initial result rows use fallback icons; image decoding is deferred, cached UI-side, and repeated only for displayed results. Alternate opener choices are constructed only when Settings opens.
 
-With no installed module, queries are matched and rendered immediately on the UI thread. If any installed module is enabled, the current UI takes the remote path for every non-empty query: it waits 150 ms, performs core and module search on a worker, and delivers results through a channel polled every 24 ms. This is a measured optimization target rather than the intended final latency model; [PERFORMANCE.md](PERFORMANCE.md) recommends publishing core results immediately and merging routed module results later.
+Every query publishes local Apps/Folders results immediately. One collapsing module scheduler retains only current generations, routes official modules by query shape and community modules by manifest triggers, and applies the 150 ms debounce only to a routed network-backed query. Module completion is merged back through the Slint event loop without polling. Installed module metadata is held in an mtime-invalidated runtime snapshot. Wasmtime compiled components are cached on disk, Calculator is prewarmed after startup, and inactive host processes are reaped after five minutes.
 
 Set `RAYSLASH_PROFILE=1` to print lightweight timing lines for corrected startup stages, first redraw request, IPC handling, settings-open app refresh, and local/remote query refresh:
 
@@ -253,10 +253,11 @@ The profiling output is intentionally opt-in so normal shortcut launches stay qu
 
 Current provider flow:
 
-1. UI supplies the effective query and current config/data snapshots.
-2. Core runs the built-in provider catalog and returns centrally composed, ranked `SearchResult` values.
-3. Each result exposes its owning provider ID and typed provider action while preserving the established result-kind compatibility surface.
-4. UI activates the selected result through the existing safe core action helpers.
+1. UI supplies the effective query and shared current config/data snapshots.
+2. Core publishes centrally composed and ranked local `SearchResult` values.
+3. The scheduler queries only relevant installed modules and merges current-generation results.
+4. Each result exposes its owning provider ID and typed provider action.
+5. UI activates the selected result through safe core action helpers, while state persistence and child reaping stay off the interaction-critical path.
 
 ## Config
 

@@ -1,7 +1,8 @@
 import { ResultItem } from "./models.slint";
 import { LegendTooltipBubble } from "./components.slint";
+import { ListView } from "std-widgets.slint";
 
-export component ResultList inherits Flickable {
+export component ResultList inherits Rectangle {
     in property <[ResultItem]> results;
     in property <int> result-count;
     in-out property <int> selected-index;
@@ -14,6 +15,7 @@ export component ResultList inherits Flickable {
     in property <bool> light;
     in property <string> result-tip-text;
     in property <bool> tooltips-enabled;
+    in property <bool> interactive: true;
     callback activate-result(int, bool);
 
     private property <length> row-height: root.density == "compact" ? 54px : 64px;
@@ -33,6 +35,7 @@ export component ResultList inherits Flickable {
     private property <length> pointer-y: 0px;
     private property <int> hovered-index: -1;
     private property <int> pressed-index: -1;
+    private property <length> viewport-y <=> list-view.viewport-y;
 
     public function reset-scroll() {
         root.viewport-y = 0px;
@@ -114,9 +117,6 @@ export component ResultList inherits Flickable {
         }
     }
 
-    viewport-width: self.width;
-    viewport-height: root.result-count <= 0 ? root.tip-height : root.result-count * root.row-stride - root.row-gap + root.tip-gap + root.tip-height;
-
     tooltip-delay := Timer {
         interval: 800ms;
         running: false;
@@ -161,6 +161,11 @@ export component ResultList inherits Flickable {
             root.hide-tooltip();
         }
     }
+
+    list-view := ListView {
+        width: root.width;
+        height: root.height;
+        enabled: root.interactive;
 
     for item[i] in root.results: Rectangle {
         y: i * root.row-stride;
@@ -622,6 +627,7 @@ export component ResultList inherits Flickable {
             }
         }
 
+    }
     }
 
     Rectangle {

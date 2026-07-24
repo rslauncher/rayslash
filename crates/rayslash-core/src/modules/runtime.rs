@@ -6,22 +6,25 @@ use std::{
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::{Mutex, OnceLock, mpsc},
     thread,
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 
 use crate::{
     APP_NAME,
+    config::{AliasConfig, WebSearchConfig},
+    providers::ProviderExecutionHint,
     search::{ModuleAction, SearchResult, SearchResultIcon, SearchResultKind},
 };
 use serde::{Deserialize, Serialize};
 
 use super::{
     ModulePackageManifest, ModulesConfig, PackageKind, installed_revocation, load_cached_registry,
-    load_installed_modules,
+    load_installed_modules, registry::registry_cache_pointer_modified,
 };
 
 const HOST_PROTOCOL: u32 = 1;
 const HOST_TIMEOUT: Duration = Duration::from_secs(5);
+const HOST_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_HOST_OUTPUT: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, Default)]
@@ -108,6 +111,58 @@ struct HostProcess {
 }
 
 static HOST_POOL: OnceLock<Mutex<BTreeMap<String, mpsc::Sender<HostJob>>>> = OnceLock::new();
+static RUNTIME_SNAPSHOT: OnceLock<Mutex<Option<RuntimeSnapshot>>> = OnceLock::new();
+
+#[derive(Clone)]
+struct RuntimeCandidate {
+    module_id: String,
+    install_path: PathBuf,
+    manifest: ModulePackageManifest,
+    installed_enabled: bool,
+    settings_json: String,
+}
+
+struct RuntimeSnapshot {
+    installed_path: Option<PathBuf>,
+    installed_modified: Option<SystemTime>,
+    registry_modified: Option<SystemTime>,
+    candidates: Vec<RuntimeCandidate>,
+    errors: Vec<String>,
+}
+
+pub fn installed_module_execution_hint(
+    query: &str,
+    config: &ModulesConfig,
+    settings: &BTreeMap<String, String>,
+) -> ProviderExecutionHint {
+    let (candidates, _errors) = runtime_candidates(config, settings);
+    if candidates
+        .iter()
+        .filter(|candidate| module_matches_query(candidate, query))
+        .any(|candidate| !candidate.manifest.permissions.network.is_empty())
+    {
+        ProviderExecutionHint::DebouncedNetwork { debounce_ms: 150 }
+    } else {
+        ProviderExecutionHint::Local
+    }
+}
+
+pub fn prewarm_installed_modules(config: &ModulesConfig, settings: &BTreeMap<String, String>) {
+    let (candidates, _errors) = runtime_candidates(config, settings);
+    for candidate in candidates
+        .into_iter()
+        .filter(|candidate| candidate.module_id == super::CALCULATOR_MODULE_ID)
+    {
+        let _ = query_wasm_module(
+            &candidate.module_id,
+            &candidate.install_path,
+            &candidate.manifest,
+            "",
+            1,
+            &candidate.settings_json,
+        );
+    }
+}
 
 pub fn query_installed_modules(
     query: &str,
@@ -116,84 +171,26 @@ pub fn query_installed_modules(
     settings: &BTreeMap<String, String>,
 ) -> ModuleQueryBatch {
     let mut batch = ModuleQueryBatch::default();
-    let installed = match load_installed_modules() {
-        Ok(installed) => installed,
-        Err(error) => {
-            batch
-                .errors
-                .push(format!("could not load installed module state: {error}"));
-            return batch;
-        }
-    };
-    let revocations = load_cached_registry()
-        .ok()
-        .map(|registry| registry.revocations);
-    let mut candidates = Vec::new();
-    for (module_id, installed) in installed.modules {
-        if !config.is_enabled(&module_id).unwrap_or(installed.enabled) {
-            continue;
-        }
-        if let Some(revocation) = revocations.as_ref().and_then(|revocations| {
-            installed_revocation(
-                revocations,
-                &module_id,
-                &installed.version,
-                &installed.digest,
-            )
-        }) {
-            batch.errors.push(format!(
-                "{module_id}: installed version was revoked: {}",
-                revocation.reason
-            ));
-            continue;
-        }
-        let manifest_path = installed.install_path.join("module.toml");
-        let mut manifest = match fs::read_to_string(&manifest_path)
-            .ok()
-            .and_then(|text| toml::from_str::<ModulePackageManifest>(&text).ok())
-        {
-            Some(manifest) if manifest.id == module_id => manifest,
-            _ => {
-                batch
-                    .errors
-                    .push(format!("{module_id}: invalid installed manifest"));
-                continue;
-            }
-        };
-        if manifest.permissions != installed.permissions {
-            batch.errors.push(format!(
-                "{module_id}: installed manifest permissions no longer match verified state"
-            ));
-            continue;
-        }
-        // Capability grants always come from the verified installed-state snapshot.
-        manifest.permissions = installed.permissions;
-        if manifest.kind != PackageKind::Wasm {
-            batch
-                .errors
-                .push(format!("{module_id}: declarative runtime is unavailable"));
-            continue;
-        }
-        let settings_json = settings
-            .get(&module_id)
-            .cloned()
-            .unwrap_or_else(|| "{}".into());
-        candidates.push((module_id, installed.install_path, manifest, settings_json));
-    }
+    let (candidates, errors) = runtime_candidates(config, settings);
+    batch.errors = errors;
+    let candidates = candidates
+        .into_iter()
+        .filter(|candidate| module_matches_query(candidate, query))
+        .collect::<Vec<_>>();
     let responses = thread::scope(|scope| {
         candidates
             .into_iter()
-            .map(|(module_id, install_path, manifest, settings_json)| {
+            .map(|candidate| {
                 scope.spawn(move || {
                     let response = query_wasm_module(
-                        &module_id,
-                        &install_path,
-                        &manifest,
+                        &candidate.module_id,
+                        &candidate.install_path,
+                        &candidate.manifest,
                         query,
                         max_results,
-                        &settings_json,
+                        &candidate.settings_json,
                     );
-                    (module_id, response)
+                    (candidate.module_id, response)
                 })
             })
             .collect::<Vec<_>>()
@@ -218,6 +215,267 @@ pub fn query_installed_modules(
     batch
 }
 
+fn runtime_candidates(
+    config: &ModulesConfig,
+    settings: &BTreeMap<String, String>,
+) -> (Vec<RuntimeCandidate>, Vec<String>) {
+    let installed_path = super::installed_modules_file();
+    let installed_modified = installed_path
+        .as_deref()
+        .and_then(|path| fs::metadata(path).ok())
+        .and_then(|metadata| metadata.modified().ok());
+    let registry_modified = registry_cache_pointer_modified();
+    let cache = RUNTIME_SNAPSHOT.get_or_init(|| Mutex::new(None));
+    let mut cache = cache.lock().unwrap_or_else(|error| error.into_inner());
+    let stale = runtime_snapshot_is_stale(
+        cache.as_ref(),
+        &installed_path,
+        installed_modified,
+        registry_modified,
+    );
+    if stale {
+        *cache = Some(load_runtime_snapshot(
+            installed_path.clone(),
+            installed_modified,
+            registry_modified,
+        ));
+    }
+    let snapshot = cache.as_ref().expect("runtime snapshot was initialized");
+    let candidates = snapshot
+        .candidates
+        .iter()
+        .filter(|candidate| {
+            config
+                .is_enabled(&candidate.module_id)
+                .unwrap_or(candidate.installed_enabled)
+        })
+        .cloned()
+        .map(|mut candidate| {
+            candidate.settings_json = settings
+                .get(&candidate.module_id)
+                .cloned()
+                .unwrap_or_else(|| "{}".into());
+            candidate
+        })
+        .collect();
+    (candidates, snapshot.errors.clone())
+}
+
+fn runtime_snapshot_is_stale(
+    snapshot: Option<&RuntimeSnapshot>,
+    installed_path: &Option<PathBuf>,
+    installed_modified: Option<SystemTime>,
+    registry_modified: Option<SystemTime>,
+) -> bool {
+    snapshot.is_none_or(|snapshot| {
+        &snapshot.installed_path != installed_path
+            || snapshot.installed_modified != installed_modified
+            || snapshot.registry_modified != registry_modified
+    })
+}
+
+fn load_runtime_snapshot(
+    installed_path: Option<PathBuf>,
+    installed_modified: Option<SystemTime>,
+    registry_modified: Option<SystemTime>,
+) -> RuntimeSnapshot {
+    let mut snapshot = RuntimeSnapshot {
+        installed_path,
+        installed_modified,
+        registry_modified,
+        candidates: Vec::new(),
+        errors: Vec::new(),
+    };
+    let installed = match load_installed_modules() {
+        Ok(installed) => installed,
+        Err(error) => {
+            snapshot
+                .errors
+                .push(format!("could not load installed module state: {error}"));
+            return snapshot;
+        }
+    };
+    let revocations = load_cached_registry()
+        .ok()
+        .map(|registry| registry.revocations);
+    for (module_id, installed) in installed.modules {
+        if let Some(revocation) = revocations.as_ref().and_then(|revocations| {
+            installed_revocation(
+                revocations,
+                &module_id,
+                &installed.version,
+                &installed.digest,
+            )
+        }) {
+            snapshot.errors.push(format!(
+                "{module_id}: installed version was revoked: {}",
+                revocation.reason
+            ));
+            continue;
+        }
+        let manifest_path = installed.install_path.join("module.toml");
+        let mut manifest = match fs::read_to_string(&manifest_path)
+            .ok()
+            .and_then(|text| toml::from_str::<ModulePackageManifest>(&text).ok())
+        {
+            Some(manifest) if manifest.id == module_id => manifest,
+            _ => {
+                snapshot
+                    .errors
+                    .push(format!("{module_id}: invalid installed manifest"));
+                continue;
+            }
+        };
+        if manifest.permissions != installed.permissions {
+            snapshot.errors.push(format!(
+                "{module_id}: installed manifest permissions no longer match verified state"
+            ));
+            continue;
+        }
+        manifest.permissions = installed.permissions;
+        if manifest.kind != PackageKind::Wasm {
+            snapshot
+                .errors
+                .push(format!("{module_id}: declarative runtime is unavailable"));
+            continue;
+        }
+        snapshot.candidates.push(RuntimeCandidate {
+            module_id,
+            install_path: installed.install_path,
+            manifest,
+            installed_enabled: installed.enabled,
+            settings_json: String::new(),
+        });
+    }
+    snapshot
+}
+
+fn module_matches_query(candidate: &RuntimeCandidate, query: &str) -> bool {
+    let query = query.trim();
+    if query.is_empty() {
+        return false;
+    }
+    match candidate.module_id.as_str() {
+        super::CALCULATOR_MODULE_ID => calculation_hint(query),
+        super::UNITS_MODULE_ID => conversion_hint(query),
+        super::CURRENCY_MODULE_ID => currency_hint(query),
+        super::TIME_MODULE_ID => starts_with_ascii(query, "time in "),
+        super::TIMERS_MODULE_ID => timer_hint(query),
+        super::WEB_SEARCH_MODULE_ID => web_search_hint(query, &candidate.settings_json),
+        super::ALIASES_MODULE_ID => aliases_hint(query, &candidate.settings_json),
+        _ => {
+            let triggers = candidate
+                .manifest
+                .providers
+                .iter()
+                .flat_map(|provider| &provider.triggers)
+                .collect::<Vec<_>>();
+            triggers.is_empty()
+                || triggers
+                    .iter()
+                    .any(|trigger| query_triggered_by(query, trigger))
+        }
+    }
+}
+
+fn calculation_hint(query: &str) -> bool {
+    (query.chars().any(|ch| ch.is_ascii_digit())
+        && query
+            .chars()
+            .any(|ch| matches!(ch, '+' | '-' | '*' | '/' | '^' | '=' | '(' | ')' | '.')))
+        || ["sqrt(", "sin(", "cos("]
+            .iter()
+            .any(|prefix| query.to_ascii_lowercase().contains(prefix))
+}
+
+fn conversion_hint(query: &str) -> bool {
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    words.len() == 4
+        && words[0].replace(',', "").parse::<f64>().is_ok()
+        && matches!(words[2].to_ascii_lowercase().as_str(), "to" | "in")
+}
+
+fn currency_hint(query: &str) -> bool {
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    words.len() == 4
+        && words[0].replace(',', "").parse::<f64>().is_ok()
+        && words[2].eq_ignore_ascii_case("to")
+        && [words[1], words[3]]
+            .iter()
+            .all(|word| word.len() == 3 && word.bytes().all(|byte| byte.is_ascii_alphabetic()))
+}
+
+fn timer_hint(query: &str) -> bool {
+    [
+        "timer ",
+        "reminder in ",
+        "remind in ",
+        "remind me to ",
+        "remind to ",
+        "reboot",
+        "restart",
+        "shutdown",
+        "poweroff",
+        "logout",
+        "lock",
+    ]
+    .iter()
+    .any(|prefix| starts_with_ascii(query, prefix))
+}
+
+fn web_search_hint(query: &str, settings_json: &str) -> bool {
+    #[derive(Deserialize)]
+    struct Settings {
+        #[serde(default)]
+        searches: Vec<WebSearchConfig>,
+    }
+    serde_json::from_str::<Settings>(settings_json)
+        .ok()
+        .is_some_and(|settings| {
+            settings
+                .searches
+                .iter()
+                .filter(|search| search.enabled)
+                .any(|search| query_triggered_by(query, &search.keyword))
+        })
+}
+
+fn aliases_hint(query: &str, settings_json: &str) -> bool {
+    #[derive(Deserialize)]
+    struct Settings {
+        #[serde(default)]
+        aliases: Vec<AliasConfig>,
+    }
+    let query = query.to_ascii_lowercase();
+    serde_json::from_str::<Settings>(settings_json)
+        .ok()
+        .is_some_and(|settings| {
+            settings.aliases.iter().any(|alias| {
+                let name = alias.name.to_ascii_lowercase();
+                let trigger = alias.query.to_ascii_lowercase();
+                name.contains(&query) || trigger.contains(&query) || query.contains(&trigger)
+            })
+        })
+}
+
+fn query_triggered_by(query: &str, trigger: &str) -> bool {
+    let query = query.trim();
+    let trigger = trigger.trim();
+    !trigger.is_empty()
+        && query
+            .get(..trigger.len())
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case(trigger))
+        && query
+            .get(trigger.len()..)
+            .is_some_and(|rest| rest.starts_with(char::is_whitespace))
+}
+
+fn starts_with_ascii(value: &str, prefix: &str) -> bool {
+    value
+        .get(..prefix.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(prefix))
+}
+
 fn query_wasm_module(
     module_id: &str,
     install_path: &Path,
@@ -227,19 +485,27 @@ fn query_wasm_module(
     settings_json: &str,
 ) -> Result<ModuleQueryBatch, String> {
     let key = format!("{module_id}:{}", install_path.display());
-    let sender = host_sender(&key, module_id, install_path, manifest);
-    let (response, receiver) = mpsc::channel();
-    if sender
-        .send(HostJob {
-            query: query.to_owned(),
-            max_results,
-            settings_json: settings_json.to_owned(),
-            response,
-        })
-        .is_err()
-    {
+    let mut sender = host_sender(&key, module_id, install_path, manifest);
+    let (mut response, mut receiver) = mpsc::channel();
+    let mut job = HostJob {
+        query: query.to_owned(),
+        max_results,
+        settings_json: settings_json.to_owned(),
+        response,
+    };
+    if let Err(error) = sender.send(job) {
         remove_host(&key);
-        return Err("module host stopped unexpectedly".into());
+        sender = host_sender(&key, module_id, install_path, manifest);
+        (response, receiver) = mpsc::channel();
+        job = HostJob {
+            query: error.0.query,
+            max_results: error.0.max_results,
+            settings_json: error.0.settings_json,
+            response,
+        };
+        sender
+            .send(job)
+            .map_err(|_| "module host stopped unexpectedly".to_owned())?;
     }
     match receiver.recv_timeout(HOST_TIMEOUT) {
         Ok(response) => response,
@@ -301,7 +567,7 @@ fn host_worker(
     receiver: mpsc::Receiver<HostJob>,
 ) {
     let mut process = HostProcess::start(&module_id, &install_path, &permissions);
-    for job in receiver {
+    while let Ok(job) = receiver.recv_timeout(HOST_IDLE_TIMEOUT) {
         let response = match &mut process {
             Ok(process) => process.query(
                 &module_id,
@@ -670,8 +936,68 @@ fn module_cache_dir(module_id: &str) -> PathBuf {
 }
 
 #[cfg(test)]
+mod routing_tests {
+    use super::*;
+
+    #[test]
+    fn official_module_routing_avoids_unrelated_app_queries() {
+        assert!(!calculation_hint("firefox"));
+        assert!(!conversion_hint("visual studio code"));
+        assert!(!currency_hint("open my documents"));
+        assert!(!timer_hint("terminal"));
+    }
+
+    #[test]
+    fn official_module_routing_recognizes_supported_query_shapes() {
+        assert!(calculation_hint("999 * 42"));
+        assert!(conversion_hint("10 km to mi"));
+        assert!(currency_hint("25 BRL to USD"));
+        assert!(timer_hint("timer 5m tea"));
+        assert!(starts_with_ascii("TIME IN Tokyo", "time in "));
+    }
+
+    #[test]
+    fn trigger_routing_requires_terms_after_the_keyword() {
+        assert!(query_triggered_by("search rust", "search"));
+        assert!(!query_triggered_by("search", "search"));
+        assert!(!query_triggered_by("research rust", "search"));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_snapshot_invalidates_for_installs_and_registry_changes() {
+        let installed_path = Some(PathBuf::from("/tmp/installed.json"));
+        let snapshot = RuntimeSnapshot {
+            installed_path: installed_path.clone(),
+            installed_modified: Some(SystemTime::UNIX_EPOCH),
+            registry_modified: Some(SystemTime::UNIX_EPOCH),
+            candidates: Vec::new(),
+            errors: Vec::new(),
+        };
+
+        assert!(!runtime_snapshot_is_stale(
+            Some(&snapshot),
+            &installed_path,
+            Some(SystemTime::UNIX_EPOCH),
+            Some(SystemTime::UNIX_EPOCH),
+        ));
+        assert!(runtime_snapshot_is_stale(
+            Some(&snapshot),
+            &installed_path,
+            Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+            Some(SystemTime::UNIX_EPOCH),
+        ));
+        assert!(runtime_snapshot_is_stale(
+            Some(&snapshot),
+            &installed_path,
+            Some(SystemTime::UNIX_EPOCH),
+            Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1)),
+        ));
+    }
 
     #[test]
     fn parses_typed_host_result() {
