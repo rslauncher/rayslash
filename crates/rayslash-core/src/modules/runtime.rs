@@ -906,25 +906,29 @@ fn module_host_path() -> PathBuf {
     env::var_os("RAYSLASH_MODULE_HOST")
         .map(PathBuf::from)
         .or_else(|| {
-            let mut candidates = vec![
-                "/app/libexec/rayslash/rayslash-module-host",
-                "/usr/local/libexec/rayslash/rayslash-module-host",
-                "/usr/libexec/rayslash/rayslash-module-host",
-            ]
-            .into_iter()
-            .map(PathBuf::from)
-            .collect::<Vec<_>>();
-            if let Some(home) = dirs::home_dir() {
-                candidates.push(home.join(".local/libexec/rayslash/rayslash-module-host"));
-            }
-            if let Ok(executable) = env::current_exe()
-                && let Some(binary_dir) = executable.parent()
-            {
-                candidates.push(binary_dir.join("../libexec/rayslash/rayslash-module-host"));
-            }
-            candidates.into_iter().find(|path| path.is_file())
+            let executable = env::current_exe().ok();
+            let home = dirs::home_dir();
+            module_host_candidates(executable.as_deref(), home.as_deref())
+                .into_iter()
+                .find(|path| path.is_file())
         })
         .unwrap_or_else(|| PathBuf::from("rayslash-module-host"))
+}
+
+fn module_host_candidates(executable: Option<&Path>, home: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(binary_dir) = executable.and_then(Path::parent) {
+        candidates.push(binary_dir.join("../libexec/rayslash/rayslash-module-host"));
+    }
+    candidates.push(PathBuf::from("/app/libexec/rayslash/rayslash-module-host"));
+    if let Some(home) = home {
+        candidates.push(home.join(".local/libexec/rayslash/rayslash-module-host"));
+    }
+    candidates.push(PathBuf::from(
+        "/usr/local/libexec/rayslash/rayslash-module-host",
+    ));
+    candidates.push(PathBuf::from("/usr/libexec/rayslash/rayslash-module-host"));
+    candidates
 }
 
 fn module_cache_dir(module_id: &str) -> PathBuf {
@@ -967,6 +971,25 @@ mod routing_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn module_host_discovery_prefers_the_host_bundled_with_the_launcher() {
+        let candidates = module_host_candidates(
+            Some(Path::new("/home/user/.local/bin/rayslash")),
+            Some(Path::new("/home/user")),
+        );
+        assert_eq!(
+            candidates,
+            [
+                "/home/user/.local/bin/../libexec/rayslash/rayslash-module-host",
+                "/app/libexec/rayslash/rayslash-module-host",
+                "/home/user/.local/libexec/rayslash/rayslash-module-host",
+                "/usr/local/libexec/rayslash/rayslash-module-host",
+                "/usr/libexec/rayslash/rayslash-module-host",
+            ]
+            .map(PathBuf::from)
+        );
+    }
 
     #[test]
     fn runtime_snapshot_invalidates_for_installs_and_registry_changes() {

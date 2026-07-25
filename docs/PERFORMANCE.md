@@ -24,8 +24,8 @@ These numbers do not imply that software can never be optimized further. They me
 ### v0.2.1 post-fix verification
 
 The exact v0.2.1 release profile was rebuilt after the packaging and icon
-changes. The launcher is 26,600,184 bytes (SHA-256
-`11ba66b529609a3ffce4330a66f866244b8e2e8d306d879ba1a615b9a3b87d34`).
+changes. The launcher is 26,600,568 bytes (SHA-256
+`9292d496767686128d817bd0bd1eecf6fb1cf625e26703bae80e04a9c469786f`).
 The representative release probes remained within their budgets:
 
 | Probe | 2026-07-25 result |
@@ -166,7 +166,7 @@ Ranking and app-install state writes use one serialized background writer. Confi
 
 | Artifact | 2026-07-24 | Previous | Change |
 | --- | ---: | ---: | ---: |
-| Launcher | 26,600,184 bytes | 39,330,040 | **−32.4%** |
+| Launcher | 26,600,568 bytes | 39,330,040 | **−32.4%** |
 | Module host | 15,844,888 bytes | 14,666,000 | +8.0% |
 | Seven root module components | 2,211,903 bytes | 2,771,835 | **−20.2%** |
 
