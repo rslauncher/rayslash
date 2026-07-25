@@ -158,11 +158,14 @@ fn result_icon(
     load_images: bool,
 ) -> RowIcon {
     let module_kind = match &result.kind {
-        search::SearchResultKind::Module { module_id, .. }
-            if module_id == modules::WEB_SEARCH_MODULE_ID =>
-        {
-            "web-search"
-        }
+        search::SearchResultKind::Module { module_id, .. } => match module_id.as_str() {
+            modules::CALCULATOR_MODULE_ID => "calculator",
+            modules::CURRENCY_MODULE_ID => "currency",
+            modules::TIME_MODULE_ID => "time",
+            modules::TIMERS_MODULE_ID => "timers",
+            modules::WEB_SEARCH_MODULE_ID => "web-search",
+            _ => "module",
+        },
         _ => "module",
     };
 
@@ -170,7 +173,9 @@ fn result_icon(
         search::SearchResultIcon::Module {
             path: Some(path), ..
         } => {
-            if load_images && let Some(image) = load_icon_image(path, icon_cache) {
+            if uses_embedded_module_glyph(module_kind) {
+                fallback_icon(module_kind, "")
+            } else if load_images && let Some(image) = load_icon_image(path, icon_cache) {
                 RowIcon {
                     image,
                     has_image: true,
@@ -200,6 +205,10 @@ fn result_icon(
         search::SearchResultIcon::ProjectFolder => fallback_icon("folder", ""),
         search::SearchResultIcon::Placeholder => fallback_icon("placeholder", ""),
     }
+}
+
+fn uses_embedded_module_glyph(kind: &str) -> bool {
+    matches!(kind, "calculator" | "currency" | "time" | "timers")
 }
 
 fn fallback_icon(kind: &'static str, text: &'static str) -> RowIcon {
@@ -256,5 +265,35 @@ mod tests {
 
         let icon = result_icon(&result, &mut IconImageCache::new(), true);
         assert_eq!(icon.kind, "web-search");
+    }
+
+    #[test]
+    fn official_module_rows_use_the_same_glyph_kind_as_settings() {
+        for (module_id, expected) in [
+            (modules::CALCULATOR_MODULE_ID, "calculator"),
+            (modules::CURRENCY_MODULE_ID, "currency"),
+            (modules::TIME_MODULE_ID, "time"),
+            (modules::TIMERS_MODULE_ID, "timers"),
+        ] {
+            let result = search::SearchResult {
+                title: "result".into(),
+                flair: String::new(),
+                subtitle: String::new(),
+                icon: search::SearchResultIcon::Module {
+                    label: String::new(),
+                    path: Some(PathBuf::from("/unused/package/icon.svg")),
+                },
+                kind: search::SearchResultKind::Module {
+                    module_id: module_id.into(),
+                    result_id: "result".into(),
+                    action: search::ModuleAction::None,
+                    score: None,
+                },
+            };
+
+            let icon = result_icon(&result, &mut IconImageCache::new(), true);
+            assert_eq!(icon.kind, expected);
+            assert!(!icon.has_image);
+        }
     }
 }

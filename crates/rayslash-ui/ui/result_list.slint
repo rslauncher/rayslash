@@ -1,5 +1,6 @@
 import { ResultItem } from "./models.slint";
 import { LegendTooltipBubble } from "./components.slint";
+import { ModuleGlyph } from "./module_icons.slint";
 import { ListView } from "std-widgets.slint";
 
 export component ResultList inherits Rectangle {
@@ -223,6 +224,16 @@ export component ResultList inherits Rectangle {
                         visible: !parent.alternate-icon && !item.has_icon && item.icon_text != "";
                     }
 
+                    ModuleGlyph {
+                        x: 7px;
+                        y: 7px;
+                        width: 28px;
+                        height: 28px;
+                        kind: item.icon_kind;
+                        icon-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_text == "";
+                    }
+
                     Image {
                         x: 7px;
                         y: 7px;
@@ -267,27 +278,6 @@ export component ResultList inherits Rectangle {
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "folder";
                         opacity: parent.alternate-icon ? 0 : 1;
-                    }
-
-                    Rectangle {
-                        x: 11px;
-                        y: 8px;
-                        width: 20px;
-                        height: 26px;
-                        border-radius: 3px;
-                        background: transparent;
-                        border-width: 2px;
-                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "calculator";
-                    }
-
-                    Rectangle {
-                        x: 16px;
-                        y: 14px;
-                        width: 10px;
-                        height: 2px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "calculator";
                     }
 
                     Rectangle {
@@ -338,38 +328,6 @@ export component ResultList inherits Rectangle {
                         border-radius: 5px;
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "placeholder";
-                    }
-
-                    Rectangle {
-                        x: 10px;
-                        y: 10px;
-                        width: 22px;
-                        height: 22px;
-                        border-radius: 11px;
-                        background: transparent;
-                        border-width: 2px;
-                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "time";
-                    }
-
-                    Rectangle {
-                        x: 20px;
-                        y: 14px;
-                        width: 2px;
-                        height: 9px;
-                        border-radius: 1px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "time";
-                    }
-
-                    Rectangle {
-                        x: 20px;
-                        y: 21px;
-                        width: 7px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "time";
                     }
 
                     Rectangle {
@@ -474,66 +432,6 @@ export component ResultList inherits Rectangle {
                         stroke-width: 2.4px;
                         fill: transparent;
                         visible: !item.has_icon && item.icon_kind == "logout";
-                    }
-
-                    Rectangle {
-                        x: 10px;
-                        y: 10px;
-                        width: 22px;
-                        height: 22px;
-                        border-radius: 11px;
-                        background: transparent;
-                        border-width: 2px;
-                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
-                    }
-
-                    Path {
-                        x: 12px;
-                        y: 7px;
-                        width: 8px;
-                        height: 8px;
-                        viewbox-width: 8;
-                        viewbox-height: 8;
-                        commands: "M6 2 L2 6";
-                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        stroke-width: 3px;
-                        fill: transparent;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
-                    }
-
-                    Path {
-                        x: 23px;
-                        y: 7px;
-                        width: 8px;
-                        height: 8px;
-                        viewbox-width: 8;
-                        viewbox-height: 8;
-                        commands: "M2 2 L6 6";
-                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        stroke-width: 3px;
-                        fill: transparent;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
-                    }
-
-                    Rectangle {
-                        x: 20px;
-                        y: 14px;
-                        width: 2px;
-                        height: 9px;
-                        border-radius: 1px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
-                    }
-
-                    Rectangle {
-                        x: 20px;
-                        y: 21px;
-                        width: 7px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
                     }
 
                     Rectangle {

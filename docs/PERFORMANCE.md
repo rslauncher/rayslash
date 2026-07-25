@@ -1,6 +1,6 @@
 # Performance
 
-This is the canonical performance baseline for rayslash. The optimization audit was implemented and remeasured on 2026-07-24. Compare results only when the build profile, machine, data set, cache state, and metric boundary are equivalent.
+This is the canonical performance baseline for rayslash. The optimization audit was implemented and remeasured on 2026-07-24, then its release-critical probes were repeated on the v0.2.1 tree on 2026-07-25. Compare results only when the build profile, machine, data set, cache state, and metric boundary are equivalent.
 
 ## Outcome
 
@@ -20,6 +20,28 @@ The current measured interactions meet their applicable budgets:
 | Local action dispatch | p95 < 10 ms | 9.34 ms app activation | **0.295 ms** app activation |
 
 These numbers do not imply that software can never be optimized further. They mean there is no remaining *measured, actionable bottleneck* in the audited paths on this system. Platform coverage, compositor-presented-frame measurement, and much larger catalogs remain validation work rather than evidence for another code change.
+
+### v0.2.1 post-fix verification
+
+The exact v0.2.1 release profile was rebuilt after the packaging and icon
+changes. The launcher is 26,600,184 bytes (SHA-256
+`11ba66b529609a3ffce4330a66f866244b8e2e8d306d879ba1a615b9a3b87d34`).
+The representative release probes remained within their budgets:
+
+| Probe | 2026-07-25 result |
+| --- | ---: |
+| 5k local search, worst p95 | 4.995 ms |
+| Irrelevant query with seven modules, warm p95 | 0.016 ms |
+| Calculator fresh-host p50 / p95 | 14.571 / 15.519 ms |
+| Calculator warm-host p50 / p95 | 0.135 / 0.195 ms |
+| App activation p50 / p95 | 0.222 / 0.262 ms |
+| Desktop reconciliation, 75 apps, p50 / p95 | 52.450 / 58.615 ms |
+| Folder discovery, 26 children, p50 / p95 | 0.018 / 0.030 ms |
+
+Calculator's first compiled-cache miss was 1.037 s and the following 19 fresh
+hosts produced the reported cached distribution. Desktop reconciliation had one
+114 ms outlier in 20 samples; its p50 and mean remained consistent with the
+baseline, so this run does not support another code change.
 
 ## Measurement environment
 
@@ -144,7 +166,7 @@ Ranking and app-install state writes use one serialized background writer. Confi
 
 | Artifact | 2026-07-24 | Previous | Change |
 | --- | ---: | ---: | ---: |
-| Launcher | 26,603,128 bytes | 39,330,040 | **−32.4%** |
+| Launcher | 26,600,184 bytes | 39,330,040 | **−32.4%** |
 | Module host | 15,844,888 bytes | 14,666,000 | +8.0% |
 | Seven root module components | 2,211,903 bytes | 2,771,835 | **−20.2%** |
 

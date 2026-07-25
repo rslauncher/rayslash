@@ -617,10 +617,10 @@ fn module_icon(module_id: &str) -> (&'static str, &'static str) {
     match module_id {
         modules::CALCULATOR_MODULE_ID => ("calculator", ""),
         modules::UNITS_MODULE_ID => ("text", "U"),
-        modules::CURRENCY_MODULE_ID => ("text", "$"),
+        modules::CURRENCY_MODULE_ID => ("currency", ""),
         modules::TIME_MODULE_ID => ("time", ""),
         modules::WEB_SEARCH_MODULE_ID => ("search", ""),
-        modules::TIMERS_MODULE_ID => ("stopwatch", ""),
+        modules::TIMERS_MODULE_ID => ("timers", ""),
         modules::ALIASES_MODULE_ID => ("link", ""),
         _ => ("placeholder", ""),
     }

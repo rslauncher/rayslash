@@ -1,5 +1,12 @@
 # Decisions
 
+## 2026-07-25 - Use one vector identity for each official module
+
+Decision: Use Lucide-derived vector geometry for Calculator, Currency, Time, and Timers in the launcher UI and the corresponding module package icons. Modules declare their package `icon.svg` identity, while the launcher renders the same embedded path geometry in results and Settings without decoding those SVG files. Web Search remains result-specific and uses each configured engine's favicon when available.
+Context: Settings cards, package metadata, and module results independently drew different shapes or text symbols for the same module.
+Reasoning: One recognizable glyph per module makes the catalog and results feel like one system. Keeping geometry in a shared Slint component removes launcher-side duplication; retaining package SVGs lets independently released modules carry the same identity.
+Consequences: Four module packages include the required Lucide ISC notice. Native and portable app packages also carry that notice for the shared vector geometry. Official utility result rows avoid deferred SVG decode work.
+
 ## 2026-07-24 - Make every release format a single self-contained download
 
 Decision: Bundle the digest-pinned `rayslash-module-host` executable inside the rayslash RPM, matching the existing DEB, AppImage, and Flatpak behavior. Publish RPM downloads as `rayslash-<version>-<architecture>.rpm`, while retaining the standard RPM `Version`, `Release`, and distribution metadata internally.

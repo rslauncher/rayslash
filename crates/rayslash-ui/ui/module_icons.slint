@@ -1,0 +1,52 @@
+// Geometry adapted from Lucide's Calculator, CircleDollarSign, Clock3, and
+// Timer icons. See THIRD_PARTY_LICENSES.md.
+export component ModuleGlyph inherits Rectangle {
+    in property <string> kind;
+    in property <color> icon-color;
+
+    background: transparent;
+
+    if root.kind == "calculator": Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M6 2 H18 A2 2 0 0 1 20 4 V20 A2 2 0 0 1 18 22 H6 A2 2 0 0 1 4 20 V4 A2 2 0 0 1 6 2 Z M8 6 H16 M16 14 V18 M16 10 h0.01 M12 10 h0.01 M8 10 h0.01 M12 14 h0.01 M8 14 h0.01 M12 18 h0.01 M8 18 h0.01";
+        stroke: root.icon-color;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+
+    if root.kind == "currency": Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M12 2 A10 10 0 1 0 12 22 A10 10 0 1 0 12 2 M16 8 H10 A2 2 0 1 0 10 12 H14 A2 2 0 1 1 14 16 H8 M12 18 V6";
+        stroke: root.icon-color;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+
+    if root.kind == "time": Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M12 2 A10 10 0 1 0 12 22 A10 10 0 1 0 12 2 M12 6 V12 H16";
+        stroke: root.icon-color;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+
+    if root.kind == "timers": Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M10 2 H14 M12 6 A8 8 0 1 0 12 22 A8 8 0 1 0 12 6 M12 14 L15 11";
+        stroke: root.icon-color;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+}

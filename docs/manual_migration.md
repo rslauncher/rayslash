@@ -537,7 +537,7 @@ Implemented artifacts:
 
 - SDK API v1, manifest schema, validator/packager, author/API/release documentation, and immutable release tag.
 - No-WASI host with bounded capabilities, persistent launcher IPC, x86_64/aarch64 release archives, and an Arch compatibility recipe.
-- Official host v0.1.2 archives are published for x86_64/aarch64. App CI verifies their immutable pinned digests, embeds the matching executable in each app RPM, and exercises the self-contained RPM with a DNF dry run before publication.
+- Official host v0.1.3 archives are published for x86_64/aarch64. App CI verifies their immutable pinned digests, embeds the matching executable in each app RPM, and exercises the self-contained RPM with a DNF dry run before publication.
 - Signed registry generator, protected publish workflow, public key, and seven live-fetched official submission records.
 - Verified registry client/cache, digest-pinned safe atomic package installation, install/update/remove lifecycle, separate keep/delete-data removal, and permission display.
 - Calculator, Units, Currency, Time, Web Search, Timers, and Aliases in separate repositories and successful GitHub Releases.

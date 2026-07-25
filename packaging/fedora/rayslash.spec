@@ -1,9 +1,9 @@
 Name:           rayslash
-Version:        0.2.0
-Release:        2%{?dist}
+Version:        0.2.1
+Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
-%global         module_host_version 0.1.2
-# Supersede the former 0.1.2-1.fc44 host RPM without self-obsoleting.
+%global         module_host_version 0.1.3
+# Supersede standalone host RPMs through 0.1.3-1 without self-obsoleting.
 %global         module_host_package_release 2
 %ifarch x86_64
 %global         module_host_target x86_64-unknown-linux-gnu
@@ -70,7 +70,7 @@ appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xm
 test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-host
 
 %files
-%license LICENSE*
+%license LICENSE* THIRD_PARTY_LICENSES.md
 %doc docs/INSTALL.md docs/PACKAGING.md docs/SHORTCUTS.md
 %{_bindir}/rayslash
 %{_libexecdir}/rayslash/rayslash-module-host
@@ -79,6 +79,9 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-host
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Sat Jul 25 2026 RaySlash contributors - 0.2.1-1
+- Ship the optimized launcher and host with consistent module icons.
+
 * Fri Jul 24 2026 RaySlash contributors - 0.2.0-2
 - Bundle the verified module host and publish one self-contained app RPM.
 

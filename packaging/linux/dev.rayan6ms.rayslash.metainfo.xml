@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.1" date="2026-07-25">
+      <description>
+        <p>Ship the optimized launcher and module host, make Fedora RPM downloads self-contained, and unify Calculator, Currency, Time, and Timers icons.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-07-22">
       <description>
         <p>Refine module management and settings, improve launcher responsiveness, and add RPM, DEB, Flatpak, and AppImage releases.</p>

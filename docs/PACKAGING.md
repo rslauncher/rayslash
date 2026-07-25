@@ -62,7 +62,7 @@ desktop-file-validate packaging/linux/dev.rayan6ms.rayslash.desktop
 appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xml
 ```
 
-The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs formatting, clippy, tests, build, desktop-entry validation, AppStream validation, inventory consistency checks, and frozen/offline Fedora rebuilds on x86_64 and aarch64. Each Fedora source build fetches both immutable host v0.1.2 archives, verifies their pinned checksums, embeds the architecture-matched executable in the RPM, runs RPM digest and rpmlint validation, and proves the resulting single package is installable through DNF.
+The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs formatting, clippy, tests, build, desktop-entry validation, AppStream validation, inventory consistency checks, and frozen/offline Fedora rebuilds on x86_64 and aarch64. Each Fedora source build fetches both immutable host v0.1.3 archives, verifies their pinned checksums, embeds the architecture-matched executable in the RPM, runs RPM digest and rpmlint validation, and proves the resulting single package is installable through DNF.
 
 [release.yml](../.github/workflows/release.yml) can run without publishing from a branch for pre-release verification. Semantic-version tags run the same native x86_64 and ARM64 RPM, DEB, AppImage, and Flatpak builds, verify that Cargo, RPM, and Arch versions match the tag, check the expected eight user-facing binaries, create a single `SHA256SUMS`, and publish the GitHub release. Source RPMs, debuginfo/debugsource packages, per-file checksum sidecars, and transient build products remain CI-internal instead of cluttering the public release.
 
@@ -112,7 +112,7 @@ sources_dir="$(mktemp -d)"
 packaging/fedora/prepare-sources.sh "$sources_dir" HEAD
 ```
 
-The helper runs `cargo vendor --locked --versioned-dirs`, creates `rayslash-0.2.0.tar.gz` from the selected commit, creates a deterministic `rayslash-0.2.0-vendor.tar.xz`, and downloads both host architectures from the immutable v0.1.2 release. It verifies hard-coded SHA-256 digests and prints all four source hashes. Network access is allowed only during this source-preparation step. `Cargo.lock` remains authoritative and source preparation fails if dependencies cannot be vendored or either host archive differs from its pinned digest.
+The helper runs `cargo vendor --locked --versioned-dirs`, creates `rayslash-0.2.1.tar.gz` from the selected commit, creates a deterministic `rayslash-0.2.1-vendor.tar.xz`, and downloads both host architectures from the immutable v0.1.3 release. It verifies hard-coded SHA-256 digests and prints all four source hashes. Network access is allowed only during this source-preparation step. `Cargo.lock` remains authoritative and source preparation fails if dependencies cannot be vendored or either host archive differs from its pinned digest.
 
 Build the SRPM from a literal copy of the checked-in spec in a fresh top directory:
 
@@ -135,7 +135,7 @@ resultdir="$(mktemp -d)"
 mock \
   -r fedora-44-x86_64 \
   --resultdir="$resultdir" \
-  --rebuild "$topdir/SRPMS/rayslash-0.2.0-2.fc44.src.rpm"
+  --rebuild "$topdir/SRPMS/rayslash-0.2.1-1.fc44.src.rpm"
 ```
 
 The spec installs `packaging/fedora/cargo-config.toml`, which replaces crates.io with the unpacked `vendor` directory and enables Cargo offline mode. Both `%build` and `%check` use `--frozen`, so a missing/stale vendor entry or lockfile change fails instead of accessing the registry. They cap Cargo at two jobs because clean Slint builds can otherwise exhaust a 16 GiB workstation. After `%install` and RPM's debug-extraction pass, `%check` removes the packaged thin-LTO intermediates and compiles stripped release tests with LTO/debug info disabled and 16 codegen units. The buildroot copy remains the optimized Fedora thin-LTO build, while the disposable test graph stays within runner storage quotas.
@@ -208,7 +208,7 @@ The sandbox shares network access because the app must fetch the signed catalog 
 Install and invoke the direct bundle with:
 
 ```sh
-flatpak install --user ./rayslash-0.2.0-x86_64.flatpak
+flatpak install --user ./rayslash-0.2.1-x86_64.flatpak
 flatpak run dev.rayan6ms.rayslash toggle
 ```
 
@@ -217,8 +217,8 @@ flatpak run dev.rayan6ms.rayslash toggle
 `packaging/appimage/build-appimage.sh` assembles the standard install layout in an AppDir and invokes a digest-pinned linuxdeploy build. The bundled `AppRun` forwards arguments and resolves the included module host. Invoke it with:
 
 ```sh
-chmod +x rayslash-0.2.0-x86_64.AppImage
-./rayslash-0.2.0-x86_64.AppImage toggle
+chmod +x rayslash-0.2.1-x86_64.AppImage
+./rayslash-0.2.1-x86_64.AppImage toggle
 ```
 
 AppImages are explicitly download-and-replace artifacts; no silent updater or zsync metadata is published. See [APPIMAGE.md](APPIMAGE.md).

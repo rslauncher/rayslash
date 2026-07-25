@@ -34,6 +34,8 @@ install -Dm0644 "$root_dir/icons/rayslash-icon.svg" \
     "$app_dir/usr/share/icons/hicolor/scalable/apps/dev.rayan6ms.rayslash.svg"
 install -Dm0644 "$root_dir/packaging/linux/dev.rayan6ms.rayslash.metainfo.xml" \
     "$app_dir/usr/share/metainfo/dev.rayan6ms.rayslash.metainfo.xml"
+install -Dm0644 "$root_dir/THIRD_PARTY_LICENSES.md" \
+    "$app_dir/usr/share/doc/rayslash/THIRD_PARTY_LICENSES.md"
 
 build_dir="$(mktemp -d)"
 (
