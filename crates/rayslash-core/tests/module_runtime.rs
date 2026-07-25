@@ -67,6 +67,18 @@ fn every_official_module_installs_and_runs_through_the_production_path() {
         })
         .to_string(),
     );
+    settings.insert(
+        "rayslash.web-search".into(),
+        serde_json::json!({
+            "searches": [{
+                "name": "Web",
+                "keyword": "search",
+                "url": "https://www.google.com/search?q=%s",
+                "enabled": true
+            }]
+        })
+        .to_string(),
+    );
 
     let cases = [
         ("rayslash.calculator", "2x+4=10", "x = 3"),
