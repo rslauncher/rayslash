@@ -39,7 +39,8 @@ mkdir -p "$output_directory"
 if ! printf '%s  %s\n' "$host_sha256" "$output_directory/$archive" \
     | sha256sum --check --status 2>/dev/null
 then
-    curl --fail --location --proto '=https' --tlsv1.2 --retry 3 \
+    curl --fail --location --proto '=https' --tlsv1.2 \
+        --retry 3 --retry-all-errors --retry-delay 1 \
         --silent --show-error \
         --output "$output_directory/$archive" "$release_url"
 fi
