@@ -131,28 +131,41 @@ jobs:
           CARGO_NET_OFFLINE=true rpmbuild --rebuild \
             --define "_topdir $RUNNER_TEMP/rebuild" \
             "$RUNNER_TEMP/rpmbuild/SRPMS/"*.src.rpm
-      - name: Assemble the user-facing RPM set
+      - name: Assemble the self-contained user-facing RPM
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           mkdir -p release-assets rpm-validation
           app_rpm=$(find "$RUNNER_TEMP/rebuild/RPMS" -type f \
-            -name "rayslash-${VERSION}-1.fc44.${{ matrix.architecture }}.rpm" -print -quit)
+            -name "rayslash-${VERSION}-*.fc44.${{ matrix.architecture }}.rpm" -print -quit)
           test -n "$app_rpm"
-          cp "$app_rpm" release-assets/
-          packaging/fedora/fetch-host-rpm.sh "${{ matrix.architecture }}" rpm-validation
-          cp rpm-validation/rayslash-module-host-*.rpm release-assets/
-          rpm -Kv release-assets/*.rpm
-          rpmlint release-assets/*.rpm
+          public_rpm="release-assets/rayslash-${VERSION}-${{ matrix.architecture }}.rpm"
+          cp "$app_rpm" "$public_rpm"
+          rpm -Kv "$public_rpm"
+          rpmlint "$public_rpm"
+          rpm -qpl "$public_rpm" | grep -Fx /usr/libexec/rayslash/rayslash-module-host
+          rpm -qp --provides "$public_rpm" | grep -F 'rayslash-module-host ='
+          if rpm -qpl "$public_rpm" | grep -E 'module\.(wasm|toml)$'; then
+            echo "the app RPM unexpectedly bundles optional module files" >&2
+            exit 1
+          fi
           mkdir rpm-validation/repo
-          cp release-assets/*.rpm rpm-validation/repo/
+          cp "$public_rpm" rpm-validation/repo/
           createrepo_c rpm-validation/repo >/dev/null
+          set +e
           dnf --disablerepo='*' \
             --repofrompath=rayslash-local,"file://$PWD/rpm-validation/repo" \
             --setopt=rayslash-local.gpgcheck=0 --refresh \
             install rayslash --assumeno | tee rpm-validation/transaction.txt
-          grep -F rayslash-module-host rpm-validation/transaction.txt
-          grep -F rayslash rpm-validation/transaction.txt
+          dnf_status=${PIPESTATUS[0]}
+          set -e
+          test "$dnf_status" -eq 1
+          grep -F 'Installing:' rpm-validation/transaction.txt
+          grep -E '^[[:space:]]+rayslash[[:space:]]' rpm-validation/transaction.txt
+          if grep -F rayslash-module-host rpm-validation/transaction.txt; then
+            echo "DNF unexpectedly selected a separate module-host package" >&2
+            exit 1
+          fi
       - uses: actions/upload-artifact@v7
         with:
           name: rpm-${{ matrix.architecture }}

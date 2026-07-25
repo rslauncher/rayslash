@@ -6,7 +6,7 @@ if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
     exit 2
 fi
 
-for command in cargo git tar xz; do
+for command in cargo curl git sha256sum tar xz; do
     if ! command -v "$command" >/dev/null 2>&1; then
         echo "required command is missing: $command" >&2
         exit 1
@@ -32,6 +32,9 @@ source_archive="$output_dir/$name-$version.tar.gz"
 vendor_archive="$output_dir/$name-$version-vendor.tar.xz"
 temporary_dir="$(mktemp -d)"
 trap 'rm -rf "$temporary_dir"' EXIT HUP INT TERM
+
+"$root_dir/packaging/release/fetch-host-archive.sh" x86_64 "$output_dir" >/dev/null
+"$root_dir/packaging/release/fetch-host-archive.sh" aarch64 "$output_dir" >/dev/null
 
 git -C "$root_dir" archive \
     --format=tar.gz \
@@ -65,4 +68,5 @@ LC_ALL=C tar \
     --pax-option=delete=atime,delete=ctime \
     vendor
 
-sha256sum "$source_archive" "$vendor_archive"
+sha256sum "$source_archive" "$vendor_archive" \
+    "$output_dir"/rayslash-module-host-v*-*.tar.xz

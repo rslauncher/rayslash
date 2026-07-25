@@ -43,6 +43,8 @@ install -Dm0644 "$root_dir/packaging/linux/dev.rayan6ms.rayslash.metainfo.xml" \
     "$package_root/usr/share/metainfo/dev.rayan6ms.rayslash.metainfo.xml"
 install -Dm0644 "$root_dir/LICENSE" \
     "$package_root/usr/share/doc/rayslash/copyright"
+install -Dm0644 "$root_dir/THIRD_PARTY_LICENSES.md" \
+    "$package_root/usr/share/doc/rayslash/THIRD_PARTY_LICENSES.md"
 install -Dm0644 "$root_dir/docs/INSTALL.md" \
     "$package_root/usr/share/doc/rayslash/INSTALL.md"
 

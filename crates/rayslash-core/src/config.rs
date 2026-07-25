@@ -1,4 +1,5 @@
 use std::{
+    cmp::Reverse,
     env, fmt, fs, io,
     io::Write,
     path::{Path, PathBuf},
@@ -9,6 +10,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{APP_NAME, atomic_write};
+
+const CONFIG_BACKUP_LIMIT: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Config {
@@ -346,8 +349,7 @@ pub fn save_config_to_path(path: &Path, config: &Config) -> Result<(), SaveConfi
         })?;
     }
 
-    let contents = toml::to_string_pretty(&config.clone().normalized())
-        .map_err(|source| SaveConfigError::Serialize { source })?;
+    let contents = serialized_config(config)?;
 
     atomic_write::write(path, &contents).map_err(|source| SaveConfigError::Write {
         path: path.to_path_buf(),
@@ -359,12 +361,34 @@ pub fn save_config_to_path_with_backup(
     path: &Path,
     config: &Config,
 ) -> Result<(), SaveConfigError> {
+    let contents = serialized_config(config)?;
+    if fs::read(path)
+        .ok()
+        .is_some_and(|existing| existing == contents.as_bytes())
+    {
+        return Ok(());
+    }
     backup_existing_config(path).map_err(|source| SaveConfigError::Backup {
         path: path.to_path_buf(),
         source,
     })?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|source| SaveConfigError::CreateDir {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    }
+    atomic_write::write(path, &contents).map_err(|source| SaveConfigError::Write {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    prune_config_backups(path);
+    Ok(())
+}
 
-    save_config_to_path(path, config)
+fn serialized_config(config: &Config) -> Result<String, SaveConfigError> {
+    toml::to_string_pretty(&config.clone().normalized())
+        .map_err(|source| SaveConfigError::Serialize { source })
 }
 
 fn default_folder_sources() -> Vec<PathBuf> {
@@ -487,4 +511,42 @@ fn backup_path(path: &Path) -> PathBuf {
     let backup_file_name = format!("{file_name}.backup-{}-{timestamp}", process::id());
 
     path.with_file_name(backup_file_name)
+}
+
+fn prune_config_backups(path: &Path) {
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    let prefix = format!(
+        "{}.backup-",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("config.toml")
+    );
+    let Ok(entries) = fs::read_dir(parent) else {
+        return;
+    };
+    let mut backups = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            name.to_str()
+                .is_some_and(|name| name.starts_with(&prefix))
+                .then(|| {
+                    (
+                        Reverse(
+                            entry
+                                .metadata()
+                                .and_then(|metadata| metadata.modified())
+                                .unwrap_or(UNIX_EPOCH),
+                        ),
+                        entry.path(),
+                    )
+                })
+        })
+        .collect::<Vec<_>>();
+    backups.sort();
+    for (_modified, path) in backups.into_iter().skip(CONFIG_BACKUP_LIMIT) {
+        let _ = fs::remove_file(path);
+    }
 }

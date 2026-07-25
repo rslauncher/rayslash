@@ -85,6 +85,12 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     },
                     DESKTOP_APP_REFRESH_INTERVAL,
                 );
+                if alternate_opener_choices.row_count() == 0 {
+                    alternate_opener_choices.set_vec(crate::opener_visual::to_app_choice_items(
+                        &apps.borrow(),
+                        &mut icon_cache.borrow_mut(),
+                    ));
+                }
                 refresh_settings_dependent_ui(
                     &ui,
                     &config_state.borrow(),

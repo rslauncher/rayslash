@@ -1,7 +1,9 @@
 import { ResultItem } from "./models.slint";
 import { LegendTooltipBubble } from "./components.slint";
+import { ModuleGlyph } from "./module_icons.slint";
+import { ListView } from "std-widgets.slint";
 
-export component ResultList inherits Flickable {
+export component ResultList inherits Rectangle {
     in property <[ResultItem]> results;
     in property <int> result-count;
     in-out property <int> selected-index;
@@ -14,6 +16,7 @@ export component ResultList inherits Flickable {
     in property <bool> light;
     in property <string> result-tip-text;
     in property <bool> tooltips-enabled;
+    in property <bool> interactive: true;
     callback activate-result(int, bool);
 
     private property <length> row-height: root.density == "compact" ? 54px : 64px;
@@ -33,6 +36,7 @@ export component ResultList inherits Flickable {
     private property <length> pointer-y: 0px;
     private property <int> hovered-index: -1;
     private property <int> pressed-index: -1;
+    private property <length> viewport-y <=> list-view.viewport-y;
 
     public function reset-scroll() {
         root.viewport-y = 0px;
@@ -114,9 +118,6 @@ export component ResultList inherits Flickable {
         }
     }
 
-    viewport-width: self.width;
-    viewport-height: root.result-count <= 0 ? root.tip-height : root.result-count * root.row-stride - root.row-gap + root.tip-gap + root.tip-height;
-
     tooltip-delay := Timer {
         interval: 800ms;
         running: false;
@@ -161,6 +162,11 @@ export component ResultList inherits Flickable {
             root.hide-tooltip();
         }
     }
+
+    list-view := ListView {
+        width: root.width;
+        height: root.height;
+        enabled: root.interactive;
 
     for item[i] in root.results: Rectangle {
         y: i * root.row-stride;
@@ -218,6 +224,16 @@ export component ResultList inherits Flickable {
                         visible: !parent.alternate-icon && !item.has_icon && item.icon_text != "";
                     }
 
+                    ModuleGlyph {
+                        x: 7px;
+                        y: 7px;
+                        width: 28px;
+                        height: 28px;
+                        kind: item.icon_kind;
+                        icon-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
+                        visible: !item.has_icon && item.icon_text == "";
+                    }
+
                     Image {
                         x: 7px;
                         y: 7px;
@@ -262,27 +278,6 @@ export component ResultList inherits Flickable {
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "folder";
                         opacity: parent.alternate-icon ? 0 : 1;
-                    }
-
-                    Rectangle {
-                        x: 11px;
-                        y: 8px;
-                        width: 20px;
-                        height: 26px;
-                        border-radius: 3px;
-                        background: transparent;
-                        border-width: 2px;
-                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "calculator";
-                    }
-
-                    Rectangle {
-                        x: 16px;
-                        y: 14px;
-                        width: 10px;
-                        height: 2px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "calculator";
                     }
 
                     Rectangle {
@@ -333,38 +328,6 @@ export component ResultList inherits Flickable {
                         border-radius: 5px;
                         background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
                         visible: !item.has_icon && item.icon_kind == "placeholder";
-                    }
-
-                    Rectangle {
-                        x: 10px;
-                        y: 10px;
-                        width: 22px;
-                        height: 22px;
-                        border-radius: 11px;
-                        background: transparent;
-                        border-width: 2px;
-                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "time";
-                    }
-
-                    Rectangle {
-                        x: 20px;
-                        y: 14px;
-                        width: 2px;
-                        height: 9px;
-                        border-radius: 1px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "time";
-                    }
-
-                    Rectangle {
-                        x: 20px;
-                        y: 21px;
-                        width: 7px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "time";
                     }
 
                     Rectangle {
@@ -472,66 +435,6 @@ export component ResultList inherits Flickable {
                     }
 
                     Rectangle {
-                        x: 10px;
-                        y: 10px;
-                        width: 22px;
-                        height: 22px;
-                        border-radius: 11px;
-                        background: transparent;
-                        border-width: 2px;
-                        border-color: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
-                    }
-
-                    Path {
-                        x: 12px;
-                        y: 7px;
-                        width: 8px;
-                        height: 8px;
-                        viewbox-width: 8;
-                        viewbox-height: 8;
-                        commands: "M6 2 L2 6";
-                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        stroke-width: 3px;
-                        fill: transparent;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
-                    }
-
-                    Path {
-                        x: 23px;
-                        y: 7px;
-                        width: 8px;
-                        height: 8px;
-                        viewbox-width: 8;
-                        viewbox-height: 8;
-                        commands: "M2 2 L6 6";
-                        stroke: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        stroke-width: 3px;
-                        fill: transparent;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
-                    }
-
-                    Rectangle {
-                        x: 20px;
-                        y: 14px;
-                        width: 2px;
-                        height: 9px;
-                        border-radius: 1px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
-                    }
-
-                    Rectangle {
-                        x: 20px;
-                        y: 21px;
-                        width: 7px;
-                        height: 2px;
-                        border-radius: 1px;
-                        background: root.light ? i == root.selected-index ? #ffffff : #555555 : i == root.selected-index ? #303030 : #d0d0d0;
-                        visible: !item.has_icon && item.icon_kind == "stopwatch";
-                    }
-
-                    Rectangle {
                         x: 12px;
                         y: 17px;
                         width: 18px;
@@ -622,6 +525,7 @@ export component ResultList inherits Flickable {
             }
         }
 
+    }
     }
 
     Rectangle {

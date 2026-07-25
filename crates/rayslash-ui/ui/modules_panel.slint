@@ -1,4 +1,5 @@
 import { ModuleItem } from "./models.slint";
+import { ModuleGlyph } from "./module_icons.slint";
 
 component ModuleTab inherits Rectangle {
     in property <string> label;
@@ -97,12 +98,15 @@ component ModuleIcon inherits Rectangle {
         vertical-alignment: center;
         visible: root.text != "";
     }
-    Rectangle { x: 11px; y: 8px; width: 26px; height: 32px; border-radius: 4px; background: transparent; border-width: 2px; border-color: root.glyph; visible: root.kind == "calculator"; }
-    Rectangle { x: 17px; y: 15px; width: 14px; height: 2px; background: root.glyph; visible: root.kind == "calculator"; }
-    Rectangle { x: 10px; y: 10px; width: 28px; height: 28px; border-radius: 14px; background: transparent; border-width: 2px; border-color: root.glyph; visible: root.kind == "time" || root.kind == "stopwatch"; }
-    Rectangle { x: 23px; y: 15px; width: 2px; height: 10px; border-radius: 1px; background: root.glyph; visible: root.kind == "time" || root.kind == "stopwatch"; }
-    Rectangle { x: 23px; y: 23px; width: 8px; height: 2px; border-radius: 1px; background: root.glyph; visible: root.kind == "time" || root.kind == "stopwatch"; }
-    if root.kind == "stopwatch": Path { x: 15px; y: 5px; width: 18px; height: 9px; viewbox-width: 14; viewbox-height: 8; commands: "M3 6 L7 2 L11 6"; stroke: root.glyph; stroke-width: 2px; fill: transparent; }
+    ModuleGlyph {
+        x: 9px;
+        y: 9px;
+        width: 30px;
+        height: 30px;
+        kind: root.kind;
+        icon-color: root.glyph;
+        visible: root.text == "";
+    }
     if root.kind == "search": Path { x: 11px; y: 10px; width: 27px; height: 27px; viewbox-width: 24; viewbox-height: 24; commands: "M10.5 4 A6.5 6.5 0 1 0 10.5 17 A6.5 6.5 0 1 0 10.5 4 M15.5 15.5 L21 21"; stroke: root.glyph; stroke-width: 2px; fill: transparent; }
     if root.kind == "link": Path { x: 10px; y: 10px; width: 28px; height: 28px; viewbox-width: 24; viewbox-height: 24; commands: "M10 13a5 5 0 0 0 7.1.1l3-3a5 5 0 0 0-7.1-7.1l-1.7 1.7 M14 11a5 5 0 0 0-7.1-.1l-3 3a5 5 0 0 0 7.1 7.1l1.7-1.7"; stroke: root.glyph; stroke-width: 2px; fill: transparent; }
 }

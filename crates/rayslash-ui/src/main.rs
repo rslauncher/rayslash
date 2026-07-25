@@ -3,6 +3,7 @@ mod cli;
 mod ipc;
 mod module_settings;
 mod opener_visual;
+mod persistence;
 mod result_items;
 mod runtime_state;
 mod settings;
@@ -16,7 +17,7 @@ use std::{
     process::ExitCode,
     rc::Rc,
     sync::{
-        Arc,
+        Arc, Mutex,
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
@@ -29,20 +30,21 @@ use module_settings::{
     ModuleSettingsCallbackContext, load_runtime_modules, module_items,
     register_module_settings_callback,
 };
-use opener_visual::{accent_color_for_icon, to_app_choice_items};
+use opener_visual::accent_color_for_icon;
 use rayslash_core::{
     apps, config, modules, projects, providers::ProviderExecutionHint, web_search,
 };
-use result_items::{IconImageCache, to_result_items};
+use result_items::{IconImageCache, to_result_items, to_result_items_without_images};
 use runtime_state::{
-    ResultRefreshContext, ResultSelection, SearchResultSet, effective_search_query,
-    load_runtime_app_state, load_runtime_ranking_state, profile_enabled, profile_stage,
-    query_execution_hint, refresh_result_view, refresh_settings_dependent_ui, search_result_set,
-    sync_app_install_state,
+    ResultRefreshContext, ResultSelection, SearchResultSet, apply_desktop_apps,
+    effective_search_query, load_runtime_app_state, load_runtime_ranking_state,
+    merge_module_results_with_config, module_settings, profile_enabled, profile_stage,
+    query_execution_hint_with_config, refresh_result_view, refresh_settings_dependent_ui,
+    search_result_set, sync_app_install_state,
 };
 use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
-    ComponentHandle, Timer, TimerMode, VecModel,
+    ComponentHandle, Timer, VecModel,
     winit_030::{EventResult, WinitWindowAccessor, winit},
 };
 use window_state::{
@@ -53,6 +55,18 @@ slint::include_modules!();
 
 pub(crate) const DEFAULT_STATUS_TEXT: &str = "";
 const DESKTOP_APP_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+
+struct ModuleSearchJob {
+    generation: u64,
+    query: String,
+    config: config::Config,
+    module_config: modules::ModulesConfig,
+    local_results: SearchResultSet,
+    debounce: Duration,
+    started: Instant,
+}
+
+type RemoteSearchResult = (u64, String, SearchResultSet, Instant);
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -135,8 +149,16 @@ fn run_gui(
     let profile = profile_enabled();
     let startup_started = Instant::now();
 
-    slint::BackendSelector::new().select()?;
+    let stage_started = Instant::now();
+    let backend_selector = slint::BackendSelector::new();
+    let backend_selector = if std::env::var_os("SLINT_BACKEND").is_some() {
+        backend_selector
+    } else {
+        backend_selector.backend_name("winit-software".into())
+    };
+    backend_selector.select()?;
     slint::set_xdg_app_id(rayslash_core::APP_ID)?;
+    profile_stage(profile, "backend select and app ID", stage_started);
 
     let stage_started = Instant::now();
     let ui = AppWindow::new()?;
@@ -217,12 +239,37 @@ fn run_gui(
     );
 
     let stage_started = Instant::now();
-    let apps = Rc::new(RefCell::new(apps::discover_desktop_apps()));
+    let cached_apps = apps::load_cached_desktop_apps();
+    let loaded_cached_apps = cached_apps.is_some();
+    let initial_apps = cached_apps.unwrap_or_else(apps::discover_and_cache_desktop_apps);
+    let apps = Rc::new(RefCell::new(initial_apps));
+    let pending_app_refresh = Arc::new(Mutex::new(None));
+    if loaded_cached_apps {
+        thread::spawn({
+            let weak = ui.as_weak();
+            let pending_app_refresh = pending_app_refresh.clone();
+            move || {
+                *pending_app_refresh
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) =
+                    Some(apps::discover_and_cache_desktop_apps());
+                let _ = weak.upgrade_in_event_loop(|ui| ui.invoke_apply_desktop_refresh());
+            }
+        });
+    }
     let last_desktop_app_refresh = Rc::new(RefCell::new(Instant::now()));
     sync_app_install_state(&app_install_state, &apps.borrow());
     profile_stage(
         profile,
-        &format!("app discovery ({} apps)", apps.borrow().len()),
+        &format!(
+            "app catalog {} ({} apps)",
+            if loaded_cached_apps {
+                "cache load"
+            } else {
+                "discovery"
+            },
+            apps.borrow().len()
+        ),
         stage_started,
     );
 
@@ -248,28 +295,33 @@ fn run_gui(
 
     let icon_cache = Rc::new(RefCell::new(IconImageCache::new()));
     let stage_started = Instant::now();
-    let results_model = Rc::new(VecModel::from(to_result_items(
+    let results_model = Rc::new(VecModel::from(to_result_items_without_images(
         &current_results.borrow(),
         &mut icon_cache.borrow_mut(),
     )));
     profile_stage(profile, "initial result item build", stage_started);
-    profile_stage(profile, "startup before event loop", startup_started);
+    profile_stage(
+        profile,
+        "startup initial result model ready",
+        startup_started,
+    );
 
     let remote_search_generation = Arc::new(AtomicU64::new(0));
-    let (remote_result_tx, remote_result_rx) = mpsc::channel::<(u64, String, SearchResultSet)>();
-    let remote_result_timer = Timer::default();
-    remote_result_timer.start(TimerMode::Repeated, Duration::from_millis(24), {
+    let (remote_result_tx, remote_result_rx) = mpsc::channel::<RemoteSearchResult>();
+    let pending_remote_result = Arc::new(Mutex::new(Option::<RemoteSearchResult>::None));
+    let pending_remote_result_for_ui = pending_remote_result.clone();
+    ui.on_apply_remote_results({
         let weak = ui.as_weak();
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
         let remote_search_generation = remote_search_generation.clone();
         move || {
-            let mut newest = None;
-            while let Ok(result) = remote_result_rx.try_recv() {
-                newest = Some(result);
-            }
-            let Some((generation, query, result_set)) = newest else {
+            let Some((generation, query, result_set, query_started)) = pending_remote_result_for_ui
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take()
+            else {
                 return;
             };
             if remote_search_generation.load(Ordering::Relaxed) != generation {
@@ -292,6 +344,60 @@ fn run_gui(
             if ui.get_status_text().as_str() == "Looking up…" {
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
             }
+            profile_stage(
+                profile,
+                &format!("remote query {query:?} end to end"),
+                query_started,
+            );
+        }
+    });
+    thread::spawn({
+        let weak = ui.as_weak();
+        let pending_remote_result = pending_remote_result.clone();
+        move || {
+            while let Ok(mut result) = remote_result_rx.recv() {
+                while let Ok(newer) = remote_result_rx.try_recv() {
+                    result = newer;
+                }
+                *pending_remote_result
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = Some(result);
+                if weak
+                    .upgrade_in_event_loop(|ui| ui.invoke_apply_remote_results())
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }
+    });
+    let (module_search_tx, module_search_rx) = mpsc::channel::<ModuleSearchJob>();
+    thread::spawn({
+        let remote_result_tx = remote_result_tx.clone();
+        let remote_search_generation = remote_search_generation.clone();
+        move || {
+            while let Ok(mut job) = module_search_rx.recv() {
+                loop {
+                    match module_search_rx.recv_timeout(job.debounce) {
+                        Ok(newer) => job = newer,
+                        Err(mpsc::RecvTimeoutError::Timeout) => break,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
+                    }
+                }
+                if remote_search_generation.load(Ordering::Acquire) != job.generation {
+                    continue;
+                }
+                let result_set = merge_module_results_with_config(
+                    &job.config,
+                    &job.module_config,
+                    job.local_results,
+                    &job.query,
+                );
+                if remote_search_generation.load(Ordering::Acquire) == job.generation {
+                    let _ =
+                        remote_result_tx.send((job.generation, job.query, result_set, job.started));
+                }
+            }
         }
     });
 
@@ -312,18 +418,21 @@ fn run_gui(
         );
     }
 
-    let (registry_tx, registry_rx) = mpsc::channel();
-    thread::spawn(move || {
-        let _ = registry_tx.send(modules::refresh_registry().map_err(|error| error.to_string()));
-    });
-    let registry_timer = Timer::default();
-    registry_timer.start(TimerMode::Repeated, Duration::from_millis(100), {
+    let pending_registry_refresh = Arc::new(Mutex::new(
+        Option::<Result<modules::RegistryRefresh, String>>::None,
+    ));
+    let pending_registry_refresh_for_ui = pending_registry_refresh.clone();
+    ui.on_apply_registry_refresh({
         let weak = ui.as_weak();
         let module_catalog = module_catalog.clone();
         let module_state = module_state.clone();
         let module_model = module_model.clone();
-        move || match registry_rx.try_recv() {
-            Ok(Ok(registry)) => {
+        move || match pending_registry_refresh_for_ui
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .take()
+        {
+            Some(Ok(registry)) => {
                 *module_catalog.borrow_mut() = registry.index.modules;
                 if let Some(ui) = weak.upgrade() {
                     ui.invoke_settings_module_sort_requested(ui.get_settings_module_sort_order());
@@ -337,20 +446,26 @@ fn run_gui(
                     ));
                 }
             }
-            Ok(Err(error)) => {
+            Some(Err(error)) => {
                 if let Some(ui) = weak.upgrade() {
                     ui.set_status_text(format!("Could not refresh module catalog: {error}").into());
                 }
             }
-            Err(mpsc::TryRecvError::Empty) => {}
-            Err(mpsc::TryRecvError::Disconnected) => {}
+            None => {}
+        }
+    });
+    thread::spawn({
+        let weak = ui.as_weak();
+        move || {
+            *pending_registry_refresh
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) =
+                Some(modules::refresh_registry().map_err(|error| error.to_string()));
+            let _ = weak.upgrade_in_event_loop(|ui| ui.invoke_apply_registry_refresh());
         }
     });
 
-    let alternate_opener_choices = Rc::new(VecModel::from(to_app_choice_items(
-        &apps.borrow(),
-        &mut icon_cache.borrow_mut(),
-    )));
+    let alternate_opener_choices = Rc::new(VecModel::from(Vec::<AppChoiceItem>::new()));
     ui.set_alternate_opener_choices(alternate_opener_choices.clone().into());
     refresh_settings_dependent_ui(
         &ui,
@@ -363,12 +478,19 @@ fn run_gui(
     );
     ui.invoke_focus_search();
 
+    let first_redraw_profiled = Rc::new(Cell::new(false));
     ui.window().on_winit_window_event({
         let weak = ui.as_weak();
         let is_visible = is_visible.clone();
         let suppress_next_focus_hide = suppress_next_focus_hide.clone();
+        let first_redraw_profiled = first_redraw_profiled.clone();
         move |_, event| {
-            if matches!(event, winit::event::WindowEvent::Focused(false)) {
+            if matches!(&event, winit::event::WindowEvent::RedrawRequested)
+                && !first_redraw_profiled.replace(true)
+            {
+                profile_stage(profile, "startup first redraw requested", startup_started);
+            }
+            if matches!(&event, winit::event::WindowEvent::Focused(false)) {
                 if weak.upgrade().is_some_and(|ui| {
                     ui.get_settings_web_search_editor_open() || ui.get_settings_alias_editor_open()
                 }) {
@@ -572,52 +694,21 @@ fn run_gui(
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
+        let module_state = module_state.clone();
         let remote_search_generation = remote_search_generation.clone();
-        let remote_result_tx = remote_result_tx.clone();
+        let module_search_tx = module_search_tx.clone();
         move |query| {
             let stage_started = Instant::now();
 
             if let Some(ui) = weak.upgrade() {
                 let effective_query =
                     effective_search_query(query.as_str(), ui.get_active_search_keyword().as_str());
-                let execution_hint = query_execution_hint(&config_state.borrow());
-
-                if let ProviderExecutionHint::DebouncedNetwork { debounce_ms } = execution_hint {
-                    let generation = remote_search_generation.fetch_add(1, Ordering::Relaxed) + 1;
-                    let expected_generation = remote_search_generation.clone();
-                    let config = config_state.borrow().clone();
-                    let ranking = ranking_state.borrow().clone();
-                    let app_install = app_install_state.borrow().clone();
-                    let projects_snapshot = projects.borrow().clone();
-                    let apps_snapshot = apps.borrow().clone();
-                    let effective_query = effective_query.clone();
-                    let remote_result_tx = remote_result_tx.clone();
-
-                    ui.set_status_text("Looking up…".into());
-                    thread::spawn(move || {
-                        thread::sleep(Duration::from_millis(debounce_ms));
-                        if expected_generation.load(Ordering::Relaxed) != generation {
-                            return;
-                        }
-
-                        let result_set = search_result_set(
-                            &config,
-                            &ranking,
-                            &app_install,
-                            &projects_snapshot,
-                            &apps_snapshot,
-                            &effective_query,
-                        );
-                        if expected_generation.load(Ordering::Relaxed) != generation {
-                            return;
-                        }
-
-                        let _ = remote_result_tx.send((generation, effective_query, result_set));
-                    });
-                    return;
-                }
-
-                remote_search_generation.fetch_add(1, Ordering::Relaxed);
+                let execution_hint = query_execution_hint_with_config(
+                    &config_state.borrow(),
+                    &module_state.borrow(),
+                    &effective_query,
+                );
+                let generation = remote_search_generation.fetch_add(1, Ordering::AcqRel) + 1;
                 let count = refresh_result_view(
                     &ui,
                     ResultRefreshContext {
@@ -634,7 +725,30 @@ fn run_gui(
                     effective_query.as_str(),
                     ResultSelection::QueryDefault,
                 );
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+                let debounce = match execution_hint {
+                    ProviderExecutionHint::DebouncedNetwork { debounce_ms } => {
+                        ui.set_status_text("Looking up…".into());
+                        Duration::from_millis(debounce_ms)
+                    }
+                    ProviderExecutionHint::Local => {
+                        ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+                        Duration::ZERO
+                    }
+                };
+                if !effective_query.trim().is_empty() {
+                    let _ = module_search_tx.send(ModuleSearchJob {
+                        generation,
+                        query: effective_query,
+                        config: config_state.borrow().clone(),
+                        module_config: module_state.borrow().clone(),
+                        local_results: SearchResultSet {
+                            results: current_results.borrow().clone(),
+                            result_tip: ui.get_result_tip_text().to_string(),
+                        },
+                        debounce,
+                        started: stage_started,
+                    });
+                }
                 profile_stage(
                     profile,
                     &format!("query {:?} ({} results)", query.as_str(), count),
@@ -677,7 +791,65 @@ fn run_gui(
         },
     );
 
-    let _module_install_timer = register_module_settings_callback(
+    if loaded_cached_apps {
+        let pending_app_refresh = pending_app_refresh.clone();
+        ui.on_apply_desktop_refresh({
+            let weak = ui.as_weak();
+            let apps = apps.clone();
+            let app_install_state = app_install_state.clone();
+            let alternate_opener_choices = alternate_opener_choices.clone();
+            let icon_cache = icon_cache.clone();
+            let config_state = config_state.clone();
+            let ranking_state = ranking_state.clone();
+            let projects = projects.clone();
+            let current_results = current_results.clone();
+            let results_model = results_model.clone();
+            let last_desktop_app_refresh = last_desktop_app_refresh.clone();
+            move || {
+                let discovered_apps = pending_app_refresh
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .take();
+                if let Some(discovered_apps) = discovered_apps
+                    && discovered_apps != *apps.borrow()
+                {
+                    apply_desktop_apps(
+                        &apps,
+                        &app_install_state,
+                        &alternate_opener_choices,
+                        &icon_cache,
+                        discovered_apps,
+                        (profile, "background reconciliation", Instant::now()),
+                    );
+                    *last_desktop_app_refresh.borrow_mut() = Instant::now();
+                    if let Some(ui) = weak.upgrade() {
+                        let effective_query = effective_search_query(
+                            ui.get_query_text().as_str(),
+                            ui.get_active_search_keyword().as_str(),
+                        );
+                        refresh_result_view(
+                            &ui,
+                            ResultRefreshContext {
+                                config: &config_state.borrow(),
+                                ranking_state: &ranking_state.borrow(),
+                                app_state: &app_install_state.borrow(),
+                                projects: &projects.borrow(),
+                                apps: &apps.borrow(),
+                                current_results: &current_results,
+                                results_model: &results_model,
+                                icon_cache: &icon_cache,
+                                profile,
+                            },
+                            &effective_query,
+                            ResultSelection::QueryDefault,
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    register_module_settings_callback(
         &ui,
         ModuleSettingsCallbackContext {
             module_state: module_state.clone(),
@@ -702,14 +874,45 @@ fn run_gui(
     let weak = ui.as_weak();
     let ipc_visibility = is_visible.clone();
     ipc::start_server(listener, move |request| {
+        let request_started = Instant::now();
         let ipc_visibility = ipc_visibility.clone();
         if let Err(error) = weak.upgrade_in_event_loop(move |ui| {
             handle_ipc_request(&ui, ipc_visibility.as_ref(), request);
+            profile_stage(
+                profile,
+                &format!("IPC {request:?} queued-to-handled"),
+                request_started,
+            );
         }) {
             eprintln!("failed to queue rayslash IPC request on UI event loop: {error}");
         }
     });
 
+    profile_stage(profile, "startup callbacks and IPC ready", startup_started);
+    let show_started = Instant::now();
     ui.show()?;
+    profile_stage(profile, "startup show call", show_started);
+    profile_stage(profile, "startup ready for event loop", startup_started);
+    Timer::single_shot(Duration::from_millis(500), {
+        let current_results = current_results.clone();
+        let results_model = results_model.clone();
+        let icon_cache = icon_cache.clone();
+        move || {
+            results_model.set_vec(to_result_items(
+                &current_results.borrow(),
+                &mut icon_cache.borrow_mut(),
+            ));
+        }
+    });
+    Timer::single_shot(Duration::from_secs(1), {
+        let config = config_state.borrow().clone();
+        move || {
+            thread::spawn(move || {
+                let module_config = modules::load_modules_config(&config.providers)
+                    .unwrap_or_else(|_| modules::ModulesConfig::empty());
+                modules::prewarm_installed_modules(&module_config, &module_settings(&config));
+            });
+        }
+    });
     slint::run_event_loop_until_quit()
 }

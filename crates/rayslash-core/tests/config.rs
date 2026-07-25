@@ -430,6 +430,23 @@ fn backup_save_does_not_create_backup_for_missing_config() {
 }
 
 #[test]
+fn backup_save_skips_identical_content_and_rotates_old_backups() {
+    let dir = TempDir::new("rayslash-config-backup-rotation-test");
+    let path = dir.path().join("config.toml");
+    let mut config = config::Config::default();
+    config::save_config_to_path_with_backup(&path, &config).expect("initial save");
+    config::save_config_to_path_with_backup(&path, &config).expect("identical save");
+    assert!(backup_files(path.parent().expect("config parent")).is_empty());
+
+    for max_results in 1..=10 {
+        config.appearance.max_results = max_results;
+        config::save_config_to_path_with_backup(&path, &config).expect("changed save");
+    }
+
+    assert_eq!(backup_files(path.parent().expect("config parent")).len(), 5);
+}
+
+#[test]
 fn saved_config_writes_normalized_folder_sources() {
     let dir = TempDir::new("rayslash-config-normalized-save-test");
     let path = dir.join("config.toml");
