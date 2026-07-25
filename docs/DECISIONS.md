@@ -1,11 +1,18 @@
 # Decisions
 
+## 2026-07-24 - Make every release format a single self-contained download
+
+Decision: Bundle the digest-pinned `rayslash-module-host` executable inside the rayslash RPM, matching the existing DEB, AppImage, and Flatpak behavior. Publish RPM downloads as `rayslash-<version>-<architecture>.rpm`, while retaining the standard RPM `Version`, `Release`, and distribution metadata internally.
+Context: Requiring users to find and install a second architecture-matched RPM made the Fedora release uniquely cumbersome. The canonical RPM filename exposed `-1.fc44`, which is useful package-manager metadata but confusing on a GitHub download page.
+Reasoning: The host is mandatory infrastructure, not an optional module. One verified application artifact is the least surprising installation model. RPM does require a release value and benefits from a distribution tag for upgrade ordering and compatibility, but the surrounding file can safely use a friendlier name because RPM/DNF read identity from package metadata.
+Consequences: Release validation expects eight binaries instead of ten. The rayslash RPM owns `/usr/libexec/rayslash/rayslash-module-host`, provides the former host-package capability for compatibility, and obsoletes the previously separate Fedora host package. Optional module WASM and manifests remain unbundled.
+
 ## 2026-07-22 - Publish a small, multi-format release surface
 
 Decision: Release native x86_64 and ARM64 RPM, DEB, AppImage, and direct Flatpak bundles from semantic-version tags, publish one checksum manifest, and keep source/debug packages and transient artifacts out of GitHub Releases.
 Context: The Fedora-only v0.1.1 release exposed 18 assets because every source, debug, app, and host RPM received a separate checksum sidecar. Users still lacked direct Debian and portable downloads.
-Reasoning: Architecture-specific application files are meaningful assets; build intermediates and one checksum file per binary are not. RPM retains the separately packaged host dependency, while self-contained formats embed the same digest-pinned host release. Flatpak needs explicit host filesystem read and `org.freedesktop.Flatpak` permissions because a launcher must discover and start host applications; that makes the bundle suitable for direct distribution but not yet a least-privilege Flathub submission.
-Consequences: v0.2.0 uses an automated tag workflow, ten user-facing binaries, and one `SHA256SUMS`. AppImage updates remain explicit download-and-replace operations. Flatpak-aware discovery reads host desktop/icon exports and external actions run through `flatpak-spawn --host`. Optional modules remain unbundled in every format.
+Reasoning: Architecture-specific application files are meaningful assets; build intermediates and one checksum file per binary are not. At the time, RPM retained the separately packaged host dependency, while self-contained formats embedded the same digest-pinned host release. Flatpak needs explicit host filesystem read and `org.freedesktop.Flatpak` permissions because a launcher must discover and start host applications; that makes the bundle suitable for direct distribution but not yet a least-privilege Flathub submission.
+Consequences: v0.2.0 initially used an automated tag workflow, ten user-facing binaries, and one `SHA256SUMS`. The 2026-07-24 decision above supersedes the separate-RPM portion and reduces future release surfaces to eight binaries.
 
 ## 2026-07-11 - Preserve incomplete search engines and use cached favicons consistently
 

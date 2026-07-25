@@ -66,37 +66,43 @@ jobs:
           rpmbuild --rebuild \
             --define "_topdir $RUNNER_TEMP/rebuild" \
             "$RUNNER_TEMP/rpmbuild/SRPMS/"*.src.rpm
-      - name: Assemble user-facing RPMs for validation
+      - name: Assemble the self-contained RPM for validation
         run: |
           mkdir -p "$GITHUB_WORKSPACE/fedora-package-set"
           version=$(awk '$1 == "Version:" { print $2; exit }' packaging/fedora/rayslash.spec)
           app_rpm=$(find "$RUNNER_TEMP/rebuild/RPMS" -type f \
-            -name "rayslash-${version}-1.fc44.${{ matrix.architecture }}.rpm" -print -quit)
+            -name "rayslash-${version}-*.fc44.${{ matrix.architecture }}.rpm" -print -quit)
           test -n "$app_rpm"
-          cp -v "$app_rpm" "$GITHUB_WORKSPACE/fedora-package-set/"
-          packaging/fedora/fetch-host-rpm.sh "${{ matrix.architecture }}" \
-            "$GITHUB_WORKSPACE/fedora-package-set"
-      - name: Validate complete Fedora package set
+          cp -v "$app_rpm" \
+            "$GITHUB_WORKSPACE/fedora-package-set/rayslash-${version}-${{ matrix.architecture }}.rpm"
+      - name: Validate the self-contained Fedora package
         run: |
           cd fedora-package-set
-          sha256sum --check --strict rayslash-module-host-*.rpm.sha256
           rpm -Kv *.rpm
           rpmlint *.rpm
-          app_rpm=$(find . -maxdepth 1 -type f -name 'rayslash-*.fc44.*.rpm' ! -name 'rayslash-module-host-*' -print -quit)
-          host_rpm=$(find . -maxdepth 1 -type f -name 'rayslash-module-host-*.rpm' -print -quit)
+          app_rpm=$(find . -maxdepth 1 -type f -name 'rayslash-*.rpm' -print -quit)
           test -n "$app_rpm"
-          test -n "$host_rpm"
-          if rpm -qpl "$app_rpm" | grep -E 'module\.(wasm|toml)|rayslash-module-host'; then
-            echo "the app RPM unexpectedly bundles module or host files" >&2
+          rpm -qpl "$app_rpm" | grep -Fx /usr/libexec/rayslash/rayslash-module-host
+          rpm -qp --provides "$app_rpm" | grep -F 'rayslash-module-host ='
+          if rpm -qpl "$app_rpm" | grep -E 'module\.(wasm|toml)$'; then
+            echo "the app RPM unexpectedly bundles optional module files" >&2
             exit 1
           fi
           mkdir dnf-repo
-          cp "$app_rpm" "$host_rpm" dnf-repo/
+          cp "$app_rpm" dnf-repo/
           createrepo_c dnf-repo >/dev/null
+          set +e
           dnf --disablerepo='*' \
             --repofrompath=rayslash-local,"file://$PWD/dnf-repo" \
             --setopt=rayslash-local.gpgcheck=0 --refresh \
             install rayslash --assumeno | tee dnf-transaction.txt
-          grep -F rayslash-module-host dnf-transaction.txt
-          grep -F rayslash dnf-transaction.txt
-          test "$(find . -maxdepth 1 -type f -name '*.rpm' | wc -l)" -eq 2
+          dnf_status=${PIPESTATUS[0]}
+          set -e
+          test "$dnf_status" -eq 1
+          grep -F 'Installing:' dnf-transaction.txt
+          grep -E '^[[:space:]]+rayslash[[:space:]]' dnf-transaction.txt
+          if grep -F rayslash-module-host dnf-transaction.txt; then
+            echo "DNF unexpectedly selected a separate module-host package" >&2
+            exit 1
+          fi
+          test "$(find . -maxdepth 1 -type f -name '*.rpm' | wc -l)" -eq 1

@@ -12,7 +12,7 @@ Verify a downloaded file from the directory containing `SHA256SUMS`:
 sha256sum --check --ignore-missing SHA256SUMS
 ```
 
-- Fedora: download the architecture-matched `rayslash` and `rayslash-module-host` RPMs, then install both in one `dnf install ./...` transaction.
+- Fedora: current package builds use one architecture-matched `rayslash-<version>-<architecture>.rpm` containing the module host. The already-published original v0.2.0 release predates this change and still needs its matching host RPM.
 - Debian/Ubuntu: install the matching `.deb` with `sudo apt install ./rayslash_*.deb`. The module host is included.
 - AppImage: mark it executable and bind the full AppImage path plus `toggle` to the desktop shortcut. The module host is included.
 - Flatpak: install the matching bundle with `flatpak install --user ./rayslash-*.flatpak`, then use `flatpak run dev.rayan6ms.rayslash toggle` for the shortcut. The module host is included.

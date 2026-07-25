@@ -18,6 +18,7 @@ The current UI supports dark, dim, and light themes; keyboard and mouse selectio
 
 ## Finished
 
+- Unified release packaging so RPM, DEB, AppImage, and Flatpak each ship the checksum-pinned module host in the same download. Fedora releases expose clean `rayslash-<version>-<architecture>.rpm` asset names while retaining standard release/distribution metadata internally, and the RPM provides/obsoletes the former standalone host package for upgrade compatibility.
 - Completed the 2026-07-24 performance implementation across launcher and modules: immediate local results, query-trigger routing, a collapsing scheduler, event-driven UI delivery, persistent desktop and Wasmtime caches, cached Time geocoding, deferred/virtualized presentation work, bounded host/config/state lifecycles, faster action dispatch, release tuning, regression tests, and an environment-qualified before/after baseline in [PERFORMANCE.md](PERFORMANCE.md).
 - Created workspace structure.
 - Added `rayslash-core` crate.

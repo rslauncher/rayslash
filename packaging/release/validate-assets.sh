@@ -10,10 +10,8 @@ asset_dir="$1"
 version="$2"
 
 for asset in \
-    "rayslash-${version}-1.fc44.x86_64.rpm" \
-    "rayslash-${version}-1.fc44.aarch64.rpm" \
-    "rayslash-module-host-0.1.2-1.fc44.x86_64.rpm" \
-    "rayslash-module-host-0.1.2-1.fc44.aarch64.rpm" \
+    "rayslash-${version}-x86_64.rpm" \
+    "rayslash-${version}-aarch64.rpm" \
     "rayslash_${version}_amd64.deb" \
     "rayslash_${version}_arm64.deb" \
     "rayslash-${version}-x86_64.AppImage" \
@@ -28,8 +26,8 @@ do
 done
 
 actual_count="$(find "$asset_dir" -maxdepth 1 -type f ! -name SHA256SUMS | wc -l)"
-if [ "$actual_count" -ne 10 ]; then
-    echo "expected 10 release binaries, found $actual_count" >&2
+if [ "$actual_count" -ne 8 ]; then
+    echo "expected 8 release binaries, found $actual_count" >&2
     exit 1
 fi
 
@@ -38,6 +36,6 @@ fi
     sha256sum \
         rayslash-* rayslash_* \
         > SHA256SUMS
-    test "$(wc -l < SHA256SUMS)" -eq 10
+    test "$(wc -l < SHA256SUMS)" -eq 8
     sha256sum --check --strict SHA256SUMS
 )

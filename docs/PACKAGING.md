@@ -62,9 +62,9 @@ desktop-file-validate packaging/linux/dev.rayan6ms.rayslash.desktop
 appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xml
 ```
 
-The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs formatting, clippy, tests, build, desktop-entry validation, AppStream validation, inventory consistency checks, and frozen/offline Fedora rebuilds on x86_64 and aarch64. Each Fedora job fetches the architecture-matched host RPM from the immutable host v0.1.2 release, verifies its pinned checksum, runs RPM digest and rpmlint validation, and proves with a DNF dry run that installing `rayslash` resolves the separate host dependency.
+The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflows/ci.yml) runs formatting, clippy, tests, build, desktop-entry validation, AppStream validation, inventory consistency checks, and frozen/offline Fedora rebuilds on x86_64 and aarch64. Each Fedora source build fetches both immutable host v0.1.2 archives, verifies their pinned checksums, embeds the architecture-matched executable in the RPM, runs RPM digest and rpmlint validation, and proves the resulting single package is installable through DNF.
 
-[release.yml](../.github/workflows/release.yml) can run without publishing from a branch for pre-release verification. Semantic-version tags run the same native x86_64 and ARM64 RPM, DEB, AppImage, and Flatpak builds, verify that Cargo, RPM, and Arch versions match the tag, check the expected ten user-facing binaries, create a single `SHA256SUMS`, and publish the GitHub release. Source RPMs, debuginfo/debugsource packages, per-file checksum sidecars, and transient build products remain CI-internal instead of cluttering the public release.
+[release.yml](../.github/workflows/release.yml) can run without publishing from a branch for pre-release verification. Semantic-version tags run the same native x86_64 and ARM64 RPM, DEB, AppImage, and Flatpak builds, verify that Cargo, RPM, and Arch versions match the tag, check the expected eight user-facing binaries, create a single `SHA256SUMS`, and publish the GitHub release. Source RPMs, debuginfo/debugsource packages, per-file checksum sidecars, and transient build products remain CI-internal instead of cluttering the public release.
 
 ## Standards To Follow
 
@@ -76,7 +76,7 @@ The GitHub Actions workflow in [../.github/workflows/ci.yml](../.github/workflow
 
 ## Public Distribution Strategy
 
-GitHub releases provide Fedora 44 RPM, DEB, AppImage, and Flatpak downloads for x86_64 and ARM64. RPM keeps the separately maintained host as a package dependency and publishes the matching host RPM beside the app RPM. DEB, AppImage, and Flatpak embed the digest-pinned host so each is a single app download. No format bundles optional modules.
+GitHub releases provide Fedora 44 RPM, DEB, AppImage, and Flatpak downloads for x86_64 and ARM64. Every format embeds the digest-pinned host so each is a single app download. No format bundles optional modules.
 
 Arch/AUR packaging remains available as a source recipe. The Flatpak manifest lives at:
 
@@ -94,7 +94,7 @@ Fedora RPM packaging lives at:
 packaging/fedora/rayslash.spec
 ```
 
-The spec builds the Rust workspace and installs the UI crate binary as `rayslash`. Fedora/mock builds have no network access, so the SRPM contains a deterministic vendor archive generated from the committed `Cargo.lock`; the generated dependency tree is not committed to Git.
+The spec builds the Rust workspace and installs the UI crate binary as `rayslash`. It also installs the checksum-pinned, architecture-matched host release into `/usr/libexec/rayslash`. Fedora/mock builds have no network access, so the SRPM contains a deterministic vendor archive generated from the committed `Cargo.lock` plus both verified host archives; the generated dependency tree and host binaries are not committed to Git.
 
 Known build requirements discovered during local development:
 
@@ -112,7 +112,7 @@ sources_dir="$(mktemp -d)"
 packaging/fedora/prepare-sources.sh "$sources_dir" HEAD
 ```
 
-The helper runs `cargo vendor --locked --versioned-dirs`, creates `rayslash-0.2.0.tar.gz` from the selected commit, and creates a deterministic `rayslash-0.2.0-vendor.tar.xz`. It prints both SHA-256 hashes. Network access is allowed only during this source-preparation step so Cargo can populate missing registry packages. `Cargo.lock` remains authoritative and source preparation fails if its dependency graph cannot be vendored.
+The helper runs `cargo vendor --locked --versioned-dirs`, creates `rayslash-0.2.0.tar.gz` from the selected commit, creates a deterministic `rayslash-0.2.0-vendor.tar.xz`, and downloads both host architectures from the immutable v0.1.2 release. It verifies hard-coded SHA-256 digests and prints all four source hashes. Network access is allowed only during this source-preparation step. `Cargo.lock` remains authoritative and source preparation fails if dependencies cannot be vendored or either host archive differs from its pinned digest.
 
 Build the SRPM from a literal copy of the checked-in spec in a fresh top directory:
 
@@ -135,10 +135,10 @@ resultdir="$(mktemp -d)"
 mock \
   -r fedora-44-x86_64 \
   --resultdir="$resultdir" \
-  --rebuild "$topdir/SRPMS/rayslash-0.2.0-1.fc44.src.rpm"
+  --rebuild "$topdir/SRPMS/rayslash-0.2.0-2.fc44.src.rpm"
 ```
 
-The spec installs `packaging/fedora/cargo-config.toml`, which replaces crates.io with the unpacked `vendor` directory and enables Cargo offline mode. Both `%build` and `%check` use `--frozen`, so a missing/stale vendor entry or lockfile change fails instead of accessing the registry. They cap Cargo at two jobs because clean Slint builds can otherwise run enough concurrent compiler processes to exhaust a 16 GiB workstation. `%check` uses the release profile so it reuses the packaged build's optimized dependency graph instead of compiling the full Slint stack a second time in the debug profile.
+The spec installs `packaging/fedora/cargo-config.toml`, which replaces crates.io with the unpacked `vendor` directory and enables Cargo offline mode. Both `%build` and `%check` use `--frozen`, so a missing/stale vendor entry or lockfile change fails instead of accessing the registry. They cap Cargo at two jobs because clean Slint builds can otherwise exhaust a 16 GiB workstation. After `%install` and RPM's debug-extraction pass, `%check` removes the packaged thin-LTO intermediates and compiles stripped release tests with LTO/debug info disabled and 16 codegen units. The buildroot copy remains the optimized Fedora thin-LTO build, while the disposable test graph stays within runner storage quotas.
 
 Mock 6.7 on Fedora 44 may log repeated `unknown tag: "pkgid"` messages while its `package_state` plugin runs an RPM query containing `%{pkgid}`. This occurs before project build commands and comes from `/usr/lib/python3.14/site-packages/mockbuild/plugins/package_state.py`; RPM 6.0.1 no longer recognizes that query tag. It is harmless mock/plugin compatibility noise, not a rayslash spec or source error.
 
@@ -147,26 +147,24 @@ Expected install outputs:
 - Binary: `/usr/bin/rayslash`
 - Desktop entry: `/usr/share/applications/dev.rayan6ms.rayslash.desktop`
 - Icon: `/usr/share/icons/hicolor/scalable/apps/dev.rayan6ms.rayslash.svg`
-- Required module host: `/usr/libexec/rayslash/rayslash-module-host`, supplied by the `rayslash-module-host` dependency.
+- Required module host: `/usr/libexec/rayslash/rayslash-module-host`, owned by the rayslash RPM.
 
 The desktop entry should keep `Exec=rayslash toggle` unless the runtime model changes.
 
 The package installs AppStream/metainfo metadata.
 
-### Official Fedora package set
+### Official Fedora package
 
-The [Rayslash v0.2.0 release](https://github.com/rslauncher/rayslash/releases/tag/v0.2.0) publishes the app RPMs together with the verified, separately packaged host RPM for x86_64 and aarch64. The same host RPMs remain independently available from the [host v0.1.2 release](https://github.com/rslauncher/rayslash-module-host/releases/tag/v0.1.2). No optional module is included in either RPM.
+Download the architecture-matched rayslash RPM and `SHA256SUMS`. The public filename intentionally contains only the application version and architecture; RPM's internal metadata still carries its package release and distribution tag for correct package-manager upgrade ordering and Fedora compatibility reporting.
 
-Download the app RPM, the matching host RPM, and `SHA256SUMS`. Verify them in the download directory and install both official files in one DNF transaction:
+Verify and install the single official file:
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS
-sudo dnf install \
-  ./rayslash-module-host-0.1.2-1.fc44."$(uname -m)".rpm \
-  ./rayslash-0.2.0-1.fc44."$(uname -m)".rpm
+sudo dnf install ./rayslash-*-"$(uname -m)".rpm
 ```
 
-This installs the host as a dependency-owned infrastructure package. It does not install Calculator, Units, Currency, Time, Web Search, Timers, Aliases, or any community module.
+This installs the required host from inside the same RPM. It does not install Calculator, Units, Currency, Time, Web Search, Timers, Aliases, or any community module.
 
 ## Arch/AUR
 

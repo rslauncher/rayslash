@@ -60,9 +60,9 @@ Do not add native dynamic libraries, Python processes, shell extensions, or arbi
 
 `rayslash-module-host` is separately maintained and released, but it is required installation infrastructure:
 
-- A supported rayslash package must require the matching host package or include the host executable, so a normal app installation can install modules immediately.
+- A supported rayslash package includes the matching host executable, so a normal app installation can install modules immediately.
 - The host is not a module and does not provide Calculator, Units, Currency, Time, Web Search, Timers, Aliases, or any community feature by itself.
-- Native distro packages keep the host as a separate artifact and pull it in through a mandatory dependency.
+- The RPM, DEB, AppImage, and Flatpak each embed the digest-pinned host executable. The Arch source recipe may retain a package dependency.
 - Local/development installs may use a verified official GitHub Release asset.
 - Flatpak bundles the digest-pinned host release in the app build; it must not execute a newly downloaded native binary. This is not permission to bundle official modules.
 - The host uses Wasmtime's component model and the rayslash WIT world, but does not link WASI command/filesystem/network interfaces.
@@ -70,7 +70,7 @@ Do not add native dynamic libraries, Python processes, shell extensions, or arbi
 - The launcher owns permissions, network requests, action execution, ranking, timeouts, and result caps.
 - The host is disposable. A crash or timeout terminates/restarts it without terminating rayslash.
 
-Keeping the host in a separate repository and native package preserves its security and release boundary. Delivering it automatically with rayslash ensures that module browsing and installation are complete app features rather than optional setup.
+Keeping the host in a separate repository and release preserves its security boundary. Embedding that verified release in rayslash packages ensures module browsing and installation are complete app features rather than optional setup.
 
 ### 2.5 Trust model
 
@@ -456,11 +456,11 @@ Exit criteria: fresh, upgraded-online, upgraded-offline, partially migrated, can
 ### Phase 8 — Packaging and release integration
 
 - Update Cargo metadata and all docs to permanent repository URLs.
-- Make the module host a separate RPM/Arch artifact required by the app package.
+- Embed the pinned module host release in the RPM and keep the Arch dependency explicit.
 - Bundle the pinned host artifact in Flatpak and test its execution boundary.
 - Ensure no official module packages enter the app RPM, Arch package, Flatpak base app, or source install.
 - Add reproducible release/build provenance where supported without making it the only trust mechanism.
-- Publish separate x86_64/aarch64 Fedora host RPMs from checksum-pinned immutable host release inputs, and include the verified host RPM in the app's official architecture-matched Fedora package sets. CI must prove DNF resolves the dependency without bundling the host in the app RPM.
+- Build self-contained x86_64/aarch64 Fedora app RPMs from checksum-pinned immutable host release inputs. CI must prove each single RPM contains the host but no optional module package.
 - Measure fresh installed size and release binary size before/after; document both the core and host cost.
 - Add upgrade/rollback release notes and emergency registry-key rotation steps.
 
@@ -536,8 +536,8 @@ Owner setup is complete. The production registry key is `registry-2026-01` with 
 Implemented artifacts:
 
 - SDK API v1, manifest schema, validator/packager, author/API/release documentation, and immutable release tag.
-- No-WASI host with bounded capabilities, persistent launcher IPC, x86_64/aarch64 releases, and separate Fedora/Arch recipes.
-- Official reproducible Fedora 44 x86_64/aarch64 host RPMs and checksum sidecars are published on the host v0.1.2 release. App CI verifies those immutable assets, combines them with architecture-matched app RPMs, and exercises dependency resolution with a DNF dry run before app-release publication.
+- No-WASI host with bounded capabilities, persistent launcher IPC, x86_64/aarch64 release archives, and an Arch compatibility recipe.
+- Official host v0.1.2 archives are published for x86_64/aarch64. App CI verifies their immutable pinned digests, embeds the matching executable in each app RPM, and exercises the self-contained RPM with a DNF dry run before publication.
 - Signed registry generator, protected publish workflow, public key, and seven live-fetched official submission records.
 - Verified registry client/cache, digest-pinned safe atomic package installation, install/update/remove lifecycle, separate keep/delete-data removal, and permission display.
 - Calculator, Units, Currency, Time, Web Search, Timers, and Aliases in separate repositories and successful GitHub Releases.
@@ -557,7 +557,7 @@ Do not delete module release tags or replace their assets. Do not place the regi
 No additional owner input or repository bootstrap is required. The following environment matrix remains release work rather than a claim that the module migration is already complete. Automate each check where a suitable runner exists; do not ask the owner to repeat source/signing setup. Before publishing the first end-user app release:
 
 1. Build the Fedora RPM and Arch package on clean x86_64 builders; repeat on aarch64 hardware or builders.
-2. Install the app package and confirm its transaction automatically installs `rayslash-module-host` (or, for Flatpak, that `/app/libexec/rayslash/rayslash-module-host` is included). Confirm Settings lists Installed, Official, and Community modules while no module package exists under the XDG data directory.
+2. Install the app package and confirm it contains the module host (`/usr/libexec/rayslash/rayslash-module-host` for RPM, or `/app/libexec/rayslash/rayslash-module-host` for Flatpak). Confirm Settings lists Installed, Official, and Community modules while no module package exists under the XDG data directory.
 3. Install and exercise all seven official modules from Settings without any additional runtime setup. Confirm enable/disable, update, Remove, and Remove + data.
 4. Repeat the launcher/window/shortcut checks on GNOME Wayland and KDE Plasma Wayland. Test X11 sessions where the distribution still provides them.
 5. Disconnect networking after a successful catalog refresh. Confirm installed modules execute and the verified cached catalog remains visible.
