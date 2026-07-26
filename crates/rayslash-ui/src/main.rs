@@ -32,15 +32,17 @@ use module_settings::{
 };
 use opener_visual::accent_color_for_icon;
 use rayslash_core::{
-    apps, config, modules, projects, providers::ProviderExecutionHint, web_search,
+    apps, config, modules, projects, providers::ProviderExecutionHint, ranking, web_search,
 };
-use result_items::{IconImageCache, to_result_items, to_result_items_without_images};
+use result_items::{
+    IconImageCache, to_result_items, to_result_items_without_images, update_result_items_model,
+};
 use runtime_state::{
     ResultRefreshContext, ResultSelection, SearchResultSet, apply_desktop_apps,
     effective_search_query, load_runtime_app_state, load_runtime_ranking_state,
     merge_module_results_with_config, module_settings, profile_enabled, profile_stage,
     query_execution_hint_with_config, refresh_result_view, refresh_settings_dependent_ui,
-    search_result_set, should_hide_transient_no_results, sync_app_install_state,
+    search_result_set, should_preserve_pending_module_results, sync_app_install_state,
 };
 use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
@@ -60,6 +62,7 @@ struct ModuleSearchJob {
     generation: u64,
     query: String,
     config: config::Config,
+    ranking_state: ranking::RankingState,
     module_config: modules::ModulesConfig,
     local_results: SearchResultSet,
     debounce: Duration,
@@ -326,7 +329,11 @@ fn run_gui(
             };
             let results = result_set.results;
             let count = results.len();
-            results_model.set_vec(to_result_items(&results, &mut icon_cache.borrow_mut()));
+            let previous_count = current_results.borrow().len();
+            update_result_items_model(
+                &results_model,
+                to_result_items(&results, &mut icon_cache.borrow_mut()),
+            );
             *current_results.borrow_mut() = results;
             ui.set_result_count(count as i32);
             ui.set_result_tip_text(result_set.result_tip.into());
@@ -334,7 +341,9 @@ fn run_gui(
                 &query,
                 count as i32,
             ));
-            ui.invoke_reset_result_scroll();
+            if previous_count != count {
+                ui.invoke_reset_result_scroll();
+            }
             if ui.get_status_text().as_str() == "Looking up…" {
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
             }
@@ -383,6 +392,7 @@ fn run_gui(
                 }
                 let result_set = merge_module_results_with_config(
                     &job.config,
+                    &job.ranking_state,
                     &job.module_config,
                     job.local_results,
                     &job.query,
@@ -678,6 +688,7 @@ fn run_gui(
         }
     });
 
+    let last_effective_query = Rc::new(RefCell::new(String::new()));
     ui.on_query_changed({
         let weak = ui.as_weak();
         let projects = projects.clone();
@@ -691,12 +702,21 @@ fn run_gui(
         let module_state = module_state.clone();
         let remote_search_generation = remote_search_generation.clone();
         let module_search_tx = module_search_tx.clone();
+        let last_effective_query = last_effective_query.clone();
         move |query| {
             let stage_started = Instant::now();
 
             if let Some(ui) = weak.upgrade() {
                 let effective_query =
                     effective_search_query(query.as_str(), ui.get_active_search_keyword().as_str());
+                let previous_results = current_results.borrow().clone();
+                let previous_result_tip = ui.get_result_tip_text().to_string();
+                let preserve_previous = should_preserve_pending_module_results(
+                    &last_effective_query.borrow(),
+                    &effective_query,
+                    &previous_results,
+                );
+                *last_effective_query.borrow_mut() = effective_query.clone();
                 let execution_hint = query_execution_hint_with_config(
                     &config_state.borrow(),
                     &module_state.borrow(),
@@ -719,6 +739,24 @@ fn run_gui(
                     effective_query.as_str(),
                     ResultSelection::QueryDefault,
                 );
+                let local_results = SearchResultSet {
+                    results: current_results.borrow().clone(),
+                    result_tip: ui.get_result_tip_text().to_string(),
+                };
+                if preserve_previous {
+                    let previous_count = previous_results.len();
+                    update_result_items_model(
+                        &results_model,
+                        to_result_items(&previous_results, &mut icon_cache.borrow_mut()),
+                    );
+                    *current_results.borrow_mut() = previous_results;
+                    ui.set_result_count(previous_count as i32);
+                    ui.set_result_tip_text(previous_result_tip.into());
+                    ui.set_selected_index(runtime_state::selected_index_for_query(
+                        &effective_query,
+                        previous_count as i32,
+                    ));
+                }
                 let debounce = match execution_hint {
                     ProviderExecutionHint::DebouncedNetwork { debounce_ms } => {
                         ui.set_status_text("Looking up…".into());
@@ -734,23 +772,12 @@ fn run_gui(
                         generation,
                         query: effective_query,
                         config: config_state.borrow().clone(),
+                        ranking_state: ranking_state.borrow().clone(),
                         module_config: module_state.borrow().clone(),
-                        local_results: SearchResultSet {
-                            results: current_results.borrow().clone(),
-                            result_tip: ui.get_result_tip_text().to_string(),
-                        },
+                        local_results,
                         debounce,
                         started: stage_started,
                     });
-                    if should_hide_transient_no_results(
-                        ui.get_active_search_keyword().as_str(),
-                        &current_results.borrow(),
-                    ) {
-                        results_model.set_vec(Vec::new());
-                        ui.set_result_count(0);
-                        ui.set_result_tip_text("".into());
-                        ui.set_selected_index(-1);
-                    }
                 }
                 profile_stage(
                     profile,

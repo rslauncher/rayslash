@@ -7,11 +7,21 @@ use std::{
 };
 
 use rayslash_core::{modules, search};
-use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
+use slint::{Image, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
 use crate::ResultItem;
 
 pub(crate) type IconImageCache = HashMap<PathBuf, Option<Image>>;
+
+pub(crate) fn update_result_items_model(model: &VecModel<ResultItem>, items: Vec<ResultItem>) {
+    if model.row_count() == items.len() {
+        for (index, item) in items.into_iter().enumerate() {
+            model.set_row_data(index, item);
+        }
+    } else {
+        model.set_vec(items);
+    }
+}
 
 pub(crate) fn to_result_items(
     results: &[search::SearchResult],

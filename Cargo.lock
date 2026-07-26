@@ -4199,6 +4199,7 @@ dependencies = [
  "arboard",
  "dirs",
  "image",
+ "nucleo-matcher",
  "rayslash-core",
  "rfd",
  "semver",

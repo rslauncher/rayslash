@@ -6,6 +6,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+use nucleo_matcher::{
+    Config as MatcherConfig, Matcher, Utf32Str,
+    pattern::{AtomKind, CaseMatching, Normalization, Pattern},
+};
 use rayslash_core::{
     app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking, search,
     web_search,
@@ -16,7 +20,7 @@ use crate::{
     AppChoiceItem, AppWindow, ResultItem,
     opener_visual::{app_icon_count, set_alternate_opener_visual, to_app_choice_items},
     persistence,
-    result_items::{IconImageCache, to_result_items},
+    result_items::{IconImageCache, to_result_items, update_result_items_model},
     settings::set_settings_properties,
 };
 
@@ -64,7 +68,7 @@ pub(crate) fn search_result_set(
     query: &str,
 ) -> SearchResultSet {
     let local = local_search_result_set(config, ranking_state, app_state, projects, apps, query);
-    merge_module_results(config, local, query)
+    merge_module_results(config, ranking_state, local, query)
 }
 
 pub(crate) fn local_search_result_set(
@@ -98,16 +102,18 @@ pub(crate) fn local_search_result_set(
 
 pub(crate) fn merge_module_results(
     config: &config::Config,
+    ranking_state: &ranking::RankingState,
     local: SearchResultSet,
     query: &str,
 ) -> SearchResultSet {
     let module_config = modules::load_modules_config(&config.providers)
         .unwrap_or_else(|_| modules::ModulesConfig::empty());
-    merge_module_results_with_config(config, &module_config, local, query)
+    merge_module_results_with_config(config, ranking_state, &module_config, local, query)
 }
 
 pub(crate) fn merge_module_results_with_config(
     config: &config::Config,
+    ranking_state: &ranking::RankingState,
     module_config: &modules::ModulesConfig,
     mut local: SearchResultSet,
     query: &str,
@@ -127,7 +133,12 @@ pub(crate) fn merge_module_results_with_config(
     if module_results.exclusive {
         results = module_results.results;
     } else if !module_results.results.is_empty() {
-        results = prepend_module_results(module_results.results, results);
+        results = merge_regular_module_results(
+            module_results.results,
+            results,
+            query,
+            config.ranking.learn_from_usage.then_some(ranking_state),
+        );
     } else if !query.trim().is_empty()
         && let Some(error) = module_results.errors.first()
     {
@@ -163,24 +174,75 @@ pub(crate) fn merge_module_results_with_config(
     }
 }
 
-fn prepend_module_results(
+fn merge_regular_module_results(
     module_results: Vec<search::SearchResult>,
     mut local_results: Vec<search::SearchResult>,
+    query: &str,
+    ranking_state: Option<&ranking::RankingState>,
 ) -> Vec<search::SearchResult> {
     local_results.retain(|result| !result.is_no_results());
-    let mut leading_modules = Vec::new();
-    for module_result in module_results {
-        if let Some(index) = local_results
-            .iter()
-            .rposition(|local| local.title.eq_ignore_ascii_case(&module_result.title))
-        {
-            local_results.insert(index + 1, module_result);
-        } else {
-            leading_modules.push(module_result);
-        }
+    if module_results
+        .iter()
+        .any(|result| result.provider_id().as_str() == modules::TIMERS_MODULE_ID)
+    {
+        return rank_timer_results(module_results, local_results, query, ranking_state);
     }
-    leading_modules.extend(local_results);
-    leading_modules
+
+    let mut module_results = module_results;
+    module_results.extend(local_results);
+    module_results
+}
+
+fn rank_timer_results(
+    module_results: Vec<search::SearchResult>,
+    local_results: Vec<search::SearchResult>,
+    query: &str,
+    ranking_state: Option<&ranking::RankingState>,
+) -> Vec<search::SearchResult> {
+    struct Ranked {
+        result: search::SearchResult,
+        base_score: u32,
+        boosted_score: u32,
+        module_action: bool,
+        original_index: usize,
+    }
+
+    let pattern = Pattern::new(
+        query,
+        CaseMatching::Ignore,
+        Normalization::Smart,
+        AtomKind::Fuzzy,
+    );
+    let mut matcher = Matcher::new(MatcherConfig::DEFAULT);
+    let mut buffer = Vec::new();
+    let mut ranked = module_results
+        .into_iter()
+        .chain(local_results)
+        .enumerate()
+        .map(|(original_index, result)| {
+            let haystack = Utf32Str::new(&result.title, &mut buffer);
+            let base_score = pattern.score(haystack, &mut matcher).unwrap_or_default();
+            let learned_boost = ranking_state
+                .and_then(|state| result.learning_id().map(|id| state.boost_for(&id, query)))
+                .unwrap_or_default();
+            Ranked {
+                module_action: result.provider_id().as_str() == modules::TIMERS_MODULE_ID,
+                result,
+                base_score,
+                boosted_score: base_score.saturating_add(learned_boost),
+                original_index,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    ranked.sort_by(|a, b| {
+        b.boosted_score
+            .cmp(&a.boosted_score)
+            .then_with(|| b.base_score.cmp(&a.base_score))
+            .then_with(|| b.module_action.cmp(&a.module_action))
+            .then_with(|| a.original_index.cmp(&b.original_index))
+    });
+    ranked.into_iter().map(|ranked| ranked.result).collect()
 }
 
 fn finalize_results(
@@ -394,7 +456,7 @@ pub(crate) fn refresh_result_view(
     );
 
     let model_started = Instant::now();
-    context.results_model.set_vec(result_items);
+    update_result_items_model(context.results_model, result_items);
     profile_stage(context.profile, "result refresh model set", model_started);
 
     *context.current_results.borrow_mut() = results;
@@ -426,12 +488,43 @@ pub(crate) fn effective_search_query(query: &str, active_search_keyword: &str) -
     }
 }
 
-pub(crate) fn should_hide_transient_no_results(
-    active_search_keyword: &str,
+pub(crate) fn should_preserve_pending_module_results(
+    previous_query: &str,
+    query: &str,
     results: &[search::SearchResult],
 ) -> bool {
-    !active_search_keyword.trim().is_empty()
-        && matches!(results, [result] if result.is_no_results())
+    !query.trim().is_empty()
+        && is_incremental_query_change(previous_query, query)
+        && results
+            .iter()
+            .any(|result| matches!(&result.kind, search::SearchResultKind::Module { .. }))
+}
+
+fn is_incremental_query_change(previous: &str, current: &str) -> bool {
+    if previous == current {
+        return true;
+    }
+    let previous = previous.chars().collect::<Vec<_>>();
+    let current = current.chars().collect::<Vec<_>>();
+    if previous.len().abs_diff(current.len()) > 1 {
+        return false;
+    }
+
+    let prefix = previous
+        .iter()
+        .zip(&current)
+        .take_while(|(left, right)| left == right)
+        .count();
+    if previous.len() == current.len() {
+        return previous[prefix.saturating_add(1)..] == current[prefix.saturating_add(1)..];
+    }
+
+    let (longer, shorter) = if previous.len() > current.len() {
+        (&previous, &current)
+    } else {
+        (&current, &previous)
+    };
+    longer[prefix.saturating_add(1)..] == shorter[prefix..]
 }
 
 pub(crate) fn sync_app_install_state(
@@ -529,28 +622,45 @@ mod tests {
     }
 
     #[test]
-    fn active_web_search_hides_only_the_pending_no_results_placeholder() {
-        let no_results = search::SearchResult {
-            title: "No results to show".into(),
+    fn pending_module_results_are_preserved_during_non_empty_queries() {
+        let module = search::SearchResult {
+            title: "Search YouTube for pop song".into(),
             flair: String::new(),
             subtitle: String::new(),
             icon: search::SearchResultIcon::Placeholder,
-            kind: search::SearchResultKind::NoResults {
-                query: "youtube rust".into(),
+            kind: search::SearchResultKind::Module {
+                module_id: modules::WEB_SEARCH_MODULE_ID.into(),
+                result_id: "web-search:youtube:pop-song".into(),
+                action: search::ModuleAction::None,
+                score: None,
             },
         };
 
-        assert!(should_hide_transient_no_results(
-            "youtube",
-            std::slice::from_ref(&no_results)
+        assert!(should_preserve_pending_module_results(
+            "youtube pop song",
+            "youtube pop songs",
+            std::slice::from_ref(&module)
         ));
-        assert!(!should_hide_transient_no_results(
+        assert!(!should_preserve_pending_module_results(
+            "youtube pop song",
             "",
-            std::slice::from_ref(&no_results)
+            std::slice::from_ref(&module)
         ));
-        assert!(!should_hide_transient_no_results(
-            "youtube",
-            &[no_results.clone(), no_results]
+        assert!(!should_preserve_pending_module_results(
+            "youtube pop song",
+            "time in brazil",
+            std::slice::from_ref(&module)
+        ));
+        assert!(!should_preserve_pending_module_results(
+            "discord",
+            "discord",
+            &[search::SearchResult {
+                title: "Discord".into(),
+                flair: String::new(),
+                subtitle: String::new(),
+                icon: search::SearchResultIcon::Placeholder,
+                kind: search::SearchResultKind::Placeholder,
+            }]
         ));
     }
 
@@ -576,13 +686,13 @@ mod tests {
             kind: search::SearchResultKind::Placeholder,
         };
 
-        let results = prepend_module_results(vec![module], vec![local]);
+        let results = merge_regular_module_results(vec![module], vec![local], "reboot", None);
         assert_eq!(results[0].title, "Reboot");
         assert_eq!(results[1].title, "Discord");
     }
 
     #[test]
-    fn same_named_local_app_can_precede_a_module_action() {
+    fn learning_balances_same_named_app_against_module_action() {
         let action = search::SearchResult {
             title: "Lock".into(),
             flair: String::new(),
@@ -599,14 +709,32 @@ mod tests {
             title: "Lock".into(),
             flair: String::new(),
             subtitle: "Application".into(),
-            icon: search::SearchResultIcon::Placeholder,
-            kind: search::SearchResultKind::Placeholder,
+            icon: search::SearchResultIcon::App { path: None },
+            kind: search::SearchResultKind::App {
+                id: "lock.desktop".into(),
+                command: rayslash_core::actions::CommandSpec {
+                    program: "lock-app".into(),
+                    args: Vec::new(),
+                },
+                desktop_file: PathBuf::from("/apps/lock.desktop"),
+                dbus_activatable: false,
+                startup_wm_class: None,
+            },
         };
 
-        let results = prepend_module_results(vec![action], vec![app]);
+        let results =
+            merge_regular_module_results(vec![action.clone()], vec![app.clone()], "lock", None);
         assert!(matches!(
             results[0].kind,
-            search::SearchResultKind::Placeholder
+            search::SearchResultKind::Module { .. }
+        ));
+
+        let mut ranking = ranking::RankingState::default();
+        ranking.record_launch("app:lock.desktop", "lock");
+        let results = merge_regular_module_results(vec![action], vec![app], "lock", Some(&ranking));
+        assert!(matches!(
+            results[0].kind,
+            search::SearchResultKind::App { .. }
         ));
         assert!(matches!(
             results[1].kind,
