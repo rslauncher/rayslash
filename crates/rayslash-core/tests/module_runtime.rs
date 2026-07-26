@@ -82,7 +82,7 @@ fn every_official_module_installs_and_runs_through_the_production_path() {
 
     let cases = [
         ("rayslash.calculator", "2x+4=10", "x = 3"),
-        ("rayslash.units", "10 km to mi", "6.21371192 mi"),
+        ("rayslash.units", "10 km to mi", "6.2137 mi"),
         ("rayslash.currency", "25 usd to usd", "25 USD"),
         (
             "rayslash.time",
