@@ -255,5 +255,5 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --verify-tag \
               --title "rayslash $GITHUB_REF_NAME" \
-              --notes-file "docs/releases/$GITHUB_REF_NAME.md"
+              --generate-notes
           fi

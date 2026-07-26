@@ -176,11 +176,17 @@ component ModuleCard inherits Rectangle {
         padding-bottom: root.show-confirmation ? 44px : 8px;
         spacing: 11px;
 
-        ModuleIcon {
-            vertical-stretch: 0;
-            kind: root.item.icon_kind;
-            text: root.item.icon_text;
-            light: root.light;
+        Rectangle {
+            width: 48px;
+            horizontal-stretch: 0;
+            background: transparent;
+
+            ModuleIcon {
+                y: (parent.height - self.height) / 2;
+                kind: root.item.icon_kind;
+                text: root.item.icon_text;
+                light: root.light;
+            }
         }
 
         VerticalLayout {

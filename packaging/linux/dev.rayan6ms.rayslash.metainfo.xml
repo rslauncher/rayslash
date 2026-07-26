@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.2" date="2026-07-26">
+      <description>
+        <p>Polish result stability and ranking, expand time, timer, unit, and currency queries, and refine module settings.</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-07-25">
       <description>
         <p>Ship the optimized launcher and module host, make Fedora RPM downloads self-contained, and unify Calculator, Currency, Time, and Timers icons.</p>

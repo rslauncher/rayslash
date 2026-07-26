@@ -1,5 +1,5 @@
 Name:           rayslash
-Version:        0.2.1
+Version:        0.2.2
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.3
@@ -70,8 +70,7 @@ appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xm
 test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-host
 
 %files
-%license LICENSE* THIRD_PARTY_LICENSES.md
-%doc docs/INSTALL.md docs/PACKAGING.md docs/SHORTCUTS.md
+%license LICENSE*
 %{_bindir}/rayslash
 %{_libexecdir}/rayslash/rayslash-module-host
 %{_datadir}/applications/dev.rayan6ms.rayslash.desktop
@@ -79,6 +78,9 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-host
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Sun Jul 26 2026 RaySlash contributors - 0.2.2-1
+- Polish result stability, ranking, module queries, country time zones, and settings layout.
+
 * Sat Jul 25 2026 RaySlash contributors - 0.2.1-1
 - Ship the optimized launcher and host with consistent module icons.
 

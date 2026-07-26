@@ -46,7 +46,6 @@ modules:
       - install -Dm0644 packaging/linux/dev.rayan6ms.rayslash.desktop /app/share/applications/dev.rayan6ms.rayslash.desktop
       - install -Dm0644 icons/rayslash-icon.svg /app/share/icons/hicolor/scalable/apps/dev.rayan6ms.rayslash.svg
       - install -Dm0644 packaging/linux/dev.rayan6ms.rayslash.metainfo.xml /app/share/metainfo/dev.rayan6ms.rayslash.metainfo.xml
-      - install -Dm0644 THIRD_PARTY_LICENSES.md /app/share/licenses/rayslash/THIRD_PARTY_LICENSES.md
     sources:
       - type: dir
         path: ../..

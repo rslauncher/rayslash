@@ -34,7 +34,7 @@
 
 ## Installation
 
-Download the architecture-matched RPM, DEB, AppImage, or Flatpak bundle from the [latest release](https://github.com/rslauncher/rayslash/releases/latest). Current package builds include the required module host in the same download, and every release includes one `SHA256SUMS` file. The original v0.2.0 RPM predates the single-file RPM change; its historical two-file instructions remain in the release notes. Detailed commands are in [docs/INSTALL.md](docs/INSTALL.md).
+Download the architecture-matched RPM, DEB, AppImage, or Flatpak bundle from the [latest release](https://github.com/rslauncher/rayslash/releases/latest). Current package builds include the required module host in the same download, and every release includes one `SHA256SUMS` file. The original v0.2.0 RPM predates the single-file RPM change; its historical two-file instructions remain in that release's notes.
 
 To build and install from source instead, use:
 
