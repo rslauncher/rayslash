@@ -181,7 +181,7 @@ export component LegendTooltipBubble inherits Rectangle {
 
     private property <length> max-tooltip-width: 560px;
     private property <length> text-width: root.text == "" ? 0px : min(single-line-measure.preferred-width, root.max-tooltip-width - 18px);
-    private property <length> tooltip-height: root.text == "" ? 0px : min(max(30px, wrapped-measure.preferred-height + 12px), 66px);
+    private property <length> tooltip-height: root.text == "" ? 0px : min(wrapped-measure.preferred-height + 12px, 66px);
 
     width: root.text == "" ? 0px : root.text-width + 18px;
     height: root.tooltip-height;
@@ -285,7 +285,7 @@ export component TooltipText inherits Rectangle {
         x: 0px;
         y: root.height + 6px;
         width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, 560px);
-        height: root.tooltip-text == "" ? 0px : min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 66px);
+        height: root.tooltip-text == "" ? 0px : min(tooltip-wrapped-measure.preferred-height + 12px, 66px);
         close-policy: PopupClosePolicy.no-auto-close;
 
         LegendTooltipBubble {
@@ -376,7 +376,7 @@ export component SettingToggle inherits Rectangle {
         x: 0px;
         y: root.height + 6px;
         width: root.tooltips-enabled ? min(tooltip-measure.preferred-width + 18px, 560px) : 0px;
-        height: root.tooltips-enabled ? min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 66px) : 0px;
+        height: root.tooltips-enabled ? min(tooltip-wrapped-measure.preferred-height + 12px, 66px) : 0px;
         close-policy: PopupClosePolicy.no-auto-close;
 
         LegendTooltipBubble {

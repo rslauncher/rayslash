@@ -127,8 +127,7 @@ pub(crate) fn merge_module_results_with_config(
     if module_results.exclusive {
         results = module_results.results;
     } else if !module_results.results.is_empty() {
-        results.retain(|result| !result.is_no_results());
-        results.extend(module_results.results);
+        results = prepend_module_results(module_results.results, results);
     } else if !query.trim().is_empty()
         && let Some(error) = module_results.errors.first()
     {
@@ -162,6 +161,26 @@ pub(crate) fn merge_module_results_with_config(
             String::new()
         },
     }
+}
+
+fn prepend_module_results(
+    module_results: Vec<search::SearchResult>,
+    mut local_results: Vec<search::SearchResult>,
+) -> Vec<search::SearchResult> {
+    local_results.retain(|result| !result.is_no_results());
+    let mut leading_modules = Vec::new();
+    for module_result in module_results {
+        if let Some(index) = local_results
+            .iter()
+            .rposition(|local| local.title.eq_ignore_ascii_case(&module_result.title))
+        {
+            local_results.insert(index + 1, module_result);
+        } else {
+            leading_modules.push(module_result);
+        }
+    }
+    leading_modules.extend(local_results);
+    leading_modules
 }
 
 fn finalize_results(
@@ -407,6 +426,14 @@ pub(crate) fn effective_search_query(query: &str, active_search_keyword: &str) -
     }
 }
 
+pub(crate) fn should_hide_transient_no_results(
+    active_search_keyword: &str,
+    results: &[search::SearchResult],
+) -> bool {
+    !active_search_keyword.trim().is_empty()
+        && matches!(results, [result] if result.is_no_results())
+}
+
 pub(crate) fn sync_app_install_state(
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     apps: &[apps::DesktopApp],
@@ -499,6 +526,92 @@ mod tests {
         assert_eq!(effective_search_query("rust slint", ""), "rust slint");
         assert_eq!(effective_search_query("", "yt"), "yt");
         assert_eq!(effective_search_query("rust slint", "yt"), "yt rust slint");
+    }
+
+    #[test]
+    fn active_web_search_hides_only_the_pending_no_results_placeholder() {
+        let no_results = search::SearchResult {
+            title: "No results to show".into(),
+            flair: String::new(),
+            subtitle: String::new(),
+            icon: search::SearchResultIcon::Placeholder,
+            kind: search::SearchResultKind::NoResults {
+                query: "youtube rust".into(),
+            },
+        };
+
+        assert!(should_hide_transient_no_results(
+            "youtube",
+            std::slice::from_ref(&no_results)
+        ));
+        assert!(!should_hide_transient_no_results(
+            "",
+            std::slice::from_ref(&no_results)
+        ));
+        assert!(!should_hide_transient_no_results(
+            "youtube",
+            &[no_results.clone(), no_results]
+        ));
+    }
+
+    #[test]
+    fn routed_module_actions_precede_unrelated_local_matches() {
+        let module = search::SearchResult {
+            title: "Reboot".into(),
+            flair: String::new(),
+            subtitle: "Reboot now".into(),
+            icon: search::SearchResultIcon::Placeholder,
+            kind: search::SearchResultKind::Module {
+                module_id: modules::TIMERS_MODULE_ID.into(),
+                result_id: "timers:reboot".into(),
+                action: search::ModuleAction::None,
+                score: None,
+            },
+        };
+        let local = search::SearchResult {
+            title: "Discord".into(),
+            flair: String::new(),
+            subtitle: "Application".into(),
+            icon: search::SearchResultIcon::Placeholder,
+            kind: search::SearchResultKind::Placeholder,
+        };
+
+        let results = prepend_module_results(vec![module], vec![local]);
+        assert_eq!(results[0].title, "Reboot");
+        assert_eq!(results[1].title, "Discord");
+    }
+
+    #[test]
+    fn same_named_local_app_can_precede_a_module_action() {
+        let action = search::SearchResult {
+            title: "Lock".into(),
+            flair: String::new(),
+            subtitle: "Lock now".into(),
+            icon: search::SearchResultIcon::Placeholder,
+            kind: search::SearchResultKind::Module {
+                module_id: modules::TIMERS_MODULE_ID.into(),
+                result_id: "timers:lock".into(),
+                action: search::ModuleAction::None,
+                score: None,
+            },
+        };
+        let app = search::SearchResult {
+            title: "Lock".into(),
+            flair: String::new(),
+            subtitle: "Application".into(),
+            icon: search::SearchResultIcon::Placeholder,
+            kind: search::SearchResultKind::Placeholder,
+        };
+
+        let results = prepend_module_results(vec![action], vec![app]);
+        assert!(matches!(
+            results[0].kind,
+            search::SearchResultKind::Placeholder
+        ));
+        assert!(matches!(
+            results[1].kind,
+            search::SearchResultKind::Module { .. }
+        ));
     }
 
     #[test]

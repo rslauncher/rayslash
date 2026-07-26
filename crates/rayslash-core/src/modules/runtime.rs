@@ -24,6 +24,7 @@ use super::{
 
 const HOST_PROTOCOL: u32 = 1;
 const HOST_TIMEOUT: Duration = Duration::from_secs(5);
+const NETWORK_HOST_TIMEOUT: Duration = Duration::from_secs(10);
 const HOST_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const MAX_HOST_OUTPUT: u64 = 2 * 1024 * 1024;
 
@@ -390,9 +391,27 @@ fn calculation_hint(query: &str) -> bool {
 
 fn conversion_hint(query: &str) -> bool {
     let words = query.split_whitespace().collect::<Vec<_>>();
-    words.len() == 4
-        && words[0].replace(',', "").parse::<f64>().is_ok()
-        && matches!(words[2].to_ascii_lowercase().as_str(), "to" | "in")
+    match words.as_slice() {
+        [amount, _, connector, _] => {
+            amount.replace(',', "").parse::<f64>().is_ok()
+                && matches!(connector.to_ascii_lowercase().as_str(), "to" | "in")
+        }
+        [amount_and_unit, connector, _] => {
+            compact_conversion_amount(amount_and_unit)
+                && matches!(connector.to_ascii_lowercase().as_str(), "to" | "in")
+        }
+        _ => false,
+    }
+}
+
+fn compact_conversion_amount(value: &str) -> bool {
+    value
+        .char_indices()
+        .rev()
+        .filter(|(index, _)| *index > 0)
+        .any(|(index, _)| {
+            !value[index..].is_empty() && value[..index].replace(',', "").parse::<f64>().is_ok()
+        })
 }
 
 fn currency_hint(query: &str) -> bool {
@@ -406,21 +425,40 @@ fn currency_hint(query: &str) -> bool {
 }
 
 fn timer_hint(query: &str) -> bool {
-    [
+    let timer_or_reminder = [
         "timer ",
         "reminder in ",
         "remind in ",
         "remind me to ",
         "remind to ",
-        "reboot",
-        "restart",
-        "shutdown",
-        "poweroff",
-        "logout",
-        "lock",
     ]
     .iter()
-    .any(|prefix| starts_with_ascii(query, prefix))
+    .any(|prefix| starts_with_ascii(query, prefix));
+    if timer_or_reminder {
+        return true;
+    }
+
+    let query = query.trim().to_ascii_lowercase();
+    query.len() >= 3
+        && [
+            "reboot",
+            "restart",
+            "shutdown",
+            "shut down",
+            "turn off",
+            "poweroff",
+            "logout",
+            "log out",
+            "lock",
+        ]
+        .iter()
+        .any(|action| {
+            action.starts_with(&query)
+                || query == *action
+                || query
+                    .strip_prefix(action)
+                    .is_some_and(|suffix| suffix.starts_with(" in "))
+        })
 }
 
 fn web_search_hint(query: &str, settings_json: &str) -> bool {
@@ -507,7 +545,12 @@ fn query_wasm_module(
             .send(job)
             .map_err(|_| "module host stopped unexpectedly".to_owned())?;
     }
-    match receiver.recv_timeout(HOST_TIMEOUT) {
+    let timeout = if manifest.permissions.network.is_empty() {
+        HOST_TIMEOUT
+    } else {
+        NETWORK_HOST_TIMEOUT
+    };
+    match receiver.recv_timeout(timeout) {
         Ok(response) => response,
         Err(_) => {
             remove_host(&key);
@@ -955,8 +998,16 @@ mod routing_tests {
     fn official_module_routing_recognizes_supported_query_shapes() {
         assert!(calculation_hint("999 * 42"));
         assert!(conversion_hint("10 km to mi"));
+        assert!(conversion_hint("10f to c"));
+        assert!(conversion_hint("-40fahrenheit to celsius"));
         assert!(currency_hint("25 BRL to USD"));
         assert!(timer_hint("timer 5m tea"));
+        assert!(timer_hint("reb"));
+        assert!(timer_hint("loc"));
+        assert!(timer_hint("log"));
+        assert!(timer_hint("turn off"));
+        assert!(timer_hint("log out"));
+        assert!(timer_hint("shut down"));
         assert!(starts_with_ascii("TIME IN Tokyo", "time in "));
     }
 

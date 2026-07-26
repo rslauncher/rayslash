@@ -40,7 +40,7 @@ use runtime_state::{
     effective_search_query, load_runtime_app_state, load_runtime_ranking_state,
     merge_module_results_with_config, module_settings, profile_enabled, profile_stage,
     query_execution_hint_with_config, refresh_result_view, refresh_settings_dependent_ui,
-    search_result_set, sync_app_install_state,
+    search_result_set, should_hide_transient_no_results, sync_app_install_state,
 };
 use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
@@ -150,13 +150,7 @@ fn run_gui(
     let startup_started = Instant::now();
 
     let stage_started = Instant::now();
-    let backend_selector = slint::BackendSelector::new();
-    let backend_selector = if std::env::var_os("SLINT_BACKEND").is_some() {
-        backend_selector
-    } else {
-        backend_selector.backend_name("winit-software".into())
-    };
-    backend_selector.select()?;
+    slint::BackendSelector::new().select()?;
     slint::set_xdg_app_id(rayslash_core::APP_ID)?;
     profile_stage(profile, "backend select and app ID", stage_started);
 
@@ -748,6 +742,15 @@ fn run_gui(
                         debounce,
                         started: stage_started,
                     });
+                    if should_hide_transient_no_results(
+                        ui.get_active_search_keyword().as_str(),
+                        &current_results.borrow(),
+                    ) {
+                        results_model.set_vec(Vec::new());
+                        ui.set_result_count(0);
+                        ui.set_result_tip_text("".into());
+                        ui.set_selected_index(-1);
+                    }
                 }
                 profile_stage(
                     profile,

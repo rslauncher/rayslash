@@ -1,9 +1,8 @@
 import { ResultItem } from "./models.slint";
 import { LegendTooltipBubble } from "./components.slint";
 import { ModuleGlyph } from "./module_icons.slint";
-import { ListView } from "std-widgets.slint";
 
-export component ResultList inherits Rectangle {
+export component ResultList inherits Flickable {
     in property <[ResultItem]> results;
     in property <int> result-count;
     in-out property <int> selected-index;
@@ -16,7 +15,6 @@ export component ResultList inherits Rectangle {
     in property <bool> light;
     in property <string> result-tip-text;
     in property <bool> tooltips-enabled;
-    in property <bool> interactive: true;
     callback activate-result(int, bool);
 
     private property <length> row-height: root.density == "compact" ? 54px : 64px;
@@ -31,13 +29,11 @@ export component ResultList inherits Rectangle {
     private property <bool> tooltip-visible: false;
     private property <length> tooltip-max-width: max(0px, root.width - root.tooltip-x - 6px);
     private property <length> tooltip-width: root.tooltip-text == "" ? 0px : min(tooltip-measure.preferred-width + 18px, root.tooltip-max-width);
-    private property <length> tooltip-height: root.tooltip-text == "" ? 0px : min(max(30px, tooltip-wrapped-measure.preferred-height + 12px), 66px);
+    private property <length> tooltip-height: root.tooltip-text == "" ? 0px : min(tooltip-wrapped-measure.preferred-height + 12px, 66px);
     private property <bool> pointer-over-list: false;
     private property <length> pointer-y: 0px;
     private property <int> hovered-index: -1;
     private property <int> pressed-index: -1;
-    private property <length> viewport-y <=> list-view.viewport-y;
-
     public function reset-scroll() {
         root.viewport-y = 0px;
         root.hide-tooltip();
@@ -118,6 +114,9 @@ export component ResultList inherits Rectangle {
         }
     }
 
+    viewport-width: self.width;
+    viewport-height: root.result-count <= 0 ? root.tip-height : root.result-count * root.row-stride - root.row-gap + root.tip-gap + root.tip-height;
+
     tooltip-delay := Timer {
         interval: 800ms;
         running: false;
@@ -162,11 +161,6 @@ export component ResultList inherits Rectangle {
             root.hide-tooltip();
         }
     }
-
-    list-view := ListView {
-        width: root.width;
-        height: root.height;
-        enabled: root.interactive;
 
     for item[i] in root.results: Rectangle {
         y: i * root.row-stride;
@@ -525,7 +519,6 @@ export component ResultList inherits Rectangle {
             }
         }
 
-    }
     }
 
     Rectangle {

@@ -7,7 +7,7 @@ use std::{
 };
 
 use rayslash_core::{modules, search};
-use slint::Image;
+use slint::{Image, Rgba8Pixel, SharedPixelBuffer};
 
 use crate::ResultItem;
 
@@ -80,6 +80,24 @@ pub(crate) fn load_icon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -
     };
     icon_cache.insert(path.clone(), image.clone());
     image
+}
+
+fn load_favicon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -> Option<Image> {
+    if let Some(cached) = icon_cache.get(path) {
+        return cached.clone();
+    }
+
+    let image = image::open(path).ok().map(|decoded| {
+        let resized = resize_favicon(&decoded.to_rgba8());
+        let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(resized.as_raw(), 32, 32);
+        Image::from_rgba8(buffer)
+    });
+    icon_cache.insert(path.clone(), image.clone());
+    image
+}
+
+fn resize_favicon(source: &image::RgbaImage) -> image::RgbaImage {
+    image::imageops::resize(source, 32, 32, image::imageops::FilterType::Lanczos3)
 }
 
 fn load_extensionless_icon_image(path: &Path) -> Option<Image> {
@@ -175,7 +193,13 @@ fn result_icon(
         } => {
             if uses_embedded_module_glyph(module_kind) {
                 fallback_icon(module_kind, "")
-            } else if load_images && let Some(image) = load_icon_image(path, icon_cache) {
+            } else if load_images
+                && let Some(image) = if module_kind == "web-search" {
+                    load_favicon_image(path, icon_cache)
+                } else {
+                    load_icon_image(path, icon_cache)
+                }
+            {
                 RowIcon {
                     image,
                     has_image: true,
@@ -265,6 +289,14 @@ mod tests {
 
         let icon = result_icon(&result, &mut IconImageCache::new(), true);
         assert_eq!(icon.kind, "web-search");
+    }
+
+    #[test]
+    fn favicons_are_prefiltered_to_their_display_size() {
+        let source = image::RgbaImage::new(144, 144);
+        let resized = resize_favicon(&source);
+
+        assert_eq!(resized.dimensions(), (32, 32));
     }
 
     #[test]
