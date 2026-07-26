@@ -90,7 +90,11 @@ fn every_official_module_installs_and_runs_through_the_production_path() {
             " in São Paulo, Brazil",
         ),
         ("rayslash.web-search", "search rust", "Search Web for rust"),
-        ("rayslash.timers", "timer 10min take a break", "Timer"),
+        (
+            "rayslash.timers",
+            "timer 10min take a break",
+            "Timer: take a break",
+        ),
         ("rayslash.aliases", "docs", "Documentation"),
     ];
     for (module_id, query, expected_title) in cases {
