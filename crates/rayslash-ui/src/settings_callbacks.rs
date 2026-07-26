@@ -1,4 +1,4 @@
-use std::{cell::Cell, cell::RefCell, path::PathBuf, rc::Rc, time::Duration};
+use std::{cell::Cell, cell::RefCell, path::PathBuf, rc::Rc, sync::Arc, time::Duration};
 
 use rayslash_core::{app_state, apps, config, projects, ranking, search};
 use slint::{ComponentHandle, Model, Timer, VecModel};
@@ -20,8 +20,8 @@ pub(crate) struct SettingsCallbackContext {
     pub config_state: Rc<RefCell<config::Config>>,
     pub app_install_state: Rc<RefCell<app_state::AppInstallState>>,
     pub ranking_state: Rc<RefCell<ranking::RankingState>>,
-    pub projects: Rc<RefCell<Vec<projects::Project>>>,
-    pub apps: Rc<RefCell<Vec<apps::DesktopApp>>>,
+    pub projects: Rc<RefCell<Arc<Vec<projects::Project>>>>,
+    pub apps: Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     pub alternate_opener_choices: Rc<VecModel<AppChoiceItem>>,
     pub current_results: Rc<RefCell<Vec<search::SearchResult>>>,
     pub results_model: Rc<VecModel<ResultItem>>,
@@ -250,7 +250,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             *config_state.borrow_mut() = runtime_config;
             let updated_projects =
                 projects::scan_project_roots(&config_state.borrow().folder_sources);
-            *projects.borrow_mut() = updated_projects;
+            *projects.borrow_mut() = Arc::new(updated_projects);
 
             if let Some(ui) = weak.upgrade() {
                 let query = ui.get_query_text();

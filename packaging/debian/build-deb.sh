@@ -9,6 +9,7 @@ fi
 root_dir="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
 rayslash_binary="$1"
 module_host_binary="$2"
+module_compiler_binary="$(dirname -- "$module_host_binary")/rayslash-module-compiler"
 output_dir="$3"
 version="$(awk -F '"' '$1 ~ /^version = / { print $2; exit }' "$root_dir/crates/rayslash-ui/Cargo.toml")"
 
@@ -35,6 +36,10 @@ mkdir -p "$output_dir"
 install -Dm0755 "$rayslash_binary" "$package_root/usr/bin/rayslash"
 install -Dm0755 "$module_host_binary" \
     "$package_root/usr/libexec/rayslash/rayslash-module-host"
+if [ -x "$module_compiler_binary" ]; then
+    install -Dm0755 "$module_compiler_binary" \
+        "$package_root/usr/libexec/rayslash/rayslash-module-compiler"
+fi
 install -Dm0644 "$root_dir/packaging/linux/dev.rayan6ms.rayslash.desktop" \
     "$package_root/usr/share/applications/dev.rayan6ms.rayslash.desktop"
 install -Dm0644 "$root_dir/icons/rayslash-icon.svg" \

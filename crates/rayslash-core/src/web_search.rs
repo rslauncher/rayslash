@@ -1,9 +1,19 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::{
+    collections::HashSet,
+    fs,
+    path::{Path, PathBuf},
+    sync::OnceLock,
+    time::{Duration, SystemTime},
+};
 
 use crate::config::WebSearchConfig;
 
 pub const DEFAULT_SEARCH_KEYWORD: &str = "search";
 const MIN_SHARP_FAVICON_SIZE: u32 = 48;
+const FAVICON_FAILURE_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const MAX_FAVICON_CACHE_FILES: usize = 64;
+const MAX_FAVICON_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_HTML_BYTES: u64 = 1024 * 1024;
 
 pub fn is_valid_template(template: &WebSearchConfig) -> bool {
     !template.name.trim().is_empty()
@@ -71,6 +81,11 @@ pub fn fetch_and_cache_favicon(template: &WebSearchConfig) -> Option<PathBuf> {
         "https"
     };
     let origin = format!("{scheme}://{host}");
+    let cache_dir = dirs::cache_dir()?.join("rayslash/search-favicons");
+    let failure_path = cache_dir.join(format!("{}.failed", cache_stem(&host)));
+    if failure_cache_is_fresh(&failure_path) {
+        return None;
+    }
     let mut candidates = favicon_candidates(&origin);
     candidates.extend([
         format!("{origin}/apple-touch-icon.png"),
@@ -80,18 +95,70 @@ pub fn fetch_and_cache_favicon(template: &WebSearchConfig) -> Option<PathBuf> {
     ]);
     candidates.push(format!("{origin}/favicon.ico"));
 
-    let favicon = candidates.into_iter().find_map(|url| fetch_favicon(&url))?;
-    let cache_dir = dirs::cache_dir()?.join("rayslash/search-favicons");
-    std::fs::create_dir_all(&cache_dir).ok()?;
-    let filename = host
-        .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
-        .collect::<String>();
-    let path = cache_dir.join(format!("{filename}.png"));
+    let Some(favicon) = candidates.into_iter().find_map(|url| fetch_favicon(&url)) else {
+        fs::create_dir_all(&cache_dir).ok()?;
+        let _ =
+            crate::atomic_write::write_bytes(&failure_path, unix_seconds().to_string().as_bytes());
+        return None;
+    };
+    fs::create_dir_all(&cache_dir).ok()?;
+    let path = cache_dir.join(format!("{}.png", cache_stem(&host)));
     favicon
         .save_with_format(&path, image::ImageFormat::Png)
         .ok()?;
+    let _ = fs::remove_file(failure_path);
+    prune_favicon_cache(&cache_dir, &path);
     Some(path)
+}
+
+fn cache_stem(host: &str) -> String {
+    host.chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect()
+}
+
+fn failure_cache_is_fresh(path: &Path) -> bool {
+    let Some(failed_at) = fs::read_to_string(path)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    else {
+        return false;
+    };
+    unix_seconds().saturating_sub(failed_at) <= FAVICON_FAILURE_TTL.as_secs()
+}
+
+fn unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+fn prune_favicon_cache(cache_dir: &Path, keep: &Path) {
+    let mut files = fs::read_dir(cache_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let metadata = entry.metadata().ok()?;
+            metadata
+                .is_file()
+                .then(|| (path, metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH)))
+        })
+        .collect::<Vec<_>>();
+    if files.len() <= MAX_FAVICON_CACHE_FILES {
+        return;
+    }
+    files.sort_by_key(|(_, modified)| *modified);
+    let remove_count = files.len() - MAX_FAVICON_CACHE_FILES;
+    for (path, _) in files
+        .into_iter()
+        .filter(|(path, _)| path != keep)
+        .take(remove_count)
+    {
+        let _ = fs::remove_file(path);
+    }
 }
 
 fn favicon_is_sharp(path: &std::path::Path) -> bool {
@@ -103,13 +170,21 @@ fn favicon_is_sharp(path: &std::path::Path) -> bool {
 }
 
 fn favicon_candidates(origin: &str) -> Vec<String> {
-    let Ok(mut response) = ureq::get(&format!("{origin}/"))
+    let Ok(request) = ureq::http::Request::get(format!("{origin}/"))
         .header("User-Agent", "rayslash/0.1")
-        .call()
+        .body(())
     else {
         return Vec::new();
     };
-    let Ok(html) = response.body_mut().read_to_string() else {
+    let Ok(mut response) = http_agent().run(request) else {
+        return Vec::new();
+    };
+    let Ok(html) = response
+        .body_mut()
+        .with_config()
+        .limit(MAX_HTML_BYTES)
+        .read_to_string()
+    else {
         return Vec::new();
     };
 
@@ -232,12 +307,28 @@ fn resolve_icon_url(origin: &str, href: &str) -> Option<String> {
 }
 
 fn fetch_favicon(url: &str) -> Option<image::DynamicImage> {
-    let mut response = ureq::get(url)
+    let request = ureq::http::Request::get(url)
         .header("User-Agent", "rayslash/0.1")
-        .call()
+        .body(())
         .ok()?;
-    let bytes = response.body_mut().read_to_vec().ok()?;
+    let mut response = http_agent().run(request).ok()?;
+    let bytes = response
+        .body_mut()
+        .with_config()
+        .limit(MAX_FAVICON_BYTES)
+        .read_to_vec()
+        .ok()?;
     image::load_from_memory(&bytes).ok()
+}
+
+fn http_agent() -> &'static ureq::Agent {
+    static AGENT: OnceLock<ureq::Agent> = OnceLock::new();
+    AGENT.get_or_init(|| {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(5)))
+            .build()
+            .into()
+    })
 }
 
 #[cfg(test)]

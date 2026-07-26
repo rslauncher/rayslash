@@ -11,19 +11,28 @@ license = "MIT"
 repository = "https://github.com/rslauncher/rayslash"
 
 [workspace.dependencies]
-arboard = "3.6.1"
+arboard = { version = "3.6.1", default-features = false }
 base64 = "0.22.1"
 chrono = { version = "0.4.42", default-features = false, features = ["std"] }
 dirs = "6.0.0"
 ed25519-dalek = "2.2.0"
 image = { version = "0.25.10", default-features = false, features = ["ico", "png"] }
 nucleo-matcher = "0.3.1"
-rfd = { version = "0.17.2", default-features = true }
+notify = { version = "8.2.0", default-features = false }
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 semver = { version = "1.0.27", features = ["serde"] }
 sha2 = "0.10.9"
-slint = { version = "1.17.1", features = ["unstable-winit-030"] }
+slint = { version = "1.17.1", default-features = false, features = [
+    "accessibility",
+    "backend-winit",
+    "compat-1-2",
+    "renderer-femtovg",
+    "renderer-software",
+    "std",
+    "unstable-winit-030",
+] }
 slint-build = "1.17.1"
 toml = "1.1.2"
 tar = "0.4.44"
@@ -35,3 +44,11 @@ lto = "thin"
 codegen-units = 1
 strip = "symbols"
 panic = "abort"
+
+[profile.profiling]
+inherits = "release"
+codegen-units = 16
+debug = 1
+incremental = true
+lto = false
+strip = "none"

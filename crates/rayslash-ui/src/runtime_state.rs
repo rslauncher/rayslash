@@ -3,6 +3,7 @@ use std::{
     collections::BTreeMap,
     path::Path,
     rc::Rc,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -333,7 +334,7 @@ pub(crate) fn module_settings(config: &config::Config) -> BTreeMap<String, Strin
 }
 
 pub(crate) fn refresh_desktop_apps(
-    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
+    apps_state: &Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     choices_model: &Rc<VecModel<AppChoiceItem>>,
     icon_cache: &Rc<RefCell<IconImageCache>>,
@@ -353,7 +354,7 @@ pub(crate) fn refresh_desktop_apps(
 }
 
 pub(crate) fn apply_desktop_apps(
-    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
+    apps_state: &Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     choices_model: &Rc<VecModel<AppChoiceItem>>,
     icon_cache: &Rc<RefCell<IconImageCache>>,
@@ -372,7 +373,7 @@ pub(crate) fn apply_desktop_apps(
             &mut icon_cache.borrow_mut(),
         ));
     }
-    *apps_state.borrow_mut() = discovered_apps;
+    *apps_state.borrow_mut() = Arc::new(discovered_apps);
 
     profile_stage(
         profile,
@@ -382,7 +383,7 @@ pub(crate) fn apply_desktop_apps(
 }
 
 pub(crate) struct DesktopAppRefreshContext<'a> {
-    pub apps_state: &'a Rc<RefCell<Vec<apps::DesktopApp>>>,
+    pub apps_state: &'a Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     pub app_install_state: &'a Rc<RefCell<app_state::AppInstallState>>,
     pub choices_model: &'a Rc<VecModel<AppChoiceItem>>,
     pub icon_cache: &'a Rc<RefCell<IconImageCache>>,

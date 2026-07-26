@@ -34,3 +34,8 @@ tar --extract --xz --file "$archive_path" --directory "$temporary_dir"
 install -Dm0755 \
     "$temporary_dir/$host_directory/rayslash-module-host" \
     "$destination"
+if [ -x "$temporary_dir/$host_directory/rayslash-module-compiler" ]; then
+    install -Dm0755 \
+        "$temporary_dir/$host_directory/rayslash-module-compiler" \
+        "$(dirname -- "$destination")/rayslash-module-compiler"
+fi

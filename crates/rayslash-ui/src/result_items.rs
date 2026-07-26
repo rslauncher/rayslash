@@ -3,7 +3,7 @@ use std::{
     fs,
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
-    time::UNIX_EPOCH,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use rayslash_core::{modules, search};
@@ -11,7 +11,57 @@ use slint::{Image, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 
 use crate::ResultItem;
 
-pub(crate) type IconImageCache = HashMap<PathBuf, Option<Image>>;
+const MAX_MEMORY_ICON_ENTRIES: usize = 256;
+const MAX_DISK_ICON_ENTRIES: usize = 64;
+
+struct CachedImage {
+    image: Option<Image>,
+    last_used: u64,
+}
+
+#[derive(Default)]
+pub(crate) struct IconImageCache {
+    entries: HashMap<PathBuf, CachedImage>,
+    clock: u64,
+}
+
+impl IconImageCache {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    fn get(&mut self, path: &Path) -> Option<&Option<Image>> {
+        self.clock = self.clock.wrapping_add(1);
+        let entry = self.entries.get_mut(path)?;
+        entry.last_used = self.clock;
+        Some(&entry.image)
+    }
+
+    fn insert(&mut self, path: PathBuf, image: Option<Image>) {
+        self.clock = self.clock.wrapping_add(1);
+        if self.entries.len() >= MAX_MEMORY_ICON_ENTRIES
+            && !self.entries.contains_key(&path)
+            && let Some(oldest) = self
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.last_used)
+                .map(|(path, _)| path.clone())
+        {
+            self.entries.remove(&oldest);
+        }
+        self.entries.insert(
+            path,
+            CachedImage {
+                image,
+                last_used: self.clock,
+            },
+        );
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.entries.clear();
+    }
+}
 
 pub(crate) fn update_result_items_model(model: &VecModel<ResultItem>, items: Vec<ResultItem>) {
     if model.row_count() == items.len() {
@@ -75,7 +125,7 @@ fn subtitle_tooltip(result: &search::SearchResult) -> String {
     }
 }
 
-pub(crate) fn load_icon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -> Option<Image> {
+pub(crate) fn load_icon_image(path: &Path, icon_cache: &mut IconImageCache) -> Option<Image> {
     if let Some(cached) = icon_cache.get(path) {
         return cached.clone();
     }
@@ -88,11 +138,11 @@ pub(crate) fn load_icon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -
     } else {
         Image::load_from_path(path).ok()
     };
-    icon_cache.insert(path.clone(), image.clone());
+    icon_cache.insert(path.to_path_buf(), image.clone());
     image
 }
 
-fn load_favicon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -> Option<Image> {
+fn load_favicon_image(path: &Path, icon_cache: &mut IconImageCache) -> Option<Image> {
     if let Some(cached) = icon_cache.get(path) {
         return cached.clone();
     }
@@ -102,7 +152,7 @@ fn load_favicon_image(path: &PathBuf, icon_cache: &mut IconImageCache) -> Option
         let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(resized.as_raw(), 32, 32);
         Image::from_rgba8(buffer)
     });
-    icon_cache.insert(path.clone(), image.clone());
+    icon_cache.insert(path.to_path_buf(), image.clone());
     image
 }
 
@@ -131,9 +181,39 @@ fn cached_extensionless_icon_path(path: &Path) -> Option<PathBuf> {
 
     if !cache_path.is_file() {
         fs::write(&cache_path, bytes).ok()?;
+        prune_disk_icon_cache(&cache_dir, &cache_path);
     }
 
     Some(cache_path)
+}
+
+fn prune_disk_icon_cache(cache_dir: &Path, keep: &Path) {
+    let mut files = fs::read_dir(cache_dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| {
+            let metadata = entry.metadata().ok()?;
+            metadata.is_file().then(|| {
+                (
+                    entry.path(),
+                    metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    if files.len() <= MAX_DISK_ICON_ENTRIES {
+        return;
+    }
+    files.sort_by_key(|(_, modified)| *modified);
+    let remove_count = files.len() - MAX_DISK_ICON_ENTRIES;
+    for (path, _) in files
+        .into_iter()
+        .filter(|(path, _)| path != keep)
+        .take(remove_count)
+    {
+        let _ = fs::remove_file(path);
+    }
 }
 
 fn image_extension_from_bytes(bytes: &[u8]) -> Option<&'static str> {
@@ -277,6 +357,22 @@ mod tests {
             Some("svg")
         );
         assert_eq!(image_extension_from_bytes(b"not an icon"), None);
+    }
+
+    #[test]
+    fn memory_icon_cache_evicts_the_least_recently_used_entry() {
+        let mut cache = IconImageCache::new();
+        for index in 0..=MAX_MEMORY_ICON_ENTRIES {
+            cache.insert(PathBuf::from(format!("/icon/{index}")), None);
+        }
+
+        assert_eq!(cache.entries.len(), MAX_MEMORY_ICON_ENTRIES);
+        assert!(!cache.entries.contains_key(Path::new("/icon/0")));
+        assert!(
+            cache
+                .entries
+                .contains_key(Path::new(&format!("/icon/{MAX_MEMORY_ICON_ENTRIES}")))
+        );
     }
 
     #[test]
