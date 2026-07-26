@@ -44,6 +44,7 @@ fn core_app_results_keep_typed_launch_actions() {
         web_searches: &[],
         legacy_config: &config,
         ranking: None,
+        result_limit: None,
     };
     let result = provider(&ProviderId::CORE_APPS)
         .run(&context)

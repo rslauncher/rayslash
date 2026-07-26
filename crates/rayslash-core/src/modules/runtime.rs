@@ -25,7 +25,7 @@ use super::{
 const HOST_PROTOCOL: u32 = 1;
 const HOST_TIMEOUT: Duration = Duration::from_secs(5);
 const NETWORK_HOST_TIMEOUT: Duration = Duration::from_secs(10);
-const HOST_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const HOST_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_HOST_OUTPUT: u64 = 2 * 1024 * 1024;
 
 #[derive(Debug, Default)]
@@ -145,23 +145,6 @@ pub fn installed_module_execution_hint(
         ProviderExecutionHint::DebouncedNetwork { debounce_ms: 150 }
     } else {
         ProviderExecutionHint::Local
-    }
-}
-
-pub fn prewarm_installed_modules(config: &ModulesConfig, settings: &BTreeMap<String, String>) {
-    let (candidates, _errors) = runtime_candidates(config, settings);
-    for candidate in candidates
-        .into_iter()
-        .filter(|candidate| candidate.module_id == super::CALCULATOR_MODULE_ID)
-    {
-        let _ = query_wasm_module(
-            &candidate.module_id,
-            &candidate.install_path,
-            &candidate.manifest,
-            "",
-            1,
-            &candidate.settings_json,
-        );
     }
 }
 
@@ -416,12 +399,31 @@ fn compact_conversion_amount(value: &str) -> bool {
 
 fn currency_hint(query: &str) -> bool {
     let words = query.split_whitespace().collect::<Vec<_>>();
-    words.len() == 4
-        && words[0].replace(',', "").parse::<f64>().is_ok()
-        && words[2].eq_ignore_ascii_case("to")
-        && [words[1], words[3]]
-            .iter()
-            .all(|word| word.len() == 3 && word.bytes().all(|byte| byte.is_ascii_alphabetic()))
+    match words.as_slice() {
+        [amount, from, connector, to] => {
+            amount.replace(',', "").parse::<f64>().is_ok()
+                && connector.eq_ignore_ascii_case("to")
+                && [*from, *to].iter().all(|word| currency_code(word))
+        }
+        [amount_and_from, connector, to] => {
+            compact_currency_amount(amount_and_from)
+                && connector.eq_ignore_ascii_case("to")
+                && currency_code(to)
+        }
+        _ => false,
+    }
+}
+
+fn compact_currency_amount(value: &str) -> bool {
+    value.char_indices().any(|(index, _)| {
+        index > 0
+            && currency_code(&value[index..])
+            && value[..index].replace(',', "").parse::<f64>().is_ok()
+    })
+}
+
+fn currency_code(value: &str) -> bool {
+    value.len() == 3 && value.bytes().all(|byte| byte.is_ascii_alphabetic())
 }
 
 fn timer_hint(query: &str) -> bool {
@@ -429,6 +431,7 @@ fn timer_hint(query: &str) -> bool {
         "timer ",
         "reminder in ",
         "remind in ",
+        "remind me in ",
         "remind me to ",
         "remind to ",
     ]
@@ -1001,7 +1004,10 @@ mod routing_tests {
         assert!(conversion_hint("10f to c"));
         assert!(conversion_hint("-40fahrenheit to celsius"));
         assert!(currency_hint("25 BRL to USD"));
+        assert!(currency_hint("10usd to brl"));
+        assert!(currency_hint("1,250.50EUR to USD"));
         assert!(timer_hint("timer 5m tea"));
+        assert!(timer_hint("remind me in 30 to feed the cat"));
         assert!(timer_hint("reb"));
         assert!(timer_hint("loc"));
         assert!(timer_hint("log"));

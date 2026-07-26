@@ -88,7 +88,7 @@ pub(crate) fn local_search_result_set(
     core_providers.currency_conversion = false;
     core_providers.time_lookup = false;
     core_providers.utility_actions = false;
-    let results = search::mixed_results_with_ranking_and_web_searches(
+    let results = search::mixed_results_with_ranking_and_web_searches_limited(
         projects,
         apps,
         &config.aliases,
@@ -96,6 +96,7 @@ pub(crate) fn local_search_result_set(
         query,
         &core_providers,
         ranking,
+        config.appearance.max_results.saturating_add(1),
     );
     finalize_results(config, app_state, results)
 }
@@ -395,6 +396,10 @@ pub(crate) fn refresh_desktop_apps_if_stale(
     min_interval: Duration,
 ) {
     if context.last_refresh.borrow().elapsed() < min_interval {
+        return;
+    }
+    if apps::desktop_apps_cache_is_current() {
+        *context.last_refresh.borrow_mut() = Instant::now();
         return;
     }
 

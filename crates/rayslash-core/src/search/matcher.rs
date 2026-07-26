@@ -16,17 +16,13 @@ pub(crate) fn boosted_score(
     let Some(ranking) = ranking else {
         return score;
     };
+    if ranking.entries.is_empty() || !title_starts_with_query(&result.title, query) {
+        return score;
+    }
 
     result
         .learning_id()
-        .map(|id| {
-            let boost = if title_starts_with_query(&result.title, query) {
-                ranking.boost_for(&id, query)
-            } else {
-                0
-            };
-            score.saturating_add(boost)
-        })
+        .map(|id| score.saturating_add(ranking.boost_for(&id, query)))
         .unwrap_or(score)
 }
 

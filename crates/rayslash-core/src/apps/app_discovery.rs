@@ -3,6 +3,7 @@ use std::{
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use serde::{Deserialize, Serialize};
@@ -13,12 +14,22 @@ use super::{
     icon_lookup::{DesktopIconResolver, desktop_icon_dirs},
 };
 
-const DESKTOP_CACHE_VERSION: u32 = 1;
+const DESKTOP_CACHE_VERSION: u32 = 2;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DesktopSourceStamp {
+    path: PathBuf,
+    len: u64,
+    modified_seconds: u64,
+    modified_nanoseconds: u32,
+}
 
 #[derive(Serialize, Deserialize)]
 struct DesktopCatalogCache {
     version: u32,
     environment: String,
+    #[serde(default)]
+    sources: Vec<DesktopSourceStamp>,
     apps: Vec<DesktopApp>,
 }
 
@@ -37,6 +48,25 @@ pub fn load_cached_desktop_apps() -> Option<Vec<DesktopApp>> {
         &fs::read(desktop_apps_cache_file()?).ok()?,
         &desktop_environment(),
     )
+}
+
+/// Check whether the source desktop files still match the cached catalog.
+///
+/// This deliberately compares cheap file metadata and avoids parsing desktop entries or
+/// resolving icons. Callers can run it off the UI thread before scheduling reconciliation.
+pub fn desktop_apps_cache_is_current() -> bool {
+    let Some(path) = desktop_apps_cache_file() else {
+        return false;
+    };
+    let Ok(contents) = fs::read(path) else {
+        return false;
+    };
+    let Ok(cache) = serde_json::from_slice::<DesktopCatalogCache>(&contents) else {
+        return false;
+    };
+    cache.version == DESKTOP_CACHE_VERSION
+        && cache.environment == desktop_environment()
+        && cache.sources == desktop_source_stamps(&desktop_application_dirs())
 }
 
 pub fn discover_desktop_apps_in_dirs(dirs: &[PathBuf]) -> Vec<DesktopApp> {
@@ -95,6 +125,7 @@ fn save_desktop_apps_cache(apps: &[DesktopApp]) -> std::io::Result<()> {
     let cache = DesktopCatalogCache {
         version: DESKTOP_CACHE_VERSION,
         environment: desktop_environment(),
+        sources: desktop_source_stamps(&desktop_application_dirs()),
         apps: apps.to_vec(),
     };
     let contents = serde_json::to_vec(&cache).map_err(std::io::Error::other)?;
@@ -103,8 +134,29 @@ fn save_desktop_apps_cache(apps: &[DesktopApp]) -> std::io::Result<()> {
 
 fn cached_desktop_apps_from_bytes(contents: &[u8], environment: &str) -> Option<Vec<DesktopApp>> {
     let cache: DesktopCatalogCache = serde_json::from_slice(contents).ok()?;
-    (cache.version == DESKTOP_CACHE_VERSION && cache.environment == environment)
+    ((cache.version == 1 || cache.version == DESKTOP_CACHE_VERSION)
+        && cache.environment == environment)
         .then_some(cache.apps)
+}
+
+fn desktop_source_stamps(dirs: &[PathBuf]) -> Vec<DesktopSourceStamp> {
+    let mut stamps = dirs
+        .iter()
+        .flat_map(|directory| desktop_files_in_dir(directory))
+        .filter_map(|path| {
+            let metadata = fs::metadata(&path).ok()?;
+            let modified = metadata.modified().ok()?;
+            let duration = modified.duration_since(SystemTime::UNIX_EPOCH).ok()?;
+            Some(DesktopSourceStamp {
+                path,
+                len: metadata.len(),
+                modified_seconds: duration.as_secs(),
+                modified_nanoseconds: duration.subsec_nanos(),
+            })
+        })
+        .collect::<Vec<_>>();
+    stamps.sort_by(|a, b| a.path.cmp(&b.path));
+    stamps
 }
 
 fn desktop_environment() -> String {
@@ -239,6 +291,7 @@ mod tests {
         serde_json::to_vec(&DesktopCatalogCache {
             version,
             environment: environment.to_owned(),
+            sources: Vec::new(),
             apps: Vec::new(),
         })
         .expect("cache fixture should serialize")
@@ -314,5 +367,16 @@ mod tests {
             .is_none()
         );
         assert!(cached_desktop_apps_from_bytes(b"not json", "current").is_none());
+    }
+
+    #[test]
+    fn desktop_cache_version_one_remains_a_fast_migration_source() {
+        assert_eq!(
+            cached_desktop_apps_from_bytes(
+                br#"{"version":1,"environment":"current","apps":[]}"#,
+                "current"
+            ),
+            Some(Vec::new())
+        );
     }
 }

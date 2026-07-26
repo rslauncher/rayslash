@@ -26,48 +26,76 @@ use fixtures::TempDir;
 #[test]
 #[ignore = "diagnostic probe; run with --ignored --nocapture when investigating search latency"]
 fn mixed_search_performance_probe() {
-    let apps = (0..4_000).map(synthetic_app).collect::<Vec<_>>();
-    let projects = (0..1_000).map(synthetic_project).collect::<Vec<_>>();
+    let app_count = repetitions("RAYSLASH_SEARCH_APP_COUNT", 4_000);
+    let project_count = repetitions("RAYSLASH_SEARCH_PROJECT_COUNT", 1_000);
+    let sample_count = repetitions("RAYSLASH_SEARCH_SAMPLES", 200);
+    let warmups = repetitions("RAYSLASH_SEARCH_WARMUPS", 20);
+    let result_limit = std::env::var("RAYSLASH_SEARCH_RESULT_LIMIT")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok());
+    let apps = (0..app_count).map(synthetic_app).collect::<Vec<_>>();
+    let projects = (0..project_count)
+        .map(synthetic_project)
+        .collect::<Vec<_>>();
     let providers = ProviderConfig::default();
     let ranking = RankingState::default();
     let queries = ["", "app 39", "editor", "project 42", "999 * 42"];
 
     for query in queries {
-        for _ in 0..20 {
-            black_box(search::mixed_results_with_ranking(
+        for _ in 0..warmups {
+            black_box(measured_search(
                 &projects,
                 &apps,
-                &[],
                 query,
                 &providers,
-                Some(&ranking),
+                &ranking,
+                result_limit,
             ));
         }
-        let mut samples = Vec::with_capacity(200);
+        let mut samples = Vec::with_capacity(sample_count);
         let mut total_results = 0usize;
-        for _ in 0..200 {
+        for _ in 0..sample_count {
             let started = Instant::now();
-            let results = search::mixed_results_with_ranking(
-                &projects,
-                &apps,
-                &[],
-                query,
-                &providers,
-                Some(&ranking),
-            );
+            let results =
+                measured_search(&projects, &apps, query, &providers, &ranking, result_limit);
             samples.push(started.elapsed());
             total_results += results.len();
             black_box(results);
         }
         print_distribution(
             &format!(
-                "synthetic-search query={query:?} items={} results/sample={}",
+                "synthetic-search query={query:?} items={} limit={result_limit:?} results/sample={}",
                 apps.len() + projects.len(),
                 total_results / samples.len()
             ),
             &samples,
         );
     }
+}
+
+fn measured_search(
+    projects: &[Project],
+    apps: &[DesktopApp],
+    query: &str,
+    providers: &ProviderConfig,
+    ranking: &RankingState,
+    result_limit: Option<usize>,
+) -> Vec<search::SearchResult> {
+    result_limit.map_or_else(
+        || search::mixed_results_with_ranking(projects, apps, &[], query, providers, Some(ranking)),
+        |limit| {
+            search::mixed_results_with_ranking_and_web_searches_limited(
+                projects,
+                apps,
+                &[],
+                &[],
+                query,
+                providers,
+                Some(ranking),
+                limit,
+            )
+        },
+    )
 }
 
 #[test]
@@ -85,6 +113,18 @@ fn live_catalog_performance_probe() {
         black_box(discovered);
     }
     print_distribution(&format!("desktop-discovery apps={app_count}"), &app_samples);
+
+    let _ = apps::discover_and_cache_desktop_apps();
+    let mut freshness_samples = Vec::with_capacity(100);
+    for _ in 0..100 {
+        let started = Instant::now();
+        assert!(apps::desktop_apps_cache_is_current());
+        freshness_samples.push(started.elapsed());
+    }
+    print_distribution(
+        "desktop-cache source-metadata validation",
+        &freshness_samples,
+    );
 
     let mut folder_samples = Vec::with_capacity(100);
     let mut folder_count = 0;
@@ -217,6 +257,7 @@ fn module_host_performance_probe() {
 fn installed_module_fanout_performance_probe() {
     let host = required_path("RAYSLASH_MODULE_HOST");
     let modules_root = required_existing_path("RAYSLASH_MODULES_ROOT");
+    let query = std::env::var("RAYSLASH_MODULE_QUERY").unwrap_or_else(|_| "noop".into());
     let temp = TempDir::new("rayslash-module-fanout-performance");
     let data_home = temp.create_dir_all("data").expect("create data home");
     let state_home = temp.create_dir_all("state").expect("create state home");
@@ -281,27 +322,33 @@ fn installed_module_fanout_performance_probe() {
     )
     .expect("write installed state");
 
-    let settings = BTreeMap::new();
+    let mut settings = BTreeMap::new();
+    if let (Ok(module_id), Ok(settings_json)) = (
+        std::env::var("RAYSLASH_MODULE_SETTINGS_ID"),
+        std::env::var("RAYSLASH_MODULE_SETTINGS_JSON"),
+    ) {
+        settings.insert(module_id, settings_json);
+    }
     let started = Instant::now();
-    let cold = rayslash_core::modules::query_installed_modules("noop", 20, &config, &settings);
+    let cold = rayslash_core::modules::query_installed_modules(&query, 20, &config, &settings);
     let cold_elapsed = started.elapsed();
     assert!(cold.errors.is_empty(), "fan-out errors: {:?}", cold.errors);
     println!(
-        "installed-module-fanout cold modules={} results={} elapsed={cold_elapsed:.3?}",
+        "installed-module-dispatch cold query={query:?} modules={} results={} elapsed={cold_elapsed:.3?}",
         installed.modules.len(),
         cold.results.len(),
     );
 
     for _ in 0..20 {
         black_box(rayslash_core::modules::query_installed_modules(
-            "noop", 20, &config, &settings,
+            &query, 20, &config, &settings,
         ));
     }
     let mut warm_samples = Vec::with_capacity(200);
     for _ in 0..200 {
         let started = Instant::now();
         let results =
-            rayslash_core::modules::query_installed_modules("noop", 20, &config, &settings);
+            rayslash_core::modules::query_installed_modules(&query, 20, &config, &settings);
         warm_samples.push(started.elapsed());
         assert!(
             results.errors.is_empty(),
@@ -312,7 +359,7 @@ fn installed_module_fanout_performance_probe() {
     }
     print_distribution(
         &format!(
-            "installed-module-fanout warm modules={}",
+            "installed-module-dispatch warm query={query:?} modules={}",
             installed.modules.len()
         ),
         &warm_samples,

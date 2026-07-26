@@ -8,8 +8,8 @@ use crate::actions::CommandSpec;
 use serde::{Deserialize, Serialize};
 
 pub use app_discovery::{
-    discover_and_cache_desktop_apps, discover_desktop_apps, discover_desktop_apps_in_dirs,
-    load_cached_desktop_apps,
+    desktop_apps_cache_is_current, discover_and_cache_desktop_apps, discover_desktop_apps,
+    discover_desktop_apps_in_dirs, load_cached_desktop_apps,
 };
 pub use desktop_entry::{parse_desktop_entry, parse_exec_command};
 pub use icon_lookup::resolve_desktop_icon_in_dirs;

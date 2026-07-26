@@ -40,7 +40,7 @@ use result_items::{
 use runtime_state::{
     ResultRefreshContext, ResultSelection, SearchResultSet, apply_desktop_apps,
     effective_search_query, load_runtime_app_state, load_runtime_ranking_state,
-    merge_module_results_with_config, module_settings, profile_enabled, profile_stage,
+    merge_module_results_with_config, profile_enabled, profile_stage,
     query_execution_hint_with_config, refresh_result_view, refresh_settings_dependent_ui,
     search_result_set, should_preserve_pending_module_results, sync_app_install_state,
 };
@@ -246,6 +246,9 @@ fn run_gui(
             let weak = ui.as_weak();
             let pending_app_refresh = pending_app_refresh.clone();
             move || {
+                if apps::desktop_apps_cache_is_current() {
+                    return;
+                }
                 *pending_app_refresh
                     .lock()
                     .unwrap_or_else(|error| error.into_inner()) =
@@ -463,8 +466,10 @@ fn run_gui(
         move || {
             *pending_registry_refresh
                 .lock()
-                .unwrap_or_else(|error| error.into_inner()) =
-                Some(modules::refresh_registry().map_err(|error| error.to_string()));
+                .unwrap_or_else(|error| error.into_inner()) = Some(
+                modules::refresh_registry_if_stale(Duration::from_secs(6 * 60 * 60))
+                    .map_err(|error| error.to_string()),
+            );
             let _ = weak.upgrade_in_event_loop(|ui| ui.invoke_apply_registry_refresh());
         }
     });
@@ -932,16 +937,6 @@ fn run_gui(
                 &current_results.borrow(),
                 &mut icon_cache.borrow_mut(),
             ));
-        }
-    });
-    Timer::single_shot(Duration::from_secs(1), {
-        let config = config_state.borrow().clone();
-        move || {
-            thread::spawn(move || {
-                let module_config = modules::load_modules_config(&config.providers)
-                    .unwrap_or_else(|_| modules::ModulesConfig::empty());
-                modules::prewarm_installed_modules(&module_config, &module_settings(&config));
-            });
         }
     });
     slint::run_event_loop_until_quit()

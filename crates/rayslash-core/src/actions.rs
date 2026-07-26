@@ -8,8 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::apps::DesktopApp;
 use crate::search::ModuleAction;
+use crate::{APP_ID, APP_NAME, apps::DesktopApp};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -246,9 +246,26 @@ pub fn run_module_action(action: &ModuleAction) -> io::Result<()> {
 }
 
 fn notification_command(title: &str, body: &str) -> CommandSpec {
+    let title = notification_summary(title);
     CommandSpec {
         program: OsString::from("notify-send"),
-        args: vec![OsString::from(title), OsString::from(body)],
+        args: vec![
+            OsString::from(format!("--app-name={APP_NAME}")),
+            OsString::from(format!("--icon={APP_ID}")),
+            OsString::from(format!("--hint=string:desktop-entry:{APP_ID}")),
+            OsString::from(title),
+            OsString::from(body),
+        ],
+    }
+}
+
+fn notification_summary(summary: &str) -> &str {
+    if summary.eq_ignore_ascii_case("rayslash timer") {
+        "Timer finished"
+    } else if summary.eq_ignore_ascii_case("rayslash reminder") {
+        "Reminder"
+    } else {
+        summary
     }
 }
 
@@ -585,4 +602,35 @@ fn tokenize_action_command(command: &str) -> Option<impl Iterator<Item = String>
     }
 
     Some(args.into_iter())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notifications_use_the_rayslash_desktop_identity() {
+        let command = notification_command("Timer finished", "Take a break");
+
+        assert_eq!(command.program, OsString::from("notify-send"));
+        assert_eq!(
+            command.args,
+            vec![
+                OsString::from(format!("--app-name={APP_NAME}")),
+                OsString::from(format!("--icon={APP_ID}")),
+                OsString::from(format!("--hint=string:desktop-entry:{APP_ID}")),
+                OsString::from("Timer finished"),
+                OsString::from("Take a break"),
+            ]
+        );
+    }
+
+    #[test]
+    fn legacy_timer_notification_summaries_are_normalized() {
+        let timer = notification_command("rayslash timer", "Take a break");
+        let reminder = notification_command("rayslash reminder", "Take a break");
+
+        assert_eq!(timer.args[3], OsString::from("Timer finished"));
+        assert_eq!(reminder.args[3], OsString::from("Reminder"));
+    }
 }

@@ -188,6 +188,29 @@ pub fn refresh_registry() -> Result<RegistryRefresh, RegistryError> {
     })
 }
 
+/// Return the verified cached registry while it is recent enough, otherwise refresh it.
+///
+/// Startup callers should use this instead of fetching the same signed catalog on every
+/// process launch. A missing or invalid cache always falls through to the network refresh.
+pub fn refresh_registry_if_stale(max_age: Duration) -> Result<RegistryRefresh, RegistryError> {
+    if registry_cache_is_fresh(max_age)
+        && let Ok(cached) = load_cached_registry()
+    {
+        return Ok(cached);
+    }
+    refresh_registry()
+}
+
+fn registry_cache_is_fresh(max_age: Duration) -> bool {
+    registry_cache_pointer_modified()
+        .is_some_and(|modified| modified_within(modified, SystemTime::now(), max_age))
+}
+
+fn modified_within(modified: SystemTime, now: SystemTime, max_age: Duration) -> bool {
+    now.duration_since(modified)
+        .map_or(true, |age| age <= max_age)
+}
+
 fn registry_root_urls() -> Vec<String> {
     #[cfg(all(debug_assertions, feature = "registry-dev-override"))]
     if let Ok(url) = std::env::var("RAYSLASH_DEV_REGISTRY_ROOT") {
@@ -731,6 +754,26 @@ fn sha256(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
+
+    #[test]
+    fn registry_cache_freshness_accepts_recent_and_future_timestamps() {
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(10_000);
+        assert!(modified_within(
+            now - Duration::from_secs(60),
+            now,
+            Duration::from_secs(60)
+        ));
+        assert!(!modified_within(
+            now - Duration::from_secs(61),
+            now,
+            Duration::from_secs(60)
+        ));
+        assert!(modified_within(
+            now + Duration::from_secs(1),
+            now,
+            Duration::from_secs(60)
+        ));
+    }
 
     #[test]
     #[cfg(not(feature = "registry-dev-override"))]
