@@ -14,6 +14,13 @@ linuxdeploy="$3"
 output_dir="$4"
 version="$(awk -F '"' '$1 ~ /^version = / { print $2; exit }' "$root_dir/crates/rayslash-ui/Cargo.toml")"
 
+for file in "$rayslash_binary" "$module_host_binary" "$module_compiler_binary" "$linuxdeploy"; do
+    if [ ! -x "$file" ]; then
+        echo "required executable is missing: $file" >&2
+        exit 1
+    fi
+done
+
 case "$(uname -m)" in
     x86_64) architecture=x86_64 ;;
     aarch64) architecture=aarch64 ;;
@@ -28,10 +35,8 @@ mkdir -p "$output_dir"
 install -Dm0755 "$rayslash_binary" "$app_dir/usr/bin/rayslash"
 install -Dm0755 "$module_host_binary" \
     "$app_dir/usr/libexec/rayslash/rayslash-module-host"
-if [ -x "$module_compiler_binary" ]; then
-    install -Dm0755 "$module_compiler_binary" \
-        "$app_dir/usr/libexec/rayslash/rayslash-module-compiler"
-fi
+install -Dm0755 "$module_compiler_binary" \
+    "$app_dir/usr/libexec/rayslash/rayslash-module-compiler"
 install -Dm0755 "$root_dir/packaging/appimage/AppRun" "$app_dir/AppRun"
 install -Dm0644 "$root_dir/packaging/linux/dev.rayan6ms.rayslash.desktop" \
     "$app_dir/usr/share/applications/dev.rayan6ms.rayslash.desktop"

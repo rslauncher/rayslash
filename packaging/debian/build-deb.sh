@@ -22,7 +22,7 @@ case "$(uname -m)" in
         ;;
 esac
 
-for file in "$rayslash_binary" "$module_host_binary"; do
+for file in "$rayslash_binary" "$module_host_binary" "$module_compiler_binary"; do
     if [ ! -x "$file" ]; then
         echo "required executable is missing: $file" >&2
         exit 1
@@ -36,10 +36,8 @@ mkdir -p "$output_dir"
 install -Dm0755 "$rayslash_binary" "$package_root/usr/bin/rayslash"
 install -Dm0755 "$module_host_binary" \
     "$package_root/usr/libexec/rayslash/rayslash-module-host"
-if [ -x "$module_compiler_binary" ]; then
-    install -Dm0755 "$module_compiler_binary" \
-        "$package_root/usr/libexec/rayslash/rayslash-module-compiler"
-fi
+install -Dm0755 "$module_compiler_binary" \
+    "$package_root/usr/libexec/rayslash/rayslash-module-compiler"
 install -Dm0644 "$root_dir/packaging/linux/dev.rayan6ms.rayslash.desktop" \
     "$package_root/usr/share/applications/dev.rayan6ms.rayslash.desktop"
 install -Dm0644 "$root_dir/icons/rayslash-icon.svg" \
@@ -75,5 +73,9 @@ esac
 case "$package_contents" in
     *'./usr/libexec/rayslash/rayslash-module-host'*) ;;
     *) echo "Debian package is missing the module host" >&2; exit 1 ;;
+esac
+case "$package_contents" in
+    *'./usr/libexec/rayslash/rayslash-module-compiler'*) ;;
+    *) echo "Debian package is missing the module compiler" >&2; exit 1 ;;
 esac
 printf '%s\n' "$output"
