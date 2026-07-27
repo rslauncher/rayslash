@@ -69,7 +69,10 @@ jobs:
           CARGO_NET_OFFLINE: "true"
         run: |
           mkdir -p "$RUNNER_TEMP/rebuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-          rpmbuild --rebuild \
+          # The Linux job owns the complete Rust test suite. This matrix verifies
+          # offline compilation and the installed RPM surface without rebuilding
+          # every release-mode test harness a second time.
+          rpmbuild --rebuild --nocheck \
             --define "_topdir $RUNNER_TEMP/rebuild" \
             "$RUNNER_TEMP/rpmbuild/SRPMS/"*.src.rpm
       - name: Assemble the self-contained RPM for validation
