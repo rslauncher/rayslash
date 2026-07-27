@@ -6,18 +6,18 @@ if [ "$#" -ne 2 ]; then
     exit 2
 fi
 
-host_version=0.1.3
+host_version=0.1.4
 architecture="$1"
 output_directory="$2"
 
 case "$architecture" in
     x86_64)
         host_target=x86_64-unknown-linux-gnu
-        host_sha256=33ca9e7111641f71c51ae6512f9a9f8ebc4319a19667460437b7cb67fa3bfc87
+        host_sha256=ad42b2bc7ab526d83b98784a5508d78dc024c04588b9924ed9f1b68eec245311
         ;;
     aarch64)
         host_target=aarch64-unknown-linux-gnu
-        host_sha256=bbe49b3d599928371f695f0ad22e2d776a7243bc05be9d94def2c6f825af9ef8
+        host_sha256=bc39524d3d066f59ec9fbc23b0c324bf79b325606a1e9bcdc5eb6e9900953329
         ;;
     *)
         echo "unsupported architecture: $architecture" >&2

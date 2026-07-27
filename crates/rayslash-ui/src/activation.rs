@@ -16,8 +16,8 @@ pub(crate) struct ActivationCallbackContext {
     pub config_state: Rc<RefCell<config::Config>>,
     pub app_install_state: Rc<RefCell<app_state::AppInstallState>>,
     pub ranking_state: Rc<RefCell<ranking::RankingState>>,
-    pub projects: Rc<RefCell<Vec<projects::Project>>>,
-    pub apps: Rc<RefCell<Vec<apps::DesktopApp>>>,
+    pub projects: Rc<RefCell<Arc<Vec<projects::Project>>>>,
+    pub apps: Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     pub is_visible: Arc<AtomicBool>,
 }
 
@@ -73,9 +73,12 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                     } else {
                         actions::open_project_folder(&path)
                     };
+                    let outcome = outcome.map(|child| {
+                        actions::reap_child(child, format!("open {}", result.title));
+                    });
                     finish_launch(
                         &weak,
-                        outcome.map(|_| ()),
+                        outcome,
                         &result,
                         LaunchState {
                             config: &config_state,
@@ -101,7 +104,12 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                         dbus_activatable,
                         startup_wm_class.as_deref(),
                     )
-                    .map(|_| ());
+                    .map(|outcome| {
+                        actions::reap_launch_outcome(
+                            outcome,
+                            format!("launch application {}", result.title),
+                        );
+                    });
                     if outcome.is_ok() {
                         mark_app_selected(&app_install_state, &result);
                     }
@@ -177,8 +185,8 @@ fn activate_module(
 struct LaunchState<'a> {
     config: &'a Rc<RefCell<config::Config>>,
     ranking: &'a Rc<RefCell<ranking::RankingState>>,
-    projects: &'a Rc<RefCell<Vec<projects::Project>>>,
-    apps: &'a Rc<RefCell<Vec<apps::DesktopApp>>>,
+    projects: &'a Rc<RefCell<Arc<Vec<projects::Project>>>>,
+    apps: &'a Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     visible: &'a Arc<AtomicBool>,
 }
 

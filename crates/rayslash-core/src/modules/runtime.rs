@@ -1,12 +1,13 @@
 use std::{
     collections::BTreeMap,
     env, fs,
-    io::{BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, Write},
+    os::fd::AsRawFd,
     path::{Path, PathBuf},
     process::{Child, ChildStdin, ChildStdout, Command, Stdio},
     sync::{Mutex, OnceLock, mpsc},
     thread,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
 use crate::{
@@ -16,6 +17,7 @@ use crate::{
     search::{ModuleAction, SearchResult, SearchResultIcon, SearchResultKind},
 };
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use super::{
     ModulePackageManifest, ModulesConfig, PackageKind, installed_revocation, load_cached_registry,
@@ -25,8 +27,9 @@ use super::{
 const HOST_PROTOCOL: u32 = 1;
 const HOST_TIMEOUT: Duration = Duration::from_secs(5);
 const NETWORK_HOST_TIMEOUT: Duration = Duration::from_secs(10);
-const HOST_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const HOST_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_HOST_OUTPUT: u64 = 2 * 1024 * 1024;
+const AOT_FORMAT: &str = "wasmtime44-component-fuel-v1";
 
 #[derive(Debug, Default)]
 pub struct ModuleQueryBatch {
@@ -101,6 +104,7 @@ struct HostJob {
     query: String,
     max_results: usize,
     settings_json: String,
+    timeout: Duration,
     response: mpsc::Sender<Result<ModuleQueryBatch, String>>,
 }
 
@@ -145,23 +149,6 @@ pub fn installed_module_execution_hint(
         ProviderExecutionHint::DebouncedNetwork { debounce_ms: 150 }
     } else {
         ProviderExecutionHint::Local
-    }
-}
-
-pub fn prewarm_installed_modules(config: &ModulesConfig, settings: &BTreeMap<String, String>) {
-    let (candidates, _errors) = runtime_candidates(config, settings);
-    for candidate in candidates
-        .into_iter()
-        .filter(|candidate| candidate.module_id == super::CALCULATOR_MODULE_ID)
-    {
-        let _ = query_wasm_module(
-            &candidate.module_id,
-            &candidate.install_path,
-            &candidate.manifest,
-            "",
-            1,
-            &candidate.settings_json,
-        );
     }
 }
 
@@ -416,12 +403,31 @@ fn compact_conversion_amount(value: &str) -> bool {
 
 fn currency_hint(query: &str) -> bool {
     let words = query.split_whitespace().collect::<Vec<_>>();
-    words.len() == 4
-        && words[0].replace(',', "").parse::<f64>().is_ok()
-        && words[2].eq_ignore_ascii_case("to")
-        && [words[1], words[3]]
-            .iter()
-            .all(|word| word.len() == 3 && word.bytes().all(|byte| byte.is_ascii_alphabetic()))
+    match words.as_slice() {
+        [amount, from, connector, to] => {
+            amount.replace(',', "").parse::<f64>().is_ok()
+                && connector.eq_ignore_ascii_case("to")
+                && [*from, *to].iter().all(|word| currency_code(word))
+        }
+        [amount_and_from, connector, to] => {
+            compact_currency_amount(amount_and_from)
+                && connector.eq_ignore_ascii_case("to")
+                && currency_code(to)
+        }
+        _ => false,
+    }
+}
+
+fn compact_currency_amount(value: &str) -> bool {
+    value.char_indices().any(|(index, _)| {
+        index > 0
+            && currency_code(&value[index..])
+            && value[..index].replace(',', "").parse::<f64>().is_ok()
+    })
+}
+
+fn currency_code(value: &str) -> bool {
+    value.len() == 3 && value.bytes().all(|byte| byte.is_ascii_alphabetic())
 }
 
 fn timer_hint(query: &str) -> bool {
@@ -429,6 +435,7 @@ fn timer_hint(query: &str) -> bool {
         "timer ",
         "reminder in ",
         "remind in ",
+        "remind me in ",
         "remind me to ",
         "remind to ",
     ]
@@ -523,12 +530,18 @@ fn query_wasm_module(
     settings_json: &str,
 ) -> Result<ModuleQueryBatch, String> {
     let key = format!("{module_id}:{}", install_path.display());
+    let timeout = if manifest.permissions.network.is_empty() {
+        HOST_TIMEOUT
+    } else {
+        NETWORK_HOST_TIMEOUT
+    };
     let mut sender = host_sender(&key, module_id, install_path, manifest);
     let (mut response, mut receiver) = mpsc::channel();
     let mut job = HostJob {
         query: query.to_owned(),
         max_results,
         settings_json: settings_json.to_owned(),
+        timeout,
         response,
     };
     if let Err(error) = sender.send(job) {
@@ -539,18 +552,14 @@ fn query_wasm_module(
             query: error.0.query,
             max_results: error.0.max_results,
             settings_json: error.0.settings_json,
+            timeout: error.0.timeout,
             response,
         };
         sender
             .send(job)
             .map_err(|_| "module host stopped unexpectedly".to_owned())?;
     }
-    let timeout = if manifest.permissions.network.is_empty() {
-        HOST_TIMEOUT
-    } else {
-        NETWORK_HOST_TIMEOUT
-    };
-    match receiver.recv_timeout(timeout) {
+    match receiver.recv_timeout(timeout + Duration::from_millis(250)) {
         Ok(response) => response,
         Err(_) => {
             remove_host(&key);
@@ -612,14 +621,7 @@ fn host_worker(
     let mut process = HostProcess::start(&module_id, &install_path, &permissions);
     while let Ok(job) = receiver.recv_timeout(HOST_IDLE_TIMEOUT) {
         let response = match &mut process {
-            Ok(process) => process.query(
-                &module_id,
-                &install_path,
-                &permissions,
-                &job.query,
-                job.max_results,
-                &job.settings_json,
-            ),
+            Ok(process) => process.query(&module_id, &install_path, &permissions, &job),
             Err(error) => Err(error.clone()),
         };
         let failed = response.is_err();
@@ -636,10 +638,40 @@ impl HostProcess {
         install_path: &Path,
         permissions: &super::PackagePermissions,
     ) -> Result<Self, String> {
+        match ensure_compiled_component(module_id, install_path) {
+            Ok(compiled_component) => {
+                match Self::start_artifact(module_id, permissions, &compiled_component) {
+                    Ok(process) => Ok(process),
+                    Err(first_error) => {
+                        // A CPU migration, Wasmtime/configuration upgrade, or interrupted
+                        // cache write can make a correctly named artifact incompatible.
+                        let _ = fs::remove_file(&compiled_component);
+                        let rebuilt = ensure_compiled_component(module_id, install_path)?;
+                        Self::start_artifact(module_id, permissions, &rebuilt).map_err(|error| {
+                            format!("{first_error}; rebuilt AOT artifact also failed: {error}")
+                        })
+                    }
+                }
+            }
+            Err(compiler_error) => {
+                // During a coordinated package rollout an older compiler-capable host can
+                // still execute portable Wasm. The new runtime-only host rejects it, so a
+                // package that omits both capabilities fails closed with both diagnostics.
+                Self::start_artifact(module_id, permissions, &install_path.join("module.wasm"))
+                    .map_err(|host_error| format!("{compiler_error}; {host_error}"))
+            }
+        }
+    }
+
+    fn start_artifact(
+        module_id: &str,
+        permissions: &super::PackagePermissions,
+        compiled_component: &Path,
+    ) -> Result<Self, String> {
         let mut command = Command::new(module_host_path());
         command
             .arg("--module")
-            .arg(install_path.join("module.wasm"))
+            .arg(compiled_component)
             .arg("--cache-dir")
             .arg(module_cache_dir(module_id))
             .stdin(Stdio::piped())
@@ -671,7 +703,7 @@ impl HostProcess {
                 protocol: HOST_PROTOCOL,
             },
         )?;
-        process.handshake = read_limited_line(&mut process.stdout)?;
+        process.handshake = read_limited_line(&mut process.stdout, HOST_TIMEOUT)?;
         Ok(process)
     }
 
@@ -680,24 +712,96 @@ impl HostProcess {
         module_id: &str,
         install_path: &Path,
         permissions: &super::PackagePermissions,
-        query: &str,
-        max_results: usize,
-        settings_json: &str,
+        job: &HostJob,
     ) -> Result<ModuleQueryBatch, String> {
         write_request(
             &mut self.stdin,
             &HostRequest::Query {
                 id: 1,
-                query,
-                max_results: u32::try_from(max_results.min(100)).unwrap_or(100),
+                query: &job.query,
+                max_results: u32::try_from(job.max_results.min(100)).unwrap_or(100),
                 locale: None,
-                settings_json,
+                settings_json: &job.settings_json,
             },
         )?;
-        let response = read_limited_line(&mut self.stdout)?;
+        let response = read_limited_line(&mut self.stdout, job.timeout)?;
         let mut output = self.handshake.clone();
         output.extend_from_slice(&response);
-        parse_host_output(module_id, install_path, permissions, settings_json, &output)
+        parse_host_output(
+            module_id,
+            install_path,
+            permissions,
+            &job.settings_json,
+            &output,
+        )
+    }
+}
+
+fn ensure_compiled_component(module_id: &str, install_path: &Path) -> Result<PathBuf, String> {
+    let portable = install_path.join("module.wasm");
+    let module = fs::read(&portable).map_err(|error| {
+        format!(
+            "failed to read module component {}: {error}",
+            portable.display()
+        )
+    })?;
+    let digest = format!("{:x}", Sha256::digest(&module));
+    let directory = module_cache_dir(module_id).join("compiled");
+    let compiled = directory.join(format!("{AOT_FORMAT}-{}.cwasm", &digest[..32]));
+    if compiled.is_file() {
+        let _ = fs::remove_dir_all(module_cache_dir(module_id).join("wasmtime"));
+        return Ok(compiled);
+    }
+    fs::create_dir_all(&directory).map_err(|error| {
+        format!(
+            "failed to create compiled module cache {}: {error}",
+            directory.display()
+        )
+    })?;
+    let output = Command::new(module_compiler_path())
+        .arg("--module")
+        .arg(&portable)
+        .arg("--output")
+        .arg(&compiled)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| format!("module compiler is not installed or could not start: {error}"))?;
+    if !output.status.success() || !compiled.is_file() {
+        let detail = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "module compilation failed{}",
+            if detail.trim().is_empty() {
+                String::new()
+            } else {
+                format!(": {}", detail.trim())
+            }
+        ));
+    }
+    prune_compiled_components(&directory, &compiled);
+    let _ = fs::remove_dir_all(module_cache_dir(module_id).join("wasmtime"));
+    Ok(compiled)
+}
+
+fn prune_compiled_components(directory: &Path, keep: &Path) {
+    let Ok(entries) = fs::read_dir(directory) else {
+        return;
+    };
+    let mut files = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path == keep || path.extension().and_then(|value| value.to_str()) != Some("cwasm") {
+                return None;
+            }
+            let modified = entry.metadata().ok()?.modified().ok()?;
+            Some((modified, path))
+        })
+        .collect::<Vec<_>>();
+    files.sort_by_key(|(modified, _)| *modified);
+    for (_, path) in files.into_iter().rev().skip(1) {
+        let _ = fs::remove_file(path);
     }
 }
 
@@ -708,9 +812,16 @@ impl Drop for HostProcess {
     }
 }
 
-fn read_limited_line(reader: &mut impl BufRead) -> Result<Vec<u8>, String> {
+fn read_limited_line(
+    reader: &mut BufReader<ChildStdout>,
+    timeout: Duration,
+) -> Result<Vec<u8>, String> {
     let mut output = Vec::new();
+    let deadline = Instant::now() + timeout;
     loop {
+        if reader.buffer().is_empty() {
+            wait_for_pipe(reader.get_ref(), deadline)?;
+        }
         let buffer = reader.fill_buf().map_err(|error| error.to_string())?;
         if buffer.is_empty() {
             return Err("module host closed its output".into());
@@ -726,6 +837,48 @@ fn read_limited_line(reader: &mut impl BufRead) -> Result<Vec<u8>, String> {
         reader.consume(length);
         if output.ends_with(b"\n") {
             return Ok(output);
+        }
+    }
+}
+
+fn wait_for_pipe(pipe: &ChildStdout, deadline: Instant) -> Result<(), String> {
+    #[repr(C)]
+    struct PollFd {
+        fd: std::os::raw::c_int,
+        events: std::os::raw::c_short,
+        revents: std::os::raw::c_short,
+    }
+
+    unsafe extern "C" {
+        fn poll(fds: *mut PollFd, nfds: usize, timeout: std::os::raw::c_int)
+        -> std::os::raw::c_int;
+    }
+
+    const POLLIN: std::os::raw::c_short = 0x0001;
+    const POLLERR: std::os::raw::c_short = 0x0008;
+    const POLLHUP: std::os::raw::c_short = 0x0010;
+
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err("module host response timed out".into());
+        }
+        let timeout_ms = remaining.as_millis().clamp(1, i32::MAX as u128) as i32;
+        let mut descriptor = PollFd {
+            fd: pipe.as_raw_fd(),
+            events: POLLIN,
+            revents: 0,
+        };
+        let result = unsafe { poll(&mut descriptor, 1, timeout_ms) };
+        if result > 0 && descriptor.revents & (POLLIN | POLLERR | POLLHUP) != 0 {
+            return Ok(());
+        }
+        if result == 0 {
+            return Err("module host response timed out".into());
+        }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted {
+            return Err(format!("module host response poll failed: {error}"));
         }
     }
 }
@@ -958,6 +1111,17 @@ fn module_host_path() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("rayslash-module-host"))
 }
 
+fn module_compiler_path() -> PathBuf {
+    env::var_os("RAYSLASH_MODULE_COMPILER")
+        .map(PathBuf::from)
+        .or_else(|| {
+            let host = module_host_path();
+            let sibling = host.with_file_name("rayslash-module-compiler");
+            sibling.is_file().then_some(sibling)
+        })
+        .unwrap_or_else(|| PathBuf::from("rayslash-module-compiler"))
+}
+
 fn module_host_candidates(executable: Option<&Path>, home: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(binary_dir) = executable.and_then(Path::parent) {
@@ -1001,7 +1165,10 @@ mod routing_tests {
         assert!(conversion_hint("10f to c"));
         assert!(conversion_hint("-40fahrenheit to celsius"));
         assert!(currency_hint("25 BRL to USD"));
+        assert!(currency_hint("10usd to brl"));
+        assert!(currency_hint("1,250.50EUR to USD"));
         assert!(timer_hint("timer 5m tea"));
+        assert!(timer_hint("remind me in 30 to feed the cat"));
         assert!(timer_hint("reb"));
         assert!(timer_hint("loc"));
         assert!(timer_hint("log"));
@@ -1126,5 +1293,22 @@ mod tests {
             action: ActionValue::RunApprovedCommand(Vec::new()),
         };
         assert!(validate_result(&command).is_err());
+    }
+
+    #[test]
+    fn silent_host_pipe_obeys_the_read_deadline() {
+        let mut child = Command::new("sh")
+            .args(["-c", "sleep 10"])
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("start silent child");
+        let stdout = child.stdout.take().expect("silent child stdout");
+        let started = Instant::now();
+        let error = read_limited_line(&mut BufReader::new(stdout), Duration::from_millis(25))
+            .expect_err("silent child must time out");
+        assert!(error.contains("timed out"));
+        assert!(started.elapsed() < Duration::from_secs(1));
+        child.kill().expect("kill silent child");
+        child.wait().expect("reap silent child");
     }
 }

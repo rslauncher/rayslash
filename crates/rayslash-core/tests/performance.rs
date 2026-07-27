@@ -15,7 +15,7 @@ use rayslash_core::{
     config::{self, ProviderConfig},
     modules::{InstalledModule, InstalledModules, ModulePackageManifest, ModulesConfig},
     projects::{self, Project},
-    ranking::RankingState,
+    ranking::{RankingEntry, RankingState},
     search,
 };
 use serde_json::json;
@@ -26,48 +26,94 @@ use fixtures::TempDir;
 #[test]
 #[ignore = "diagnostic probe; run with --ignored --nocapture when investigating search latency"]
 fn mixed_search_performance_probe() {
-    let apps = (0..4_000).map(synthetic_app).collect::<Vec<_>>();
-    let projects = (0..1_000).map(synthetic_project).collect::<Vec<_>>();
+    let app_count = repetitions("RAYSLASH_SEARCH_APP_COUNT", 4_000);
+    let project_count = repetitions("RAYSLASH_SEARCH_PROJECT_COUNT", 1_000);
+    let sample_count = repetitions("RAYSLASH_SEARCH_SAMPLES", 200);
+    let warmups = repetitions("RAYSLASH_SEARCH_WARMUPS", 20);
+    let result_limit = std::env::var("RAYSLASH_SEARCH_RESULT_LIMIT")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok());
+    let apps = (0..app_count).map(synthetic_app).collect::<Vec<_>>();
+    let projects = (0..project_count)
+        .map(synthetic_project)
+        .collect::<Vec<_>>();
     let providers = ProviderConfig::default();
-    let ranking = RankingState::default();
+    let ranked_count = repetitions("RAYSLASH_SEARCH_RANKED_COUNT", 0).min(app_count);
+    let mut ranking = RankingState::default();
+    for index in 0..ranked_count {
+        ranking.entries.insert(
+            format!("app:dev.rayslash.fixture.App{index}.desktop"),
+            RankingEntry {
+                launch_count: 4,
+                last_launched_unix: 1,
+                query_prefixes: queries_for_ranking(),
+            },
+        );
+    }
     let queries = ["", "app 39", "editor", "project 42", "999 * 42"];
 
     for query in queries {
-        for _ in 0..20 {
-            black_box(search::mixed_results_with_ranking(
+        for _ in 0..warmups {
+            black_box(measured_search(
                 &projects,
                 &apps,
-                &[],
                 query,
                 &providers,
-                Some(&ranking),
+                &ranking,
+                result_limit,
             ));
         }
-        let mut samples = Vec::with_capacity(200);
+        let mut samples = Vec::with_capacity(sample_count);
         let mut total_results = 0usize;
-        for _ in 0..200 {
+        for _ in 0..sample_count {
             let started = Instant::now();
-            let results = search::mixed_results_with_ranking(
-                &projects,
-                &apps,
-                &[],
-                query,
-                &providers,
-                Some(&ranking),
-            );
+            let results =
+                measured_search(&projects, &apps, query, &providers, &ranking, result_limit);
             samples.push(started.elapsed());
             total_results += results.len();
             black_box(results);
         }
         print_distribution(
             &format!(
-                "synthetic-search query={query:?} items={} results/sample={}",
+                "synthetic-search query={query:?} items={} ranked={ranked_count} limit={result_limit:?} results/sample={}",
                 apps.len() + projects.len(),
                 total_results / samples.len()
             ),
             &samples,
         );
     }
+}
+
+fn queries_for_ranking() -> BTreeMap<String, u32> {
+    ["app 39", "editor", "project 42"]
+        .into_iter()
+        .map(|query| (query.to_owned(), 3))
+        .collect()
+}
+
+fn measured_search(
+    projects: &[Project],
+    apps: &[DesktopApp],
+    query: &str,
+    providers: &ProviderConfig,
+    ranking: &RankingState,
+    result_limit: Option<usize>,
+) -> Vec<search::SearchResult> {
+    result_limit.map_or_else(
+        || search::mixed_results_with_ranking(projects, apps, &[], query, providers, Some(ranking)),
+        |limit| {
+            search::mixed_results_with_ranking_and_web_searches_limited(
+                projects,
+                apps,
+                &[],
+                &[],
+                query,
+                providers,
+                Some(ranking),
+                limit,
+            )
+        },
+    )
 }
 
 #[test]
@@ -86,6 +132,18 @@ fn live_catalog_performance_probe() {
     }
     print_distribution(&format!("desktop-discovery apps={app_count}"), &app_samples);
 
+    let _ = apps::discover_and_cache_desktop_apps();
+    let mut freshness_samples = Vec::with_capacity(100);
+    for _ in 0..100 {
+        let started = Instant::now();
+        assert!(apps::desktop_apps_cache_is_current());
+        freshness_samples.push(started.elapsed());
+    }
+    print_distribution(
+        "desktop-cache source-metadata validation",
+        &freshness_samples,
+    );
+
     let mut folder_samples = Vec::with_capacity(100);
     let mut folder_count = 0;
     for _ in 0..100 {
@@ -101,6 +159,112 @@ fn live_catalog_performance_probe() {
             config.folder_sources.len()
         ),
         &folder_samples,
+    );
+}
+
+#[test]
+#[ignore = "diagnostic probe for desktop-catalog scaling and cache behavior"]
+fn synthetic_desktop_catalog_performance_probe() {
+    let entry_count = repetitions("RAYSLASH_DESKTOP_APP_COUNT", 10_000);
+    let sample_count = repetitions("RAYSLASH_DESKTOP_SAMPLES", 20);
+    let temp = TempDir::new("rayslash-desktop-catalog-performance");
+    let data_home = temp.create_dir_all("data").expect("create data home");
+    let data_dirs = temp
+        .create_dir_all("system-data")
+        .expect("create data dirs");
+    let cache_home = temp.create_dir_all("cache").expect("create cache home");
+    let home = temp.create_dir_all("home").expect("create home");
+    let applications = data_home.join("applications");
+    fs::create_dir_all(&applications).expect("create applications directory");
+
+    for index in 0..entry_count {
+        fs::write(
+            applications.join(format!("dev.rayslash.fixture.App{index}.desktop")),
+            format!(
+                "[Desktop Entry]\nType=Application\nName=Fixture App {index}\nGenericName=Application\nComment=Synthetic desktop catalog entry {index}\nExec=true\nCategories=Utility;\nKeywords=fixture;performance;group{};\n",
+                index % 100
+            ),
+        )
+        .expect("write synthetic desktop entry");
+    }
+
+    let _environment = EnvironmentGuard::set(&[
+        ("XDG_DATA_HOME", data_home.as_os_str()),
+        ("XDG_DATA_DIRS", data_dirs.as_os_str()),
+        ("XDG_CACHE_HOME", cache_home.as_os_str()),
+        ("HOME", home.as_os_str()),
+    ]);
+
+    let mut discovery_samples = Vec::with_capacity(sample_count);
+    for _ in 0..sample_count {
+        let started = Instant::now();
+        let discovered = apps::discover_desktop_apps();
+        discovery_samples.push(started.elapsed());
+        assert_eq!(discovered.len(), entry_count);
+        black_box(discovered);
+    }
+    print_distribution(
+        &format!("synthetic desktop discovery apps={entry_count}"),
+        &discovery_samples,
+    );
+
+    let started = Instant::now();
+    let discovered = apps::discover_and_cache_desktop_apps();
+    let save_elapsed = started.elapsed();
+    assert_eq!(discovered.len(), entry_count);
+    let cache_file = cache_home.join("rayslash/desktop-apps-v1.json");
+    println!(
+        "synthetic desktop discover+serialize+save apps={entry_count}: elapsed={save_elapsed:.3?} cache_bytes={} source_bytes={}",
+        fs::metadata(&cache_file)
+            .expect("desktop catalog cache metadata")
+            .len(),
+        fs::metadata(cache_home.join("rayslash/desktop-apps-v1.sources.json"))
+            .expect("desktop source cache metadata")
+            .len(),
+    );
+
+    let mut load_samples = Vec::with_capacity(sample_count);
+    for _ in 0..sample_count {
+        let started = Instant::now();
+        let cached = apps::load_cached_desktop_apps().expect("load cached desktop apps");
+        load_samples.push(started.elapsed());
+        assert_eq!(cached.len(), entry_count);
+        black_box(cached);
+    }
+    print_distribution(
+        &format!("synthetic desktop cache load+deserialize apps={entry_count}"),
+        &load_samples,
+    );
+
+    let freshness_count = sample_count.max(100);
+    let mut freshness_samples = Vec::with_capacity(freshness_count);
+    for _ in 0..freshness_count {
+        let started = Instant::now();
+        assert!(apps::desktop_apps_cache_is_current());
+        freshness_samples.push(started.elapsed());
+    }
+    print_distribution(
+        &format!("synthetic desktop metadata validation apps={entry_count}"),
+        &freshness_samples,
+    );
+
+    fs::write(
+        applications.join("dev.rayslash.fixture.App0.desktop"),
+        "[Desktop Entry]\nType=Application\nName=Changed Fixture App\nExec=true\n",
+    )
+    .expect("change one synthetic desktop entry");
+    assert!(!apps::desktop_apps_cache_is_current());
+    let started = Instant::now();
+    let reconciled = apps::discover_and_cache_desktop_apps();
+    let reconcile_elapsed = started.elapsed();
+    assert_eq!(reconciled.len(), entry_count);
+    assert!(
+        reconciled
+            .iter()
+            .any(|app| app.name == "Changed Fixture App")
+    );
+    println!(
+        "synthetic desktop one-file incremental reconcile apps={entry_count}: elapsed={reconcile_elapsed:.3?}"
     );
 }
 
@@ -152,12 +316,14 @@ fn app_activation_performance_probe() {
 }
 
 #[test]
-#[ignore = "requires RAYSLASH_MODULE_HOST, RAYSLASH_MODULE_WASM, and optionally query/settings/origins"]
+#[ignore = "requires RAYSLASH_MODULE_HOST, RAYSLASH_MODULE_WASM, and optionally compiler/query/settings/origins"]
 fn module_host_performance_probe() {
     let host = required_path("RAYSLASH_MODULE_HOST");
+    let compiler = module_compiler_for(&host);
     let module = required_path("RAYSLASH_MODULE_WASM");
     let temp = TempDir::new("rayslash-module-host-performance");
     let cache_dir = temp.join("cache");
+    let compiled = temp.join("module.cwasm");
     let query = std::env::var("RAYSLASH_MODULE_QUERY").unwrap_or_else(|_| "noop".into());
     let settings = std::env::var("RAYSLASH_MODULE_SETTINGS_JSON").unwrap_or_else(|_| "{}".into());
     let origins = std::env::var("RAYSLASH_MODULE_NETWORK_ORIGINS")
@@ -173,10 +339,28 @@ fn module_host_performance_probe() {
     let warm_repetitions = repetitions("RAYSLASH_MODULE_WARM_SAMPLES", 200);
     let warmups = repetitions("RAYSLASH_MODULE_WARMUPS", 20);
 
+    let compile_started = Instant::now();
+    let status = Command::new(&compiler)
+        .arg("--module")
+        .arg(&module)
+        .arg("--output")
+        .arg(&compiled)
+        .status()
+        .expect("start module compiler");
+    assert!(status.success(), "module compiler failed");
+    println!(
+        "module AOT compile module={} elapsed={:.3?} artifact={} bytes",
+        module.display(),
+        compile_started.elapsed(),
+        fs::metadata(&compiled)
+            .expect("compiled artifact metadata")
+            .len()
+    );
+
     let mut cold_samples = Vec::with_capacity(cold_repetitions);
     for _ in 0..cold_repetitions {
         let started = Instant::now();
-        let mut process = ModuleHost::start(&host, &module, &origins, &cache_dir);
+        let mut process = ModuleHost::start(&host, &compiled, &origins, &cache_dir);
         process.query(&query, &settings);
         cold_samples.push(started.elapsed());
     }
@@ -188,7 +372,7 @@ fn module_host_performance_probe() {
         &cold_samples,
     );
 
-    let mut process = ModuleHost::start(&host, &module, &origins, &cache_dir);
+    let mut process = ModuleHost::start(&host, &compiled, &origins, &cache_dir);
     for _ in 0..warmups {
         process.query(&query, &settings);
     }
@@ -216,7 +400,9 @@ fn module_host_performance_probe() {
 #[ignore = "requires RAYSLASH_MODULE_HOST and RAYSLASH_MODULES_ROOT"]
 fn installed_module_fanout_performance_probe() {
     let host = required_path("RAYSLASH_MODULE_HOST");
+    let compiler = module_compiler_for(&host);
     let modules_root = required_existing_path("RAYSLASH_MODULES_ROOT");
+    let query = std::env::var("RAYSLASH_MODULE_QUERY").unwrap_or_else(|_| "noop".into());
     let temp = TempDir::new("rayslash-module-fanout-performance");
     let data_home = temp.create_dir_all("data").expect("create data home");
     let state_home = temp.create_dir_all("state").expect("create state home");
@@ -226,6 +412,7 @@ fn installed_module_fanout_performance_probe() {
         ("XDG_STATE_HOME", state_home.as_os_str()),
         ("XDG_CACHE_HOME", cache_home.as_os_str()),
         ("RAYSLASH_MODULE_HOST", host.as_os_str()),
+        ("RAYSLASH_MODULE_COMPILER", compiler.as_os_str()),
     ]);
 
     let module_dirs = [
@@ -281,27 +468,33 @@ fn installed_module_fanout_performance_probe() {
     )
     .expect("write installed state");
 
-    let settings = BTreeMap::new();
+    let mut settings = BTreeMap::new();
+    if let (Ok(module_id), Ok(settings_json)) = (
+        std::env::var("RAYSLASH_MODULE_SETTINGS_ID"),
+        std::env::var("RAYSLASH_MODULE_SETTINGS_JSON"),
+    ) {
+        settings.insert(module_id, settings_json);
+    }
     let started = Instant::now();
-    let cold = rayslash_core::modules::query_installed_modules("noop", 20, &config, &settings);
+    let cold = rayslash_core::modules::query_installed_modules(&query, 20, &config, &settings);
     let cold_elapsed = started.elapsed();
     assert!(cold.errors.is_empty(), "fan-out errors: {:?}", cold.errors);
     println!(
-        "installed-module-fanout cold modules={} results={} elapsed={cold_elapsed:.3?}",
+        "installed-module-dispatch cold query={query:?} modules={} results={} elapsed={cold_elapsed:.3?}",
         installed.modules.len(),
         cold.results.len(),
     );
 
     for _ in 0..20 {
         black_box(rayslash_core::modules::query_installed_modules(
-            "noop", 20, &config, &settings,
+            &query, 20, &config, &settings,
         ));
     }
     let mut warm_samples = Vec::with_capacity(200);
     for _ in 0..200 {
         let started = Instant::now();
         let results =
-            rayslash_core::modules::query_installed_modules("noop", 20, &config, &settings);
+            rayslash_core::modules::query_installed_modules(&query, 20, &config, &settings);
         warm_samples.push(started.elapsed());
         assert!(
             results.errors.is_empty(),
@@ -312,11 +505,17 @@ fn installed_module_fanout_performance_probe() {
     }
     print_distribution(
         &format!(
-            "installed-module-fanout warm modules={}",
+            "installed-module-dispatch warm query={query:?} modules={}",
             installed.modules.len()
         ),
         &warm_samples,
     );
+}
+
+fn module_compiler_for(host: &Path) -> PathBuf {
+    std::env::var_os("RAYSLASH_MODULE_COMPILER")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| host.with_file_name("rayslash-module-compiler"))
 }
 
 struct ModuleHost {

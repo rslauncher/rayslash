@@ -144,6 +144,7 @@ jobs:
           rpm -Kv "$public_rpm"
           rpmlint "$public_rpm"
           rpm -qpl "$public_rpm" | grep -Fx /usr/libexec/rayslash/rayslash-module-host
+          rpm -qpl "$public_rpm" | grep -Fx /usr/libexec/rayslash/rayslash-module-compiler
           rpm -qp --provides "$public_rpm" | grep -F 'rayslash-module-host ='
           if rpm -qpl "$public_rpm" | grep -E 'module\.(wasm|toml)$'; then
             echo "the app RPM unexpectedly bundles optional module files" >&2
@@ -221,6 +222,8 @@ jobs:
           flatpak run --command=test dev.rayan6ms.rayslash -x /app/bin/rayslash
           flatpak run --command=test dev.rayan6ms.rayslash \
             -x /app/libexec/rayslash/rayslash-module-host
+          flatpak run --command=test dev.rayan6ms.rayslash \
+            -x /app/libexec/rayslash/rayslash-module-compiler
       - uses: actions/upload-artifact@v7
         with:
           name: flatpak-${{ matrix.architecture }}

@@ -3,13 +3,13 @@ use std::{
     io,
     path::Path,
     process::{Child, Command, ExitStatus, Stdio},
-    sync::{Mutex, OnceLock},
+    sync::{Mutex, OnceLock, mpsc},
     thread,
     time::{Duration, Instant},
 };
 
-use crate::apps::DesktopApp;
 use crate::search::ModuleAction;
+use crate::{APP_ID, APP_NAME, apps::DesktopApp};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +22,11 @@ pub enum LaunchOutcome {
     Spawned(Child),
     Completed,
     FocusedExisting,
+}
+
+struct ReapRequest {
+    child: Child,
+    label: String,
 }
 
 pub fn open_project_folder_command(path: &Path) -> CommandSpec {
@@ -246,9 +251,37 @@ pub fn run_module_action(action: &ModuleAction) -> io::Result<()> {
 }
 
 fn notification_command(title: &str, body: &str) -> CommandSpec {
+    let title = notification_summary(title);
+    let attention_required = matches!(title, "Timer finished" | "Reminder");
     CommandSpec {
         program: OsString::from("notify-send"),
-        args: vec![OsString::from(title), OsString::from(body)],
+        args: vec![
+            OsString::from(if attention_required {
+                "--urgency=critical"
+            } else {
+                "--urgency=normal"
+            }),
+            OsString::from(if attention_required {
+                "--expire-time=0"
+            } else {
+                "--expire-time=10000"
+            }),
+            OsString::from(format!("--app-name={APP_NAME}")),
+            OsString::from(format!("--icon={APP_ID}")),
+            OsString::from(format!("--hint=string:desktop-entry:{APP_ID}")),
+            OsString::from(title),
+            OsString::from(body),
+        ],
+    }
+}
+
+fn notification_summary(summary: &str) -> &str {
+    if summary.eq_ignore_ascii_case("rayslash timer") {
+        "Timer finished"
+    } else if summary.eq_ignore_ascii_case("rayslash reminder") {
+        "Reminder"
+    } else {
+        summary
     }
 }
 
@@ -283,19 +316,74 @@ fn schedule_command(command: CommandSpec, delay: Duration) -> io::Result<()> {
 }
 
 fn spawn_and_reap(command: CommandSpec) -> io::Result<()> {
-    let mut child = spawn_command(&command)?;
-    thread::spawn(move || match child.wait() {
-        Ok(status) if status.success() => {}
-        Ok(status) => eprintln!(
-            "rayslash action `{}` exited with status {status}",
-            command_display(&command)
-        ),
-        Err(error) => eprintln!(
-            "failed to reap rayslash action `{}`: {error}",
-            command_display(&command)
-        ),
-    });
+    let child = spawn_command(&command)?;
+    reap_child(child, command_display(&command));
     Ok(())
+}
+
+pub fn reap_launch_outcome(outcome: LaunchOutcome, label: impl Into<String>) {
+    if let LaunchOutcome::Spawned(child) = outcome {
+        reap_child(child, label);
+    }
+}
+
+pub fn reap_child(child: Child, label: impl Into<String>) {
+    let request = ReapRequest {
+        child,
+        label: label.into(),
+    };
+    if let Err(error) = child_reaper().send(request) {
+        // The process still needs an owner if the global worker terminated unexpectedly.
+        let mut request = error.0;
+        thread::spawn(move || {
+            let _ = request.child.wait();
+        });
+    }
+}
+
+fn child_reaper() -> &'static mpsc::Sender<ReapRequest> {
+    static REAPER: OnceLock<mpsc::Sender<ReapRequest>> = OnceLock::new();
+    REAPER.get_or_init(|| {
+        let (sender, receiver) = mpsc::channel::<ReapRequest>();
+        thread::Builder::new()
+            .name("rayslash-child-reaper".into())
+            .spawn(move || {
+                let mut children = Vec::<ReapRequest>::new();
+                loop {
+                    match receiver.recv_timeout(Duration::from_millis(100)) {
+                        Ok(request) => {
+                            children.push(request);
+                            children.extend(receiver.try_iter());
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout) => {}
+                        Err(mpsc::RecvTimeoutError::Disconnected) if children.is_empty() => break,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {}
+                    }
+
+                    children.retain_mut(|request| match request.child.try_wait() {
+                        Ok(Some(status)) => {
+                            if !status.success() {
+                                eprintln!(
+                                    "rayslash action `{}` exited with status {status}",
+                                    request.label
+                                );
+                            }
+                            false
+                        }
+                        Ok(None) => true,
+                        Err(error) => {
+                            eprintln!(
+                                "failed to reap rayslash action `{}`: {error}",
+                                request.label
+                            );
+                            false
+                        }
+                    });
+                }
+            })
+            .expect("start rayslash child reaper");
+        sender
+    })
 }
 
 fn desktop_app_launch_command(desktop_file: &Path) -> CommandSpec {
@@ -585,4 +673,64 @@ fn tokenize_action_command(command: &str) -> Option<impl Iterator<Item = String>
     }
 
     Some(args.into_iter())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn notifications_use_the_rayslash_desktop_identity() {
+        let command = notification_command("Timer finished", "Take a break");
+
+        assert_eq!(command.program, OsString::from("notify-send"));
+        assert_eq!(
+            command.args,
+            vec![
+                OsString::from("--urgency=critical"),
+                OsString::from("--expire-time=0"),
+                OsString::from(format!("--app-name={APP_NAME}")),
+                OsString::from(format!("--icon={APP_ID}")),
+                OsString::from(format!("--hint=string:desktop-entry:{APP_ID}")),
+                OsString::from("Timer finished"),
+                OsString::from("Take a break"),
+            ]
+        );
+    }
+
+    #[test]
+    fn legacy_timer_notification_summaries_are_normalized() {
+        let timer = notification_command("rayslash timer", "Take a break");
+        let reminder = notification_command("rayslash reminder", "Take a break");
+
+        assert_eq!(timer.args[5], OsString::from("Timer finished"));
+        assert_eq!(reminder.args[5], OsString::from("Reminder"));
+        assert_eq!(timer.args[0], OsString::from("--urgency=critical"));
+        assert_eq!(reminder.args[1], OsString::from("--expire-time=0"));
+    }
+
+    #[test]
+    fn ordinary_module_notifications_request_a_readable_timeout() {
+        let command = notification_command("Sync complete", "Everything is current");
+
+        assert_eq!(command.args[0], OsString::from("--urgency=normal"));
+        assert_eq!(command.args[1], OsString::from("--expire-time=10000"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn background_reaper_collects_finished_children() {
+        let child = Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .expect("spawn short-lived child");
+        let process_path = std::path::PathBuf::from(format!("/proc/{}", child.id()));
+        reap_child(child, "reaper-test");
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while process_path.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!process_path.exists(), "reaper left a zombie child behind");
+    }
 }

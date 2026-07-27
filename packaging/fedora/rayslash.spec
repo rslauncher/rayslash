@@ -1,9 +1,9 @@
 Name:           rayslash
-Version:        0.2.2
+Version:        0.2.3
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
-%global         module_host_version 0.1.3
-# Supersede standalone host RPMs through 0.1.3-1 without self-obsoleting.
+%global         module_host_version 0.1.4
+# Supersede standalone host RPMs through 0.1.4-1 without self-obsoleting.
 %global         module_host_package_release 2
 %ifarch x86_64
 %global         module_host_target x86_64-unknown-linux-gnu
@@ -52,6 +52,9 @@ install -Dm0755 target/release/rayslash %{buildroot}%{_bindir}/rayslash
 install -Dm0755 \
   rayslash-module-host-v%{module_host_version}-%{module_host_target}/rayslash-module-host \
   %{buildroot}%{_libexecdir}/rayslash/rayslash-module-host
+install -Dm0755 \
+  rayslash-module-host-v%{module_host_version}-%{module_host_target}/rayslash-module-compiler \
+  %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 install -Dm0644 packaging/linux/dev.rayan6ms.rayslash.desktop %{buildroot}%{_datadir}/applications/dev.rayan6ms.rayslash.desktop
 install -Dm0644 icons/rayslash-icon.svg %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/dev.rayan6ms.rayslash.svg
 install -Dm0644 packaging/linux/dev.rayan6ms.rayslash.metainfo.xml %{buildroot}%{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
@@ -68,16 +71,21 @@ RUSTFLAGS="-Cdebuginfo=0" \
 desktop-file-validate packaging/linux/dev.rayan6ms.rayslash.desktop
 appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xml
 test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-host
+test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 
 %files
 %license LICENSE*
 %{_bindir}/rayslash
 %{_libexecdir}/rayslash/rayslash-module-host
+%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_datadir}/applications/dev.rayan6ms.rayslash.desktop
 %{_datadir}/icons/hicolor/scalable/apps/dev.rayan6ms.rayslash.svg
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Sun Jul 26 2026 RaySlash contributors - 0.2.3-1
+- Ship the split module compiler, persistent timer notifications, and optimized runtime paths.
+
 * Sun Jul 26 2026 RaySlash contributors - 0.2.2-1
 - Polish result stability, ranking, module queries, country time zones, and settings layout.
 

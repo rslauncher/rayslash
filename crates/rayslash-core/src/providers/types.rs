@@ -188,4 +188,5 @@ pub struct ProviderContext<'a> {
     pub web_searches: &'a [WebSearchConfig],
     pub legacy_config: &'a LegacyProviderConfig,
     pub ranking: Option<&'a RankingState>,
+    pub result_limit: Option<usize>,
 }

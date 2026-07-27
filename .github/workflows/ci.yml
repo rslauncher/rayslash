@@ -2,11 +2,17 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   linux:
@@ -63,7 +69,10 @@ jobs:
           CARGO_NET_OFFLINE: "true"
         run: |
           mkdir -p "$RUNNER_TEMP/rebuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-          rpmbuild --rebuild \
+          # The Linux job owns the complete Rust test suite. This matrix verifies
+          # offline compilation and the installed RPM surface without rebuilding
+          # every release-mode test harness a second time.
+          rpmbuild --rebuild --nocheck \
             --define "_topdir $RUNNER_TEMP/rebuild" \
             "$RUNNER_TEMP/rpmbuild/SRPMS/"*.src.rpm
       - name: Assemble the self-contained RPM for validation
@@ -83,6 +92,7 @@ jobs:
           app_rpm=$(find . -maxdepth 1 -type f -name 'rayslash-*.rpm' -print -quit)
           test -n "$app_rpm"
           rpm -qpl "$app_rpm" | grep -Fx /usr/libexec/rayslash/rayslash-module-host
+          rpm -qpl "$app_rpm" | grep -Fx /usr/libexec/rayslash/rayslash-module-compiler
           rpm -qp --provides "$app_rpm" | grep -F 'rayslash-module-host ='
           if rpm -qpl "$app_rpm" | grep -E 'module\.(wasm|toml)$'; then
             echo "the app RPM unexpectedly bundles optional module files" >&2

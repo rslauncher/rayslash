@@ -3,6 +3,7 @@ use std::{
     collections::BTreeMap,
     path::Path,
     rc::Rc,
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -88,7 +89,7 @@ pub(crate) fn local_search_result_set(
     core_providers.currency_conversion = false;
     core_providers.time_lookup = false;
     core_providers.utility_actions = false;
-    let results = search::mixed_results_with_ranking_and_web_searches(
+    let results = search::mixed_results_with_ranking_and_web_searches_limited(
         projects,
         apps,
         &config.aliases,
@@ -96,6 +97,7 @@ pub(crate) fn local_search_result_set(
         query,
         &core_providers,
         ranking,
+        config.appearance.max_results.saturating_add(1),
     );
     finalize_results(config, app_state, results)
 }
@@ -332,7 +334,7 @@ pub(crate) fn module_settings(config: &config::Config) -> BTreeMap<String, Strin
 }
 
 pub(crate) fn refresh_desktop_apps(
-    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
+    apps_state: &Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     choices_model: &Rc<VecModel<AppChoiceItem>>,
     icon_cache: &Rc<RefCell<IconImageCache>>,
@@ -352,7 +354,7 @@ pub(crate) fn refresh_desktop_apps(
 }
 
 pub(crate) fn apply_desktop_apps(
-    apps_state: &Rc<RefCell<Vec<apps::DesktopApp>>>,
+    apps_state: &Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     choices_model: &Rc<VecModel<AppChoiceItem>>,
     icon_cache: &Rc<RefCell<IconImageCache>>,
@@ -371,7 +373,7 @@ pub(crate) fn apply_desktop_apps(
             &mut icon_cache.borrow_mut(),
         ));
     }
-    *apps_state.borrow_mut() = discovered_apps;
+    *apps_state.borrow_mut() = Arc::new(discovered_apps);
 
     profile_stage(
         profile,
@@ -381,7 +383,7 @@ pub(crate) fn apply_desktop_apps(
 }
 
 pub(crate) struct DesktopAppRefreshContext<'a> {
-    pub apps_state: &'a Rc<RefCell<Vec<apps::DesktopApp>>>,
+    pub apps_state: &'a Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     pub app_install_state: &'a Rc<RefCell<app_state::AppInstallState>>,
     pub choices_model: &'a Rc<VecModel<AppChoiceItem>>,
     pub icon_cache: &'a Rc<RefCell<IconImageCache>>,
@@ -395,6 +397,10 @@ pub(crate) fn refresh_desktop_apps_if_stale(
     min_interval: Duration,
 ) {
     if context.last_refresh.borrow().elapsed() < min_interval {
+        return;
+    }
+    if apps::desktop_apps_cache_is_current() {
+        *context.last_refresh.borrow_mut() = Instant::now();
         return;
     }
 

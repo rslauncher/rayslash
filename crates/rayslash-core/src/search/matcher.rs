@@ -13,20 +13,26 @@ pub(crate) fn boosted_score(
     query: &str,
     ranking: Option<&RankingState>,
 ) -> u32 {
+    let learning_id = result.learning_id();
+    boosted_score_for_candidate(learning_id.as_deref(), &result.title, score, query, ranking)
+}
+
+pub(crate) fn boosted_score_for_candidate(
+    learning_id: Option<&str>,
+    title: &str,
+    score: u32,
+    query: &str,
+    ranking: Option<&RankingState>,
+) -> u32 {
     let Some(ranking) = ranking else {
         return score;
     };
+    if ranking.entries.is_empty() || !title_starts_with_query(title, query) {
+        return score;
+    }
 
-    result
-        .learning_id()
-        .map(|id| {
-            let boost = if title_starts_with_query(&result.title, query) {
-                ranking.boost_for(&id, query)
-            } else {
-                0
-            };
-            score.saturating_add(boost)
-        })
+    learning_id
+        .map(|id| score.saturating_add(ranking.boost_for(id, query)))
         .unwrap_or(score)
 }
 
@@ -60,7 +66,7 @@ pub(crate) fn fuzzy_matcher() -> Matcher {
     Matcher::new(config)
 }
 
-fn title_starts_with_query(title: &str, query: &str) -> bool {
+pub(crate) fn title_starts_with_query(title: &str, query: &str) -> bool {
     let query = query
         .split_whitespace()
         .collect::<Vec<_>>()

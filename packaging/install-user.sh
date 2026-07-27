@@ -30,5 +30,8 @@ cargo install --locked --path "$root_dir/crates/rayslash-ui"
 install -Dm0755 \
     "$temporary_dir/$host_directory/rayslash-module-host" \
     "$HOME/.local/libexec/rayslash/rayslash-module-host"
+install -Dm0755 \
+    "$temporary_dir/$host_directory/rayslash-module-compiler" \
+    "$HOME/.local/libexec/rayslash/rayslash-module-compiler"
 
-echo "Installed rayslash and rayslash-module-host. No optional modules were installed."
+echo "Installed rayslash and its module runtime. No optional modules were installed."

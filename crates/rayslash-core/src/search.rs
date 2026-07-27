@@ -75,6 +75,52 @@ pub fn mixed_results_with_ranking_and_web_searches(
     providers: &ProviderConfig,
     ranking: Option<&RankingState>,
 ) -> Vec<SearchResult> {
+    mixed_results_with_ranking_and_web_searches_impl(
+        projects,
+        apps,
+        aliases,
+        web_searches,
+        query,
+        providers,
+        ranking,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn mixed_results_with_ranking_and_web_searches_limited(
+    projects: &[Project],
+    apps: &[DesktopApp],
+    aliases: &[AliasConfig],
+    web_searches: &[WebSearchConfig],
+    query: &str,
+    providers: &ProviderConfig,
+    ranking: Option<&RankingState>,
+    limit: usize,
+) -> Vec<SearchResult> {
+    mixed_results_with_ranking_and_web_searches_impl(
+        projects,
+        apps,
+        aliases,
+        web_searches,
+        query,
+        providers,
+        ranking,
+        Some(limit),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mixed_results_with_ranking_and_web_searches_impl(
+    projects: &[Project],
+    apps: &[DesktopApp],
+    aliases: &[AliasConfig],
+    web_searches: &[WebSearchConfig],
+    query: &str,
+    providers: &ProviderConfig,
+    ranking: Option<&RankingState>,
+    limit: Option<usize>,
+) -> Vec<SearchResult> {
     let query = query.trim();
     let context = ProviderContext {
         query,
@@ -84,6 +130,7 @@ pub fn mixed_results_with_ranking_and_web_searches(
         web_searches,
         legacy_config: providers,
         ranking,
+        result_limit: limit,
     };
     let provider_registry = builtin_providers();
 
@@ -122,7 +169,7 @@ pub fn mixed_results_with_ranking_and_web_searches(
             .flat_map(|outcome| outcome.results)
             .map(|provider_result| provider_result.result)
             .collect::<Vec<_>>();
-        results.sort_by(search_result_order);
+        sort_results_with_limit(&mut results, limit);
         return results;
     }
 
@@ -155,14 +202,26 @@ pub fn mixed_results_with_ranking_and_web_searches(
         }
     }
 
-    matches.sort_by(
-        |(a, a_score, a_boosted_score), (b, b_score, b_boosted_score)| {
+    let ranked_order =
+        |(a, a_score, a_boosted_score): &(SearchResult, u32, u32),
+         (b, b_score, b_boosted_score): &(SearchResult, u32, u32)| {
             b_boosted_score
                 .cmp(a_boosted_score)
                 .then_with(|| b_score.cmp(a_score))
                 .then_with(|| search_result_order(a, b))
-        },
-    );
+        };
+    let ranked_limit = limit.map(|limit| limit.saturating_sub(priority_results.len()));
+    if let Some(limit) = ranked_limit
+        && matches.len() > limit
+    {
+        if limit == 0 {
+            matches.clear();
+        } else {
+            matches.select_nth_unstable_by(limit, ranked_order);
+            matches.truncate(limit);
+        }
+    }
+    matches.sort_by(ranked_order);
 
     let mut ranked_results = matches
         .into_iter()
@@ -170,13 +229,30 @@ pub fn mixed_results_with_ranking_and_web_searches(
         .collect::<Vec<_>>();
 
     priority_results.append(&mut ranked_results);
-    let results = priority_results;
+    let mut results = priority_results;
+    if let Some(limit) = limit {
+        results.truncate(limit);
+    }
 
     if results.is_empty() {
         return vec![no_results(query, providers)];
     }
 
     results
+}
+
+fn sort_results_with_limit(results: &mut Vec<SearchResult>, limit: Option<usize>) {
+    if let Some(limit) = limit
+        && results.len() > limit
+    {
+        if limit == 0 {
+            results.clear();
+            return;
+        }
+        results.select_nth_unstable_by(limit, search_result_order);
+        results.truncate(limit);
+    }
+    results.sort_by(search_result_order);
 }
 
 pub fn query_execution_hint(query: &str, providers: &ProviderConfig) -> ProviderExecutionHint {
@@ -188,6 +264,7 @@ pub fn query_execution_hint(query: &str, providers: &ProviderConfig) -> Provider
         web_searches: &[],
         legacy_config: providers,
         ranking: None,
+        result_limit: None,
     })
 }
 
@@ -251,5 +328,40 @@ mod tests {
         assert_eq!(result.subtitle, "~/Projects/rayslash");
         assert_eq!(result.project_path(), Some(path.as_path()));
         assert_eq!(result.icon, SearchResultIcon::ProjectFolder);
+    }
+
+    #[test]
+    fn limited_search_is_the_exact_prefix_of_full_ranking() {
+        let projects = ["Zulu", "Alpha", "Echo", "Bravo", "Delta"]
+            .into_iter()
+            .map(|name| Project {
+                name: name.to_owned(),
+                path: PathBuf::from("/tmp").join(name),
+            })
+            .collect::<Vec<_>>();
+        let providers = ProviderConfig::default();
+
+        for query in ["", "a"] {
+            let full = mixed_results_with_ranking_and_web_searches(
+                &projects,
+                &[],
+                &[],
+                &[],
+                query,
+                &providers,
+                None,
+            );
+            let limited = mixed_results_with_ranking_and_web_searches_limited(
+                &projects,
+                &[],
+                &[],
+                &[],
+                query,
+                &providers,
+                None,
+                3,
+            );
+            assert_eq!(limited, full.into_iter().take(3).collect::<Vec<_>>());
+        }
     }
 }

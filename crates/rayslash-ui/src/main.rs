@@ -30,9 +30,11 @@ use module_settings::{
     ModuleSettingsCallbackContext, load_runtime_modules, module_items,
     register_module_settings_callback,
 };
+use notify::{RecursiveMode, Watcher};
 use opener_visual::accent_color_for_icon;
 use rayslash_core::{
-    apps, config, modules, projects, providers::ProviderExecutionHint, ranking, web_search,
+    app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking,
+    web_search,
 };
 use result_items::{
     IconImageCache, to_result_items, to_result_items_without_images, update_result_items_model,
@@ -40,7 +42,7 @@ use result_items::{
 use runtime_state::{
     ResultRefreshContext, ResultSelection, SearchResultSet, apply_desktop_apps,
     effective_search_query, load_runtime_app_state, load_runtime_ranking_state,
-    merge_module_results_with_config, module_settings, profile_enabled, profile_stage,
+    merge_module_results_with_config, profile_enabled, profile_stage,
     query_execution_hint_with_config, refresh_result_view, refresh_settings_dependent_ui,
     search_result_set, should_preserve_pending_module_results, sync_app_install_state,
 };
@@ -57,6 +59,7 @@ slint::include_modules!();
 
 pub(crate) const DEFAULT_STATUS_TEXT: &str = "";
 const DESKTOP_APP_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
+const BACKGROUND_LOCAL_SEARCH_THRESHOLD: usize = 100_000;
 
 struct ModuleSearchJob {
     generation: u64,
@@ -65,6 +68,19 @@ struct ModuleSearchJob {
     ranking_state: ranking::RankingState,
     module_config: modules::ModulesConfig,
     local_results: SearchResultSet,
+    debounce: Duration,
+    started: Instant,
+}
+
+struct LocalSearchJob {
+    generation: u64,
+    query: String,
+    config: config::Config,
+    ranking_state: ranking::RankingState,
+    app_state: app_state::AppInstallState,
+    module_config: modules::ModulesConfig,
+    projects: Arc<Vec<projects::Project>>,
+    apps: Arc<Vec<apps::DesktopApp>>,
     debounce: Duration,
     started: Instant,
 }
@@ -226,9 +242,9 @@ fn run_gui(
     );
 
     let stage_started = Instant::now();
-    let projects = Rc::new(RefCell::new(projects::scan_project_roots(
+    let projects = Rc::new(RefCell::new(Arc::new(projects::scan_project_roots(
         &config_state.borrow().folder_sources,
-    )));
+    ))));
     profile_stage(
         profile,
         &format!("project scan ({} projects)", projects.borrow().len()),
@@ -239,13 +255,16 @@ fn run_gui(
     let cached_apps = apps::load_cached_desktop_apps();
     let loaded_cached_apps = cached_apps.is_some();
     let initial_apps = cached_apps.unwrap_or_else(apps::discover_and_cache_desktop_apps);
-    let apps = Rc::new(RefCell::new(initial_apps));
+    let apps = Rc::new(RefCell::new(Arc::new(initial_apps)));
     let pending_app_refresh = Arc::new(Mutex::new(None));
     if loaded_cached_apps {
         thread::spawn({
             let weak = ui.as_weak();
             let pending_app_refresh = pending_app_refresh.clone();
             move || {
+                if apps::desktop_apps_cache_is_current() {
+                    return;
+                }
                 *pending_app_refresh
                     .lock()
                     .unwrap_or_else(|error| error.into_inner()) =
@@ -344,7 +363,7 @@ fn run_gui(
             if previous_count != count {
                 ui.invoke_reset_result_scroll();
             }
-            if ui.get_status_text().as_str() == "Looking up…" {
+            if matches!(ui.get_status_text().as_str(), "Looking up…" | "Searching…") {
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
             }
             profile_stage(
@@ -375,6 +394,52 @@ fn run_gui(
         }
     });
     let (module_search_tx, module_search_rx) = mpsc::channel::<ModuleSearchJob>();
+    let (local_search_tx, local_search_rx) = mpsc::channel::<LocalSearchJob>();
+    thread::spawn({
+        let module_search_tx = module_search_tx.clone();
+        let remote_result_tx = remote_result_tx.clone();
+        let remote_search_generation = remote_search_generation.clone();
+        move || {
+            while let Ok(mut job) = local_search_rx.recv() {
+                while let Ok(newer) = local_search_rx.try_recv() {
+                    job = newer;
+                }
+                if remote_search_generation.load(Ordering::Acquire) != job.generation {
+                    continue;
+                }
+                let local_results = runtime_state::local_search_result_set(
+                    &job.config,
+                    &job.ranking_state,
+                    &job.app_state,
+                    &job.projects,
+                    &job.apps,
+                    &job.query,
+                );
+                if remote_search_generation.load(Ordering::Acquire) != job.generation {
+                    continue;
+                }
+                if job.query.trim().is_empty() {
+                    let _ = remote_result_tx.send((
+                        job.generation,
+                        job.query,
+                        local_results,
+                        job.started,
+                    ));
+                } else {
+                    let _ = module_search_tx.send(ModuleSearchJob {
+                        generation: job.generation,
+                        query: job.query,
+                        config: job.config,
+                        ranking_state: job.ranking_state,
+                        module_config: job.module_config,
+                        local_results,
+                        debounce: job.debounce,
+                        started: job.started,
+                    });
+                }
+            }
+        }
+    });
     thread::spawn({
         let remote_result_tx = remote_result_tx.clone();
         let remote_search_generation = remote_search_generation.clone();
@@ -463,8 +528,10 @@ fn run_gui(
         move || {
             *pending_registry_refresh
                 .lock()
-                .unwrap_or_else(|error| error.into_inner()) =
-                Some(modules::refresh_registry().map_err(|error| error.to_string()));
+                .unwrap_or_else(|error| error.into_inner()) = Some(
+                modules::refresh_registry_if_stale(Duration::from_secs(6 * 60 * 60))
+                    .map_err(|error| error.to_string()),
+            );
             let _ = weak.upgrade_in_event_loop(|ui| ui.invoke_apply_registry_refresh());
         }
     });
@@ -481,6 +548,22 @@ fn run_gui(
         &socket_path,
     );
     ui.invoke_focus_search();
+
+    if profile && std::env::var_os("RAYSLASH_PROFILE_FRAME").is_some_and(|value| value != "0") {
+        let first_frame_rendered = Rc::new(Cell::new(false));
+        let marker = first_frame_rendered.clone();
+        if let Err(error) = ui.window().set_rendering_notifier(move |state, _| {
+            if matches!(state, slint::RenderingState::AfterRendering) && !marker.replace(true) {
+                profile_stage(
+                    true,
+                    "startup first frame rendered/submitted",
+                    startup_started,
+                );
+            }
+        }) {
+            eprintln!("[rayslash profile] frame-render telemetry unavailable: {error}");
+        }
+    }
 
     let first_redraw_profiled = Rc::new(Cell::new(false));
     ui.window().on_winit_window_event({
@@ -702,6 +785,7 @@ fn run_gui(
         let module_state = module_state.clone();
         let remote_search_generation = remote_search_generation.clone();
         let module_search_tx = module_search_tx.clone();
+        let local_search_tx = local_search_tx.clone();
         let last_effective_query = last_effective_query.clone();
         move |query| {
             let stage_started = Instant::now();
@@ -723,6 +807,35 @@ fn run_gui(
                     &effective_query,
                 );
                 let generation = remote_search_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                let debounce = match execution_hint {
+                    ProviderExecutionHint::DebouncedNetwork { debounce_ms } => {
+                        Duration::from_millis(debounce_ms)
+                    }
+                    ProviderExecutionHint::Local => Duration::ZERO,
+                };
+                if projects.borrow().len() + apps.borrow().len()
+                    >= BACKGROUND_LOCAL_SEARCH_THRESHOLD
+                {
+                    ui.set_status_text("Searching…".into());
+                    let _ = local_search_tx.send(LocalSearchJob {
+                        generation,
+                        query: effective_query,
+                        config: config_state.borrow().clone(),
+                        ranking_state: ranking_state.borrow().clone(),
+                        app_state: app_install_state.borrow().clone(),
+                        module_config: module_state.borrow().clone(),
+                        projects: projects.borrow().clone(),
+                        apps: apps.borrow().clone(),
+                        debounce,
+                        started: stage_started,
+                    });
+                    profile_stage(
+                        profile,
+                        &format!("query {:?} queued for background search", query.as_str()),
+                        stage_started,
+                    );
+                    return;
+                }
                 let count = refresh_result_view(
                     &ui,
                     ResultRefreshContext {
@@ -821,8 +934,9 @@ fn run_gui(
         },
     );
 
-    if loaded_cached_apps {
+    {
         let pending_app_refresh = pending_app_refresh.clone();
+        let pending_app_refresh_for_watcher = pending_app_refresh.clone();
         ui.on_apply_desktop_refresh({
             let weak = ui.as_weak();
             let apps = apps.clone();
@@ -841,7 +955,7 @@ fn run_gui(
                     .unwrap_or_else(|error| error.into_inner())
                     .take();
                 if let Some(discovered_apps) = discovered_apps
-                    && discovered_apps != *apps.borrow()
+                    && discovered_apps.as_slice() != apps.borrow().as_slice()
                 {
                     apply_desktop_apps(
                         &apps,
@@ -877,6 +991,7 @@ fn run_gui(
                 }
             }
         });
+        spawn_desktop_app_watcher(ui.as_weak(), pending_app_refresh_for_watcher);
     }
 
     register_module_settings_callback(
@@ -934,15 +1049,45 @@ fn run_gui(
             ));
         }
     });
-    Timer::single_shot(Duration::from_secs(1), {
-        let config = config_state.borrow().clone();
-        move || {
-            thread::spawn(move || {
-                let module_config = modules::load_modules_config(&config.providers)
-                    .unwrap_or_else(|_| modules::ModulesConfig::empty());
-                modules::prewarm_installed_modules(&module_config, &module_settings(&config));
-            });
+    slint::run_event_loop_until_quit()
+}
+
+fn spawn_desktop_app_watcher(
+    weak: slint::Weak<AppWindow>,
+    pending_app_refresh: Arc<Mutex<Option<Vec<apps::DesktopApp>>>>,
+) {
+    thread::spawn(move || {
+        let (event_tx, event_rx) = mpsc::channel();
+        let Ok(mut watcher) =
+            notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                if event.is_ok() {
+                    let _ = event_tx.send(());
+                }
+            })
+        else {
+            return;
+        };
+        let mut watched = false;
+        for directory in apps::desktop_application_dirs() {
+            if directory.is_dir() && watcher.watch(&directory, RecursiveMode::Recursive).is_ok() {
+                watched = true;
+            }
+        }
+        if !watched {
+            return;
+        }
+        while event_rx.recv().is_ok() {
+            while event_rx.recv_timeout(Duration::from_millis(250)).is_ok() {}
+            let discovered = apps::discover_and_cache_desktop_apps();
+            *pending_app_refresh
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(discovered);
+            if weak
+                .upgrade_in_event_loop(|ui| ui.invoke_apply_desktop_refresh())
+                .is_err()
+            {
+                return;
+            }
         }
     });
-    slint::run_event_loop_until_quit()
 }

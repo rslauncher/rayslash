@@ -1,6 +1,6 @@
 [package]
 name = "rayslash"
-version = "0.2.2"
+version = "0.2.3"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -14,6 +14,7 @@ arboard.workspace = true
 dirs.workspace = true
 image.workspace = true
 nucleo-matcher.workspace = true
+notify.workspace = true
 rayslash-core = { path = "../rayslash-core" }
 rfd.workspace = true
 semver.workspace = true

@@ -1,8 +1,9 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use serde::{Deserialize, Serialize};
@@ -13,13 +14,39 @@ use super::{
     icon_lookup::{DesktopIconResolver, desktop_icon_dirs},
 };
 
-const DESKTOP_CACHE_VERSION: u32 = 1;
+const DESKTOP_CACHE_VERSION: u32 = 3;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct DesktopSourceStamp {
+    path: PathBuf,
+    len: u64,
+    modified_seconds: u64,
+    modified_nanoseconds: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DesktopCatalogEntry {
+    source: DesktopSourceStamp,
+    id: String,
+    app: Option<DesktopApp>,
+}
 
 #[derive(Serialize, Deserialize)]
 struct DesktopCatalogCache {
     version: u32,
     environment: String,
+    #[serde(default)]
+    sources: Vec<DesktopSourceStamp>,
+    #[serde(default)]
+    entries: Vec<DesktopCatalogEntry>,
     apps: Vec<DesktopApp>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct DesktopSourceCache {
+    version: u32,
+    environment: String,
+    sources: Vec<DesktopSourceStamp>,
 }
 
 pub fn discover_desktop_apps() -> Vec<DesktopApp> {
@@ -27,8 +54,15 @@ pub fn discover_desktop_apps() -> Vec<DesktopApp> {
 }
 
 pub fn discover_and_cache_desktop_apps() -> Vec<DesktopApp> {
-    let apps = discover_desktop_apps();
-    let _ = save_desktop_apps_cache(&apps);
+    let dirs = desktop_application_dirs();
+    let environment = desktop_environment();
+    let previous = desktop_apps_cache_file()
+        .and_then(|path| fs::read(path).ok())
+        .and_then(|bytes| serde_json::from_slice::<DesktopCatalogCache>(&bytes).ok())
+        .filter(|cache| cache.version == DESKTOP_CACHE_VERSION && cache.environment == environment);
+    let (apps, entries) = reconcile_desktop_apps(&dirs, previous);
+    let sources = desktop_source_stamps(&dirs);
+    let _ = save_desktop_apps_cache(entries, sources, &environment);
     apps
 }
 
@@ -37,6 +71,25 @@ pub fn load_cached_desktop_apps() -> Option<Vec<DesktopApp>> {
         &fs::read(desktop_apps_cache_file()?).ok()?,
         &desktop_environment(),
     )
+}
+
+/// Check whether the source desktop files still match the cached catalog.
+///
+/// This deliberately compares cheap file metadata and avoids parsing desktop entries or
+/// resolving icons. Callers can run it off the UI thread before scheduling reconciliation.
+pub fn desktop_apps_cache_is_current() -> bool {
+    let Some(path) = desktop_sources_cache_file() else {
+        return false;
+    };
+    let Ok(contents) = fs::read(path) else {
+        return false;
+    };
+    let Ok(cache) = serde_json::from_slice::<DesktopSourceCache>(&contents) else {
+        return false;
+    };
+    cache.version == DESKTOP_CACHE_VERSION
+        && cache.environment == desktop_environment()
+        && cache.sources == desktop_source_stamps(&desktop_application_dirs())
 }
 
 pub fn discover_desktop_apps_in_dirs(dirs: &[PathBuf]) -> Vec<DesktopApp> {
@@ -72,7 +125,7 @@ pub fn discover_desktop_apps_in_dirs(dirs: &[PathBuf]) -> Vec<DesktopApp> {
     apps
 }
 
-fn desktop_application_dirs() -> Vec<PathBuf> {
+pub fn desktop_application_dirs() -> Vec<PathBuf> {
     desktop_application_dirs_from_env(
         std::env::var_os("XDG_DATA_HOME"),
         std::env::var_os("XDG_DATA_DIRS"),
@@ -85,7 +138,15 @@ fn desktop_apps_cache_file() -> Option<PathBuf> {
     dirs::cache_dir().map(|path| path.join("rayslash/desktop-apps-v1.json"))
 }
 
-fn save_desktop_apps_cache(apps: &[DesktopApp]) -> std::io::Result<()> {
+fn desktop_sources_cache_file() -> Option<PathBuf> {
+    dirs::cache_dir().map(|path| path.join("rayslash/desktop-apps-v1.sources.json"))
+}
+
+fn save_desktop_apps_cache(
+    entries: Vec<DesktopCatalogEntry>,
+    sources: Vec<DesktopSourceStamp>,
+    environment: &str,
+) -> std::io::Result<()> {
     let Some(path) = desktop_apps_cache_file() else {
         return Ok(());
     };
@@ -94,17 +155,119 @@ fn save_desktop_apps_cache(apps: &[DesktopApp]) -> std::io::Result<()> {
     }
     let cache = DesktopCatalogCache {
         version: DESKTOP_CACHE_VERSION,
-        environment: desktop_environment(),
-        apps: apps.to_vec(),
+        environment: environment.to_owned(),
+        sources: Vec::new(),
+        entries,
+        // Schema 3 keeps the parsed app beside its source stamp. A duplicate
+        // flat app list would nearly double large desktop-catalog caches.
+        apps: Vec::new(),
+    };
+    let source_cache = DesktopSourceCache {
+        version: DESKTOP_CACHE_VERSION,
+        environment: environment.to_owned(),
+        sources,
     };
     let contents = serde_json::to_vec(&cache).map_err(std::io::Error::other)?;
-    crate::atomic_write::write_bytes(&path, &contents)
+    crate::atomic_write::write_bytes(&path, &contents)?;
+    if let Some(source_path) = desktop_sources_cache_file() {
+        let sources = serde_json::to_vec(&source_cache).map_err(std::io::Error::other)?;
+        crate::atomic_write::write_bytes(&source_path, &sources)?;
+    }
+    Ok(())
 }
 
 fn cached_desktop_apps_from_bytes(contents: &[u8], environment: &str) -> Option<Vec<DesktopApp>> {
     let cache: DesktopCatalogCache = serde_json::from_slice(contents).ok()?;
-    (cache.version == DESKTOP_CACHE_VERSION && cache.environment == environment)
-        .then_some(cache.apps)
+    if cache.environment != environment {
+        return None;
+    }
+    match cache.version {
+        1 | 2 => Some(cache.apps),
+        DESKTOP_CACHE_VERSION => {
+            let mut apps = cache
+                .entries
+                .into_iter()
+                .filter_map(|entry| entry.app)
+                .collect::<Vec<_>>();
+            apps.sort_by(app_order);
+            Some(apps)
+        }
+        _ => None,
+    }
+}
+
+fn reconcile_desktop_apps(
+    dirs: &[PathBuf],
+    previous: Option<DesktopCatalogCache>,
+) -> (Vec<DesktopApp>, Vec<DesktopCatalogEntry>) {
+    let previous = previous
+        .into_iter()
+        .flat_map(|cache| cache.entries)
+        .map(|entry| (entry.source.path.clone(), entry))
+        .collect::<HashMap<_, _>>();
+    let mut seen_ids = HashSet::new();
+    let mut icon_resolver = DesktopIconResolver::new(desktop_icon_dirs());
+    let mut entries = Vec::new();
+    let mut apps = Vec::new();
+
+    for dir in dirs {
+        for path in desktop_files_in_dir(dir) {
+            let id = desktop_app_id(dir, &path);
+            if !seen_ids.insert(id.clone()) {
+                continue;
+            }
+            let Some(source) = desktop_source_stamp(path.clone()) else {
+                continue;
+            };
+            let app = previous
+                .get(&path)
+                .filter(|entry| entry.source == source && entry.id == id)
+                .map(|entry| entry.app.clone())
+                .unwrap_or_else(|| match parse_desktop_file_with_id(&path, id.clone()) {
+                    Ok(Some(mut app)) => {
+                        app.icon_path = app
+                            .icon
+                            .as_deref()
+                            .and_then(|icon| icon_resolver.resolve(icon));
+                        Some(app)
+                    }
+                    Ok(None) => None,
+                    Err(error) => {
+                        eprintln!("failed to read desktop entry {}: {error}", path.display());
+                        None
+                    }
+                });
+            if let Some(app) = app.as_ref() {
+                apps.push(app.clone());
+            }
+            entries.push(DesktopCatalogEntry { source, id, app });
+        }
+    }
+    apps.sort_by(app_order);
+    entries.sort_by(|a, b| a.source.path.cmp(&b.source.path));
+    (apps, entries)
+}
+
+fn desktop_source_stamps(dirs: &[PathBuf]) -> Vec<DesktopSourceStamp> {
+    let mut stamps = dirs
+        .iter()
+        .flat_map(|directory| desktop_files_in_dir(directory))
+        .filter_map(desktop_source_stamp)
+        .collect::<Vec<_>>();
+    stamps.sort_by(|a, b| a.path.cmp(&b.path));
+    stamps
+}
+
+fn desktop_source_stamp(path: PathBuf) -> Option<DesktopSourceStamp> {
+    let metadata = fs::metadata(&path).ok()?;
+    let modified = metadata.modified().ok()?;
+    let duration = modified.duration_since(SystemTime::UNIX_EPOCH).ok()?;
+    Some(DesktopSourceStamp {
+        path,
+        len: metadata.len(),
+        modified_seconds: duration.as_secs(),
+        modified_nanoseconds: duration.subsec_nanos(),
+    })
 }
 
 fn desktop_environment() -> String {
@@ -239,6 +402,8 @@ mod tests {
         serde_json::to_vec(&DesktopCatalogCache {
             version,
             environment: environment.to_owned(),
+            sources: Vec::new(),
+            entries: Vec::new(),
             apps: Vec::new(),
         })
         .expect("cache fixture should serialize")
@@ -314,5 +479,16 @@ mod tests {
             .is_none()
         );
         assert!(cached_desktop_apps_from_bytes(b"not json", "current").is_none());
+    }
+
+    #[test]
+    fn desktop_cache_version_one_remains_a_fast_migration_source() {
+        assert_eq!(
+            cached_desktop_apps_from_bytes(
+                br#"{"version":1,"environment":"current","apps":[]}"#,
+                "current"
+            ),
+            Some(Vec::new())
+        );
     }
 }
