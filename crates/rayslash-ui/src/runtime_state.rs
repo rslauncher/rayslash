@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::Path,
     rc::Rc,
     sync::Arc,
@@ -12,8 +12,11 @@ use nucleo_matcher::{
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 use rayslash_core::{
-    app_state, apps, config, diagnostics::Telemetry, modules, projects,
-    providers::ProviderExecutionHint, ranking, search, web_search,
+    app_state, apps, config,
+    diagnostics::{OperationalDiagnostic, OperationalDiagnosticCode, Telemetry},
+    modules, projects,
+    providers::ProviderExecutionHint,
+    ranking, search, web_search,
 };
 use slint::{Model, VecModel};
 
@@ -40,20 +43,44 @@ pub(crate) fn profile_stage(enabled: bool, label: &str, started: Instant) {
     }
 }
 
-pub(crate) fn load_runtime_ranking_state() -> ranking::RankingState {
+pub(crate) fn load_runtime_ranking_state(telemetry: &dyn Telemetry) -> ranking::RankingState {
     match ranking::load_ranking_state() {
         Ok(state) => state,
         Err(error) => {
+            let diagnostic = match &error {
+                ranking::LoadRankingStateError::Read { source, .. } => {
+                    OperationalDiagnostic::from_io(
+                        OperationalDiagnosticCode::RankingStateLoad,
+                        source,
+                    )
+                }
+                ranking::LoadRankingStateError::Parse { .. } => {
+                    OperationalDiagnostic::new(OperationalDiagnosticCode::RankingStateLoad)
+                }
+            };
+            telemetry.operational_failure(diagnostic);
             eprintln!("{error}; using empty ranking state");
             ranking::RankingState::default()
         }
     }
 }
 
-pub(crate) fn load_runtime_app_state() -> app_state::AppInstallState {
+pub(crate) fn load_runtime_app_state(telemetry: &dyn Telemetry) -> app_state::AppInstallState {
     match app_state::load_app_state() {
         Ok(state) => state,
         Err(error) => {
+            let diagnostic = match &error {
+                app_state::LoadAppStateError::Read { source, .. } => {
+                    OperationalDiagnostic::from_io(
+                        OperationalDiagnosticCode::ApplicationStateLoad,
+                        source,
+                    )
+                }
+                app_state::LoadAppStateError::Parse { .. } => {
+                    OperationalDiagnostic::new(OperationalDiagnosticCode::ApplicationStateLoad)
+                }
+            };
+            telemetry.operational_failure(diagnostic);
             eprintln!("{error}; using empty app state");
             app_state::AppInstallState::default()
         }
@@ -110,7 +137,7 @@ pub(crate) fn merge_module_results(
 ) -> SearchResultSet {
     let module_config = modules::load_modules_config(&config.providers)
         .unwrap_or_else(|_| modules::ModulesConfig::empty());
-    merge_module_results_with_config(config, ranking_state, &module_config, local, query)
+    merge_module_results_with_config(config, ranking_state, &module_config, local, query, None)
 }
 
 pub(crate) fn merge_module_results_with_config(
@@ -119,6 +146,7 @@ pub(crate) fn merge_module_results_with_config(
     module_config: &modules::ModulesConfig,
     mut local: SearchResultSet,
     query: &str,
+    telemetry: Option<&dyn Telemetry>,
 ) -> SearchResultSet {
     if !should_query_modules(query) {
         return local;
@@ -130,6 +158,16 @@ pub(crate) fn merge_module_results_with_config(
         module_config,
         &settings,
     );
+    if let Some(telemetry) = telemetry {
+        for code in module_results
+            .errors
+            .iter()
+            .map(|error| classify_module_runtime_failure(error))
+            .collect::<BTreeSet<_>>()
+        {
+            telemetry.operational_failure(OperationalDiagnostic::new(code));
+        }
+    }
     apply_web_search_favicons(&mut module_results.results, &config.web_searches);
     let mut results = std::mem::take(&mut local.results);
     if module_results.exclusive {
@@ -173,6 +211,34 @@ pub(crate) fn merge_module_results_with_config(
         } else {
             String::new()
         },
+    }
+}
+
+fn classify_module_runtime_failure(error: &str) -> OperationalDiagnosticCode {
+    let error = error.to_ascii_lowercase();
+    if error.contains("timed out") {
+        OperationalDiagnosticCode::ModuleRuntimeTimeout
+    } else if error.contains("module host")
+        && (error.contains("not installed")
+            || error.contains("could not start")
+            || error.contains("stopped unexpectedly")
+            || error.contains("closed its output"))
+    {
+        OperationalDiagnosticCode::ModuleRuntimeHostUnavailable
+    } else if error.contains("module compiler")
+        || error.contains("module compilation failed")
+        || error.contains("aot artifact")
+    {
+        OperationalDiagnosticCode::ModuleRuntimeCompilerUnavailable
+    } else if error.contains("protocol mismatch") {
+        OperationalDiagnosticCode::ModuleRuntimeProtocol
+    } else if error.contains("invalid module")
+        || error.contains("not utf-8")
+        || error.contains("invalid query response")
+    {
+        OperationalDiagnosticCode::ModuleRuntimeInvalidResponse
+    } else {
+        OperationalDiagnosticCode::ModuleRuntimeOther
     }
 }
 
@@ -338,7 +404,7 @@ pub(crate) fn refresh_desktop_apps(
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     choices_model: &Rc<VecModel<AppChoiceItem>>,
     icon_cache: &Rc<RefCell<IconImageCache>>,
-    telemetry: &dyn Telemetry,
+    telemetry: Arc<dyn Telemetry>,
     profile: bool,
     label: &str,
 ) {
@@ -352,6 +418,7 @@ pub(crate) fn refresh_desktop_apps(
         icon_cache,
         scan.apps,
         (profile, label, stage_started),
+        telemetry,
     );
 }
 
@@ -362,11 +429,12 @@ pub(crate) fn apply_desktop_apps(
     icon_cache: &Rc<RefCell<IconImageCache>>,
     discovered_apps: Vec<apps::DesktopApp>,
     profile_info: (bool, &str, Instant),
+    telemetry: Arc<dyn Telemetry>,
 ) {
     let (profile, label, stage_started) = profile_info;
     let app_count = discovered_apps.len();
     let icon_count = app_icon_count(&discovered_apps);
-    sync_app_install_state(app_install_state, &discovered_apps);
+    sync_app_install_state(app_install_state, &discovered_apps, telemetry);
 
     icon_cache.borrow_mut().clear();
     if choices_model.row_count() > 0 {
@@ -389,7 +457,7 @@ pub(crate) struct DesktopAppRefreshContext<'a> {
     pub app_install_state: &'a Rc<RefCell<app_state::AppInstallState>>,
     pub choices_model: &'a Rc<VecModel<AppChoiceItem>>,
     pub icon_cache: &'a Rc<RefCell<IconImageCache>>,
-    pub telemetry: &'a dyn Telemetry,
+    pub telemetry: Arc<dyn Telemetry>,
     pub last_refresh: &'a Rc<RefCell<Instant>>,
     pub profile: bool,
     pub label: &'a str,
@@ -540,13 +608,14 @@ fn is_incremental_query_change(previous: &str, current: &str) -> bool {
 pub(crate) fn sync_app_install_state(
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     apps: &[apps::DesktopApp],
+    telemetry: Arc<dyn Telemetry>,
 ) {
     let changed = app_install_state
         .borrow_mut()
         .mark_discovered_app_ids(apps.iter().map(|app| app.id.clone()));
 
     if changed {
-        persistence::save_app_state(app_install_state.borrow().clone());
+        persistence::save_app_state(app_install_state.borrow().clone(), telemetry);
     }
 }
 
@@ -629,6 +698,24 @@ mod tests {
         assert_eq!(effective_search_query("rust slint", ""), "rust slint");
         assert_eq!(effective_search_query("", "yt"), "yt");
         assert_eq!(effective_search_query("rust slint", "yt"), "yt rust slint");
+    }
+
+    #[test]
+    fn module_runtime_errors_are_reduced_to_stable_privacy_safe_codes() {
+        assert_eq!(
+            classify_module_runtime_failure(
+                "module host could not start for /home/alice/private/module"
+            ),
+            OperationalDiagnosticCode::ModuleRuntimeHostUnavailable
+        );
+        assert_eq!(
+            classify_module_runtime_failure("query timed out after secret-query"),
+            OperationalDiagnosticCode::ModuleRuntimeTimeout
+        );
+        assert_eq!(
+            classify_module_runtime_failure("unknown failure: token=private"),
+            OperationalDiagnosticCode::ModuleRuntimeOther
+        );
     }
 
     #[test]

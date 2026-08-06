@@ -20,6 +20,7 @@ rfd.workspace = true
 semver.workspace = true
 sentry.workspace = true
 serde_json.workspace = true
+serde.workspace = true
 slint.workspace = true
 toml.workspace = true
 

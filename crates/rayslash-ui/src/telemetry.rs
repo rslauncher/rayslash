@@ -10,15 +10,21 @@ use std::{
     time::{Duration, Instant},
 };
 
-use rayslash_core::{apps::ApplicationScanStatistics, diagnostics::Telemetry};
+use rayslash_core::{
+    apps::ApplicationScanStatistics,
+    diagnostics::{OperationalDiagnostic, OperationalDiagnosticStatistics, Telemetry},
+};
 use sentry::{Client, ClientOptions, Level, protocol::Event, types::Dsn};
 
 const IDENTICAL_SCAN_SUPPRESSION: Duration = Duration::from_secs(10 * 60);
+const IDENTICAL_OPERATIONAL_FAILURE_SUPPRESSION: Duration = Duration::from_secs(10 * 60);
 
 pub(crate) struct DiagnosticsTelemetry {
     enabled: AtomicBool,
     latest: Mutex<Option<ApplicationScanStatistics>>,
+    operational: Mutex<OperationalDiagnosticStatistics>,
     last_remote_scan: Mutex<Option<(u64, Instant)>>,
+    last_remote_operational: Mutex<BTreeMap<OperationalDiagnostic, Instant>>,
     remote: Option<Arc<Client>>,
     environment: SafeEnvironment,
 }
@@ -29,7 +35,9 @@ impl DiagnosticsTelemetry {
         Arc::new(Self {
             enabled: AtomicBool::new(enabled),
             latest: Mutex::new(None),
+            operational: Mutex::new(OperationalDiagnosticStatistics::default()),
             last_remote_scan: Mutex::new(None),
+            last_remote_operational: Mutex::new(BTreeMap::new()),
             remote: sentry_client(),
             environment,
         })
@@ -47,17 +55,33 @@ impl DiagnosticsTelemetry {
     }
 
     pub(crate) fn local_summary(&self) -> String {
-        self.latest
+        let scan = self
+            .latest
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .as_ref()
             .map(ApplicationScanStatistics::local_summary)
-            .unwrap_or_else(|| "No application scan has completed yet".to_owned())
+            .unwrap_or_else(|| "No application scan has completed yet".to_owned());
+        let failures = self
+            .operational
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .failures;
+        if failures == 0 {
+            scan
+        } else {
+            format!("{scan} · {failures} operational failures")
+        }
     }
 
     pub(crate) fn local_report(&self) -> String {
         let statistics = self
             .latest
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        let operational = self
+            .operational
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clone();
@@ -81,8 +105,10 @@ impl DiagnosticsTelemetry {
                 )
             },
         );
+        let operational_structured =
+            serde_json::to_string_pretty(&operational).unwrap_or_else(|_| "null".to_owned());
         format!(
-            "Rayslash diagnostic report\nVersion: {}\nArchitecture: {}\nDistribution: {} {}\nDesktop: {}\nSession: {}\nInstallation: {}\n\nApplication discovery:\n{}\nSuccessfully read: {}\nSuccessfully parsed: {}\nAccounting consistent: {}\n\nStructured aggregate:\n{}\n\nPrivacy: this report contains aggregate counts only; it excludes application names, paths, commands, searches, and history.",
+            "Rayslash diagnostic report\nVersion: {}\nArchitecture: {}\nDistribution: {} {}\nDesktop: {}\nSession: {}\nInstallation: {}\n\nApplication discovery:\n{}\nSuccessfully read: {}\nSuccessfully parsed: {}\nAccounting consistent: {}\n\nStructured discovery aggregate:\n{}\n\nOperational failures:\n{} recorded\nAccounting consistent: {}\n\nStructured operational aggregate:\n{}\n\nPrivacy: this report contains aggregate counts, stable failure codes, and coarse error categories only; it excludes application names, paths, commands, searches, history, raw errors, and stack traces.",
             env!("CARGO_PKG_VERSION"),
             self.environment.architecture,
             self.environment.distribution,
@@ -95,6 +121,9 @@ impl DiagnosticsTelemetry {
             parsed,
             consistent,
             structured,
+            operational.failures,
+            operational.is_consistent(),
+            operational_structured,
         )
     }
 
@@ -147,6 +176,60 @@ impl DiagnosticsTelemetry {
             None,
         );
     }
+
+    fn send_operational_failure(&self, diagnostic: OperationalDiagnostic) {
+        if !self.enabled.load(Ordering::SeqCst) || cfg!(test) {
+            return;
+        }
+        let Some(client) = self.remote.as_ref() else {
+            return;
+        };
+
+        let mut last = self
+            .last_remote_operational
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let now = Instant::now();
+        if last.get(&diagnostic).is_some_and(|sent_at| {
+            now.duration_since(*sent_at) < IDENTICAL_OPERATIONAL_FAILURE_SUPPRESSION
+        }) {
+            return;
+        }
+        last.insert(diagnostic, now);
+        drop(last);
+
+        let code = serialized_enum_name(diagnostic.code);
+        let mut tags = self.environment.tags();
+        tags.insert("event_schema".to_owned(), "operational_v1".to_owned());
+        tags.insert(
+            "diagnostic_area".to_owned(),
+            serialized_enum_name(diagnostic.code.area()),
+        );
+        tags.insert("diagnostic_code".to_owned(), code.clone());
+        if let Some(kind) = diagnostic.io_error_kind {
+            tags.insert("io_error_kind".to_owned(), serialized_enum_name(kind));
+        }
+        let mut extra = BTreeMap::new();
+        extra.insert(
+            "diagnostic".to_owned(),
+            serde_json::to_value(diagnostic).unwrap_or(serde_json::Value::Null),
+        );
+        client.capture_event(
+            Event {
+                level: Level::Warning,
+                message: Some(format!("operational diagnostic: {code}")),
+                logger: Some("rayslash.diagnostics".to_owned()),
+                tags,
+                extra,
+                fingerprint: Cow::Owned(vec![
+                    Cow::Borrowed("rayslash-operational"),
+                    Cow::Owned(code),
+                ]),
+                ..Default::default()
+            },
+            None,
+        );
+    }
 }
 
 impl Telemetry for DiagnosticsTelemetry {
@@ -157,7 +240,27 @@ impl Telemetry for DiagnosticsTelemetry {
             .lock()
             .unwrap_or_else(|error| error.into_inner()) = Some(statistics.clone());
         self.send_scan(statistics);
+        if !statistics.is_consistent() {
+            self.operational_failure(OperationalDiagnostic::new(
+                rayslash_core::diagnostics::OperationalDiagnosticCode::ApplicationScanInvariantViolation,
+            ));
+        }
     }
+
+    fn operational_failure(&self, diagnostic: OperationalDiagnostic) {
+        self.operational
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .record(diagnostic);
+        self.send_operational_failure(diagnostic);
+    }
+}
+
+fn serialized_enum_name(value: impl serde::Serialize) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| "unknown".to_owned())
 }
 
 fn sentry_client() -> Option<Arc<Client>> {
@@ -336,6 +439,7 @@ fn installation_type() -> &'static str {
 #[cfg(test)]
 mod tests {
     use rayslash_core::apps::{ApplicationSource, DesktopCandidateOutcome, SourceScanStatistics};
+    use rayslash_core::diagnostics::{OperationalDiagnosticCode, SafeIoErrorKind};
     use sentry::protocol::{Request, User};
 
     use super::*;
@@ -359,7 +463,9 @@ mod tests {
         let telemetry = DiagnosticsTelemetry {
             enabled: AtomicBool::new(false),
             latest: Mutex::new(None),
+            operational: Mutex::new(OperationalDiagnosticStatistics::default()),
             last_remote_scan: Mutex::new(None),
+            last_remote_operational: Mutex::new(BTreeMap::new()),
             remote: None,
             environment: SafeEnvironment::detect(),
         };
@@ -401,7 +507,9 @@ mod tests {
         let telemetry = DiagnosticsTelemetry {
             enabled: AtomicBool::new(false),
             latest: Mutex::new(None),
+            operational: Mutex::new(OperationalDiagnosticStatistics::default()),
             last_remote_scan: Mutex::new(None),
+            last_remote_operational: Mutex::new(BTreeMap::new()),
             remote: None,
             environment: SafeEnvironment::detect(),
         };
@@ -427,5 +535,42 @@ mod tests {
         assert!(report.contains("Accounting consistent: true"));
         assert!(report.contains("\"user_flatpak\""));
         assert!(report.contains("\"missing_executable\": 1"));
+    }
+
+    #[test]
+    fn operational_failures_are_aggregate_and_exclude_raw_error_details() {
+        let telemetry = DiagnosticsTelemetry {
+            enabled: AtomicBool::new(false),
+            latest: Mutex::new(None),
+            operational: Mutex::new(OperationalDiagnosticStatistics::default()),
+            last_remote_scan: Mutex::new(None),
+            last_remote_operational: Mutex::new(BTreeMap::new()),
+            remote: None,
+            environment: SafeEnvironment::detect(),
+        };
+        telemetry.operational_failure(OperationalDiagnostic {
+            code: OperationalDiagnosticCode::MainConfigurationSave,
+            io_error_kind: Some(SafeIoErrorKind::PermissionDenied),
+        });
+
+        let report = telemetry.local_report();
+
+        assert!(report.contains("1 recorded"));
+        assert!(report.contains("\"main_configuration_save\""));
+        assert!(report.contains("\"permission_denied\""));
+        assert!(!report.contains("/home/"));
+        assert!(telemetry.local_summary().contains("1 operational failures"));
+    }
+
+    #[test]
+    fn enum_tags_use_stable_snake_case_values() {
+        assert_eq!(
+            serialized_enum_name(OperationalDiagnosticCode::ModuleRuntimeInvalidResponse),
+            "module_runtime_invalid_response"
+        );
+        assert_eq!(
+            serialized_enum_name(OperationalDiagnosticCode::ModuleRuntimeInvalidResponse.area()),
+            "modules"
+        );
     }
 }
