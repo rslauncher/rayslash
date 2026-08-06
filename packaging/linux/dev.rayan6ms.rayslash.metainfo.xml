@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.4" date="2026-08-06">
+      <description>
+        <p>Add opt-in, privacy-conscious application-discovery diagnostics and keep keyboard input responsive after Ctrl+Enter folder activation.</p>
+      </description>
+    </release>
     <release version="0.2.3" date="2026-07-26">
       <description>
         <p>Reduce startup and query latency, split module compilation from the resident host, and keep completed timer notifications visible until dismissed.</p>

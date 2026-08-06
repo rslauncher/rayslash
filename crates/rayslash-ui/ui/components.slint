@@ -7,6 +7,7 @@ export component SearchBox inherits Rectangle {
     in property <color> active-search-accent;
 
     private property <bool> has-active-search: root.active-search-keyword != "";
+    private property <bool> pending-alternate-activation: false;
     private property <length> search-pill-width: root.has-active-search ? min(active-pill-measure.preferred-width + 26px, 150px) : 0px;
     private property <length> search-input-x: root.has-active-search ? 18px + root.search-pill-width + 8px : 18px;
 
@@ -94,6 +95,12 @@ export component SearchBox inherits Rectangle {
         }
 
         key-pressed(event) => {
+            if (root.pending-alternate-activation
+                && event.text != Key.Return
+                && event.text != Key.Control
+                && event.text != Key.ControlR) {
+                root.pending-alternate-activation = false;
+            }
             root.control-modifier-changed(event.modifiers.control);
             if (event.text == Key.Escape) {
                 root.close-requested();
@@ -124,7 +131,9 @@ export component SearchBox inherits Rectangle {
                 root.select-next();
                 accept
             } else if (event.text == Key.Return && event.modifiers.control) {
-                root.activate-selected(true);
+                // Launching on key-down hides the window before it can observe Ctrl's release.
+                // Wait for that release so the backend cannot retain a stale modifier state.
+                root.pending-alternate-activation = true;
                 accept
             } else if (event.text == Key.Return) {
                 root.activate-selected(false);
@@ -138,7 +147,14 @@ export component SearchBox inherits Rectangle {
             root.control-modifier-changed(
                 event.text == Key.Control || event.text == Key.ControlR ? false : event.modifiers.control
             );
-            reject
+            if (root.pending-alternate-activation
+                && (event.text == Key.Control || event.text == Key.ControlR)) {
+                root.pending-alternate-activation = false;
+                root.activate-selected(true);
+                accept
+            } else {
+                reject
+            }
         }
     }
 }

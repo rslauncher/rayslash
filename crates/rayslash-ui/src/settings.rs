@@ -52,6 +52,7 @@ pub(crate) fn set_settings_properties(
     ui.set_settings_provider_utility_actions(config.providers.utility_actions);
     ui.set_settings_alternate_folder_opener_enabled(config.actions.alternate_folder_opener_enabled);
     ui.set_settings_ranking_learn_from_usage(config.ranking.learn_from_usage);
+    ui.set_settings_send_anonymous_diagnostics(config.diagnostics.send_anonymous_diagnostics);
     ui.set_settings_theme(appearance_theme_label(config.appearance.theme).into());
     ui.set_settings_density(appearance_density_label(config.appearance.density).into());
     ui.set_settings_max_results(config.appearance.max_results.to_string().into());
@@ -110,6 +111,7 @@ pub(crate) fn config_from_settings_fields(
     utility_actions_enabled: bool,
     alternate_folder_opener_enabled: bool,
     learn_from_usage: bool,
+    send_anonymous_diagnostics: bool,
     theme: &str,
     density: &str,
     max_results_text: &str,
@@ -156,6 +158,9 @@ pub(crate) fn config_from_settings_fields(
             show_tooltips,
         },
         ranking: config::RankingConfig { learn_from_usage },
+        diagnostics: config::DiagnosticsConfig {
+            send_anonymous_diagnostics,
+        },
     })
 }
 
@@ -444,6 +449,7 @@ mod tests {
             false,
             true,
             false,
+            true,
             "dim",
             "compact",
             "25",
@@ -474,6 +480,7 @@ mod tests {
             "code --reuse-window"
         );
         assert!(!config.ranking.learn_from_usage);
+        assert!(config.diagnostics.send_anonymous_diagnostics);
         assert_eq!(
             config.appearance,
             config::AppearanceConfig {
@@ -502,6 +509,7 @@ mod tests {
                 true,
                 true,
                 true,
+                false,
                 "dark",
                 "comfortable",
                 "50",
@@ -526,6 +534,7 @@ mod tests {
                 true,
                 true,
                 true,
+                false,
                 "dark",
                 "comfortable",
                 "0",

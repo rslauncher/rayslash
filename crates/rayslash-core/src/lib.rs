@@ -5,6 +5,7 @@ pub mod aliases;
 pub mod app_state;
 pub mod apps;
 pub mod config;
+pub mod diagnostics;
 pub mod modules;
 pub mod projects;
 pub mod providers;

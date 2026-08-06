@@ -7,10 +7,11 @@ use std::{
 
 use crate::actions::CommandSpec;
 
-use super::{DesktopAction, DesktopApp};
+use super::{DesktopAction, DesktopApp, DesktopCandidateOutcome};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DesktopEntry {
+    has_desktop_entry_group: bool,
     name: Option<String>,
     localized_names: Vec<LocalizedValue>,
     generic_name: Option<String>,
@@ -51,7 +52,7 @@ struct LocalizedValue {
 pub(super) fn parse_desktop_file_with_id(
     path: &Path,
     id: String,
-) -> io::Result<Option<DesktopApp>> {
+) -> io::Result<Result<DesktopApp, DesktopCandidateOutcome>> {
     let contents = fs::read_to_string(path)?;
     Ok(parse_available_desktop_entry(
         &contents,
@@ -66,39 +67,58 @@ pub fn parse_desktop_entry(
     desktop_file: PathBuf,
 ) -> Option<DesktopApp> {
     let entry = parse_desktop_entry_fields(contents);
-    desktop_app_from_entry(entry, id, desktop_file)
+    desktop_app_from_entry(entry, id, desktop_file).ok()
 }
 
 fn parse_available_desktop_entry(
     contents: &str,
     id: String,
     desktop_file: PathBuf,
-) -> Option<DesktopApp> {
+) -> Result<DesktopApp, DesktopCandidateOutcome> {
     let entry = parse_desktop_entry_fields(contents);
     let app = desktop_app_from_entry(entry.clone(), id, desktop_file)?;
 
-    if !matches_current_desktop(&entry)
-        || std::env::var_os("FLATPAK_ID").is_none()
-            && !desktop_entry_is_available(&entry, &app.command)
-    {
-        return None;
+    if !matches_current_desktop(&entry) {
+        return Err(DesktopCandidateOutcome::DesktopEnvironmentFiltered);
+    }
+    if std::env::var_os("FLATPAK_ID").is_none() {
+        if entry
+            .try_exec
+            .as_deref()
+            .is_some_and(|try_exec| !command_is_available(try_exec))
+        {
+            return Err(DesktopCandidateOutcome::InvalidTryExec);
+        }
+        if !command_is_available(&app.command.program.to_string_lossy()) {
+            return Err(DesktopCandidateOutcome::MissingExecutable);
+        }
     }
 
-    Some(app)
+    Ok(app)
 }
 
 fn desktop_app_from_entry(
     entry: DesktopEntry,
     id: String,
     desktop_file: PathBuf,
-) -> Option<DesktopApp> {
-    if entry.entry_type.as_deref() != Some("Application")
-        || entry.no_display
-        || entry.hidden
-        || entry.name.as_deref().is_none_or(str::is_empty)
-        || (!entry.dbus_activatable && entry.exec.as_deref().is_none_or(str::is_empty))
-    {
-        return None;
+) -> Result<DesktopApp, DesktopCandidateOutcome> {
+    if !entry.has_desktop_entry_group {
+        return Err(DesktopCandidateOutcome::MalformedDesktopEntry);
+    }
+    if entry.entry_type.as_deref() != Some("Application") {
+        return Err(DesktopCandidateOutcome::UnsupportedType);
+    }
+    if entry.hidden {
+        return Err(DesktopCandidateOutcome::Hidden);
+    }
+    if entry.no_display {
+        return Err(DesktopCandidateOutcome::NoDisplay);
+    }
+    if entry.name.as_deref().is_none_or(str::is_empty) {
+        return Err(DesktopCandidateOutcome::MissingName);
+    }
+    if !entry.dbus_activatable && entry.exec.as_deref().is_none_or(str::is_empty) {
+        return Err(DesktopCandidateOutcome::MissingExec);
     }
 
     let locale_preferences = locale_preferences();
@@ -106,7 +126,8 @@ fn desktop_app_from_entry(
         entry.name.as_deref(),
         &entry.localized_names,
         &locale_preferences,
-    )?;
+    )
+    .ok_or(DesktopCandidateOutcome::MissingName)?;
     let generic_name = localized_value(
         entry.generic_name.as_deref(),
         &entry.localized_generic_names,
@@ -124,7 +145,7 @@ fn desktop_app_from_entry(
         parse_exec_command(&exec).unwrap_or_else(|| desktop_file_launch_command(&desktop_file))
     };
 
-    Some(DesktopApp {
+    Ok(DesktopApp {
         id,
         name,
         localized_names: localized_strings(&entry.localized_names),
@@ -159,6 +180,7 @@ pub fn parse_exec_command(exec: &str) -> Option<CommandSpec> {
 
 fn parse_desktop_entry_fields(contents: &str) -> DesktopEntry {
     let mut entry = DesktopEntry {
+        has_desktop_entry_group: false,
         name: None,
         localized_names: Vec::new(),
         generic_name: None,
@@ -194,6 +216,7 @@ fn parse_desktop_entry_fields(contents: &str) -> DesktopEntry {
         if line.starts_with('[') && line.ends_with(']') {
             let group = &line[1..line.len() - 1];
             current_group = if group == "Desktop Entry" {
+                entry.has_desktop_entry_group = true;
                 DesktopEntryGroup::DesktopEntry
             } else if let Some(action_id) = group.strip_prefix("Desktop Action ") {
                 DesktopEntryGroup::DesktopAction(action_id.to_owned())
@@ -423,14 +446,6 @@ fn parse_desktop_list(value: &str) -> Vec<String> {
         .split(';')
         .filter_map(|item| non_empty(unescape_desktop_value(item.trim())))
         .collect()
-}
-
-fn desktop_entry_is_available(entry: &DesktopEntry, command: &CommandSpec) -> bool {
-    entry
-        .try_exec
-        .as_deref()
-        .map(command_is_available)
-        .unwrap_or_else(|| command_is_available(&command.program.to_string_lossy()))
 }
 
 fn desktop_file_launch_command(path: &Path) -> CommandSpec {

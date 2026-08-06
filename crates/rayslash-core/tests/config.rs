@@ -19,6 +19,7 @@ fn default_config_has_public_defaults() {
     assert_eq!(config.providers, ProviderConfig::default());
     assert_eq!(config.actions, ActionConfig::default());
     assert_eq!(config.appearance, AppearanceConfig::default());
+    assert!(!config.diagnostics.send_anonymous_diagnostics);
 }
 
 #[test]
@@ -355,6 +356,9 @@ fn config_can_be_saved_and_loaded_from_toml() {
         },
         ranking: RankingConfig {
             learn_from_usage: false,
+        },
+        diagnostics: config::DiagnosticsConfig {
+            send_anonymous_diagnostics: true,
         },
     };
 

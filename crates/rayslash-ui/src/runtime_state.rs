@@ -12,8 +12,8 @@ use nucleo_matcher::{
     pattern::{AtomKind, CaseMatching, Normalization, Pattern},
 };
 use rayslash_core::{
-    app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking, search,
-    web_search,
+    app_state, apps, config, diagnostics::Telemetry, modules, projects,
+    providers::ProviderExecutionHint, ranking, search, web_search,
 };
 use slint::{Model, VecModel};
 
@@ -338,17 +338,19 @@ pub(crate) fn refresh_desktop_apps(
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     choices_model: &Rc<VecModel<AppChoiceItem>>,
     icon_cache: &Rc<RefCell<IconImageCache>>,
+    telemetry: &dyn Telemetry,
     profile: bool,
     label: &str,
 ) {
     let stage_started = Instant::now();
-    let discovered_apps = apps::discover_and_cache_desktop_apps();
+    let scan = apps::discover_and_cache_desktop_apps_with_diagnostics();
+    telemetry.application_scan_completed(&scan.statistics);
     apply_desktop_apps(
         apps_state,
         app_install_state,
         choices_model,
         icon_cache,
-        discovered_apps,
+        scan.apps,
         (profile, label, stage_started),
     );
 }
@@ -387,6 +389,7 @@ pub(crate) struct DesktopAppRefreshContext<'a> {
     pub app_install_state: &'a Rc<RefCell<app_state::AppInstallState>>,
     pub choices_model: &'a Rc<VecModel<AppChoiceItem>>,
     pub icon_cache: &'a Rc<RefCell<IconImageCache>>,
+    pub telemetry: &'a dyn Telemetry,
     pub last_refresh: &'a Rc<RefCell<Instant>>,
     pub profile: bool,
     pub label: &'a str,
@@ -409,6 +412,7 @@ pub(crate) fn refresh_desktop_apps_if_stale(
         context.app_install_state,
         context.choices_model,
         context.icon_cache,
+        context.telemetry,
         context.profile,
         context.label,
     );
@@ -789,6 +793,7 @@ mod tests {
                 ..config::AppearanceConfig::default()
             },
             ranking: config::RankingConfig::default(),
+            diagnostics: config::DiagnosticsConfig::default(),
         };
         let ranking_state = ranking::RankingState::default();
         let app_state = app_state::AppInstallState::default();
@@ -822,6 +827,7 @@ mod tests {
             ranking: config::RankingConfig {
                 learn_from_usage: false,
             },
+            diagnostics: config::DiagnosticsConfig::default(),
         };
         let app_state = app_state::AppInstallState::default();
         let mut ranking_state = ranking::RankingState::default();

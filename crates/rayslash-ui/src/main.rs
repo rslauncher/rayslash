@@ -8,6 +8,7 @@ mod result_items;
 mod runtime_state;
 mod settings;
 mod settings_callbacks;
+mod telemetry;
 mod window_state;
 
 use std::{
@@ -33,8 +34,8 @@ use module_settings::{
 use notify::{RecursiveMode, Watcher};
 use opener_visual::accent_color_for_icon;
 use rayslash_core::{
-    app_state, apps, config, modules, projects, providers::ProviderExecutionHint, ranking,
-    web_search,
+    app_state, apps, config, diagnostics::Telemetry, modules, projects,
+    providers::ProviderExecutionHint, ranking, web_search,
 };
 use result_items::{
     IconImageCache, to_result_items, to_result_items_without_images, update_result_items_model,
@@ -51,6 +52,7 @@ use slint::{
     ComponentHandle, Timer, VecModel,
     winit_030::{EventResult, WinitWindowAccessor, winit},
 };
+use telemetry::DiagnosticsTelemetry;
 use window_state::{
     handle_ipc_request, hide_launcher, should_start_resident_after_send_error, visible_flag,
 };
@@ -211,6 +213,8 @@ fn run_gui(
             .unwrap_or_default(),
     ));
     let config_state = Rc::new(RefCell::new(config));
+    let diagnostics =
+        DiagnosticsTelemetry::new(config_state.borrow().diagnostics.send_anonymous_diagnostics);
     let favicon_searches = config_state.borrow().web_searches.clone();
     thread::spawn(move || {
         for search in &favicon_searches {
@@ -252,23 +256,33 @@ fn run_gui(
     );
 
     let stage_started = Instant::now();
-    let cached_apps = apps::load_cached_desktop_apps();
-    let loaded_cached_apps = cached_apps.is_some();
-    let initial_apps = cached_apps.unwrap_or_else(apps::discover_and_cache_desktop_apps);
+    let cached_scan = apps::load_cached_desktop_scan();
+    let loaded_cached_apps = cached_scan.is_some();
+    let initial_scan = cached_scan.unwrap_or_else(|| {
+        let scan = apps::discover_and_cache_desktop_apps_with_diagnostics();
+        diagnostics.application_scan_completed(&scan.statistics);
+        scan
+    });
+    if loaded_cached_apps {
+        diagnostics.record_cached_scan(initial_scan.statistics.clone());
+    }
+    let initial_apps = initial_scan.apps;
     let apps = Rc::new(RefCell::new(Arc::new(initial_apps)));
     let pending_app_refresh = Arc::new(Mutex::new(None));
     if loaded_cached_apps {
         thread::spawn({
             let weak = ui.as_weak();
             let pending_app_refresh = pending_app_refresh.clone();
+            let diagnostics = diagnostics.clone();
             move || {
                 if apps::desktop_apps_cache_is_current() {
                     return;
                 }
+                let scan = apps::discover_and_cache_desktop_apps_with_diagnostics();
+                diagnostics.application_scan_completed(&scan.statistics);
                 *pending_app_refresh
                     .lock()
-                    .unwrap_or_else(|error| error.into_inner()) =
-                    Some(apps::discover_and_cache_desktop_apps());
+                    .unwrap_or_else(|error| error.into_inner()) = Some(scan);
                 let _ = weak.upgrade_in_event_loop(|ui| ui.invoke_apply_desktop_refresh());
             }
         });
@@ -547,6 +561,7 @@ fn run_gui(
         &icon_cache,
         &socket_path,
     );
+    ui.set_settings_diagnostics_summary(diagnostics.local_summary().into());
     ui.invoke_focus_search();
 
     if profile && std::env::var_os("RAYSLASH_PROFILE_FRAME").is_some_and(|value| value != "0") {
@@ -929,6 +944,7 @@ fn run_gui(
             socket_path: socket_path.clone(),
             suppress_next_focus_hide: suppress_next_focus_hide.clone(),
             last_desktop_app_refresh: last_desktop_app_refresh.clone(),
+            diagnostics: diagnostics.clone(),
             settings_save_blocked,
             profile,
         },
@@ -949,20 +965,25 @@ fn run_gui(
             let current_results = current_results.clone();
             let results_model = results_model.clone();
             let last_desktop_app_refresh = last_desktop_app_refresh.clone();
+            let diagnostics = diagnostics.clone();
             move || {
-                let discovered_apps = pending_app_refresh
+                let discovered_scan = pending_app_refresh
                     .lock()
                     .unwrap_or_else(|error| error.into_inner())
                     .take();
-                if let Some(discovered_apps) = discovered_apps
-                    && discovered_apps.as_slice() != apps.borrow().as_slice()
-                {
+                let Some(discovered_scan) = discovered_scan else {
+                    return;
+                };
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_settings_diagnostics_summary(diagnostics.local_summary().into());
+                }
+                if discovered_scan.apps.as_slice() != apps.borrow().as_slice() {
                     apply_desktop_apps(
                         &apps,
                         &app_install_state,
                         &alternate_opener_choices,
                         &icon_cache,
-                        discovered_apps,
+                        discovered_scan.apps,
                         (profile, "background reconciliation", Instant::now()),
                     );
                     *last_desktop_app_refresh.borrow_mut() = Instant::now();
@@ -991,7 +1012,11 @@ fn run_gui(
                 }
             }
         });
-        spawn_desktop_app_watcher(ui.as_weak(), pending_app_refresh_for_watcher);
+        spawn_desktop_app_watcher(
+            ui.as_weak(),
+            pending_app_refresh_for_watcher,
+            diagnostics.clone(),
+        );
     }
 
     register_module_settings_callback(
@@ -1054,7 +1079,8 @@ fn run_gui(
 
 fn spawn_desktop_app_watcher(
     weak: slint::Weak<AppWindow>,
-    pending_app_refresh: Arc<Mutex<Option<Vec<apps::DesktopApp>>>>,
+    pending_app_refresh: Arc<Mutex<Option<apps::ApplicationScan>>>,
+    diagnostics: Arc<DiagnosticsTelemetry>,
 ) {
     thread::spawn(move || {
         let (event_tx, event_rx) = mpsc::channel();
@@ -1078,7 +1104,8 @@ fn spawn_desktop_app_watcher(
         }
         while event_rx.recv().is_ok() {
             while event_rx.recv_timeout(Duration::from_millis(250)).is_ok() {}
-            let discovered = apps::discover_and_cache_desktop_apps();
+            let discovered = apps::discover_and_cache_desktop_apps_with_diagnostics();
+            diagnostics.application_scan_completed(&discovered.statistics);
             *pending_app_refresh
                 .lock()
                 .unwrap_or_else(|error| error.into_inner()) = Some(discovered);
