@@ -28,14 +28,17 @@ use std::{
 
 use activation::{ActivationCallbackContext, register_activation_callback};
 use module_settings::{
-    ModuleSettingsCallbackContext, load_runtime_modules, module_items,
-    register_module_settings_callback,
+    ModuleSettingsCallbackContext, installed_modules_load_diagnostic, load_runtime_modules,
+    module_items, register_module_settings_callback, save_modules_diagnostic,
 };
 use notify::{RecursiveMode, Watcher};
 use opener_visual::accent_color_for_icon;
 use rayslash_core::{
-    app_state, apps, config, diagnostics::Telemetry, modules, projects,
-    providers::ProviderExecutionHint, ranking, web_search,
+    app_state, apps, config,
+    diagnostics::{OperationalDiagnostic, OperationalDiagnosticCode, Telemetry},
+    modules, projects,
+    providers::ProviderExecutionHint,
+    ranking, web_search,
 };
 use result_items::{
     IconImageCache, to_result_items, to_result_items_without_images, update_result_items_model,
@@ -184,20 +187,36 @@ fn run_gui(
 
     let stage_started = Instant::now();
     let existing_config = config::config_file().is_some_and(|path| path.is_file());
-    let (mut config, settings_save_blocked) = match config::load_config() {
-        Ok(config) => (config, false),
+    let (mut config, settings_save_blocked, config_load_failure) = match config::load_config() {
+        Ok(config) => (config, false, None),
         Err(error) => {
+            let diagnostic = match &error {
+                config::ConfigError::Read { source, .. } => OperationalDiagnostic::from_io(
+                    OperationalDiagnosticCode::MainConfigurationLoad,
+                    source,
+                ),
+                config::ConfigError::Parse { .. } => {
+                    OperationalDiagnostic::new(OperationalDiagnosticCode::MainConfigurationLoad)
+                }
+            };
             eprintln!("{error}; using default config");
-            (config::Config::default(), true)
+            (config::Config::default(), true, Some(diagnostic))
         }
     };
     let mut runtime_modules =
         load_runtime_modules(&config.providers, !settings_save_blocked, existing_config);
+    let mut module_config_failure = runtime_modules.diagnostic.take();
+    let installed_modules = modules::load_installed_modules();
+    let installed_modules_failure = installed_modules
+        .as_ref()
+        .err()
+        .map(installed_modules_load_diagnostic);
     if !runtime_modules.writes_blocked
-        && let Ok(installed) = modules::load_installed_modules()
+        && let Ok(installed) = installed_modules
         && runtime_modules.config.reconcile_installed(&installed)
         && let Err(error) = modules::save_modules_config(&runtime_modules.config)
     {
+        module_config_failure = Some(save_modules_diagnostic(&error));
         eprintln!("{error}; module writes are disabled until restart");
         runtime_modules.writes_blocked = true;
     }
@@ -215,6 +234,15 @@ fn run_gui(
     let config_state = Rc::new(RefCell::new(config));
     let diagnostics =
         DiagnosticsTelemetry::new(config_state.borrow().diagnostics.send_anonymous_diagnostics);
+    if let Some(diagnostic) = config_load_failure {
+        diagnostics.operational_failure(diagnostic);
+    }
+    if let Some(diagnostic) = module_config_failure {
+        diagnostics.operational_failure(diagnostic);
+    }
+    if let Some(diagnostic) = installed_modules_failure {
+        diagnostics.operational_failure(diagnostic);
+    }
     let favicon_searches = config_state.borrow().web_searches.clone();
     thread::spawn(move || {
         for search in &favicon_searches {
@@ -224,7 +252,9 @@ fn run_gui(
     profile_stage(profile, "config load", stage_started);
 
     let stage_started = Instant::now();
-    let ranking_state = Rc::new(RefCell::new(load_runtime_ranking_state()));
+    let ranking_state = Rc::new(RefCell::new(load_runtime_ranking_state(
+        diagnostics.as_ref(),
+    )));
     profile_stage(
         profile,
         &format!(
@@ -235,7 +265,7 @@ fn run_gui(
     );
 
     let stage_started = Instant::now();
-    let app_install_state = Rc::new(RefCell::new(load_runtime_app_state()));
+    let app_install_state = Rc::new(RefCell::new(load_runtime_app_state(diagnostics.as_ref())));
     profile_stage(
         profile,
         &format!(
@@ -288,7 +318,7 @@ fn run_gui(
         });
     }
     let last_desktop_app_refresh = Rc::new(RefCell::new(Instant::now()));
-    sync_app_install_state(&app_install_state, &apps.borrow());
+    sync_app_install_state(&app_install_state, &apps.borrow(), diagnostics.clone());
     profile_stage(
         profile,
         &format!(
@@ -457,6 +487,7 @@ fn run_gui(
     thread::spawn({
         let remote_result_tx = remote_result_tx.clone();
         let remote_search_generation = remote_search_generation.clone();
+        let diagnostics = diagnostics.clone();
         move || {
             while let Ok(mut job) = module_search_rx.recv() {
                 loop {
@@ -475,6 +506,7 @@ fn run_gui(
                     &job.module_config,
                     job.local_results,
                     &job.query,
+                    Some(diagnostics.as_ref()),
                 );
                 if remote_search_generation.load(Ordering::Acquire) == job.generation {
                     let _ =
@@ -539,14 +571,26 @@ fn run_gui(
     });
     thread::spawn({
         let weak = ui.as_weak();
+        let diagnostics = diagnostics.clone();
         move || {
+            let refresh = modules::refresh_registry_if_stale(Duration::from_secs(6 * 60 * 60));
+            if refresh.is_err() {
+                diagnostics.operational_failure(OperationalDiagnostic::new(
+                    OperationalDiagnosticCode::ModuleRegistryRefresh,
+                ));
+            }
             *pending_registry_refresh
                 .lock()
-                .unwrap_or_else(|error| error.into_inner()) = Some(
-                modules::refresh_registry_if_stale(Duration::from_secs(6 * 60 * 60))
-                    .map_err(|error| error.to_string()),
-            );
-            let _ = weak.upgrade_in_event_loop(|ui| ui.invoke_apply_registry_refresh());
+                .unwrap_or_else(|error| error.into_inner()) =
+                Some(refresh.map_err(|error| error.to_string()));
+            if weak
+                .upgrade_in_event_loop(|ui| ui.invoke_apply_registry_refresh())
+                .is_err()
+            {
+                diagnostics.operational_failure(OperationalDiagnostic::new(
+                    OperationalDiagnosticCode::WindowUiDispatch,
+                ));
+            }
         }
     });
 
@@ -586,6 +630,7 @@ fn run_gui(
         let is_visible = is_visible.clone();
         let suppress_next_focus_hide = suppress_next_focus_hide.clone();
         let first_redraw_profiled = first_redraw_profiled.clone();
+        let diagnostics = diagnostics.clone();
         move |_, event| {
             if matches!(&event, winit::event::WindowEvent::RedrawRequested)
                 && !first_redraw_profiled.replace(true)
@@ -603,10 +648,15 @@ fn run_gui(
                 }
 
                 let is_visible = is_visible.clone();
+                let diagnostics = diagnostics.clone();
+                let dispatch_diagnostics = diagnostics.clone();
                 if let Err(error) = weak.upgrade_in_event_loop(move |ui| {
                     ui.set_control_held(false);
-                    hide_launcher(&ui, is_visible.as_ref());
+                    hide_launcher(&ui, is_visible.as_ref(), dispatch_diagnostics.as_ref());
                 }) {
+                    diagnostics.operational_failure(OperationalDiagnostic::new(
+                        OperationalDiagnosticCode::WindowUiDispatch,
+                    ));
                     eprintln!("failed to queue rayslash focus-lost hide on UI event loop: {error}");
                 }
             }
@@ -779,9 +829,10 @@ fn run_gui(
     ui.on_close_requested({
         let weak = ui.as_weak();
         let is_visible = is_visible.clone();
+        let diagnostics = diagnostics.clone();
         move || {
             if let Some(ui) = weak.upgrade() {
-                hide_launcher(&ui, is_visible.as_ref());
+                hide_launcher(&ui, is_visible.as_ref(), diagnostics.as_ref());
             }
         }
     });
@@ -926,6 +977,7 @@ fn run_gui(
             projects: projects.clone(),
             apps: apps.clone(),
             is_visible: is_visible.clone(),
+            telemetry: diagnostics.clone(),
         },
     );
 
@@ -985,6 +1037,7 @@ fn run_gui(
                         &icon_cache,
                         discovered_scan.apps,
                         (profile, "background reconciliation", Instant::now()),
+                        diagnostics.clone(),
                     );
                     *last_desktop_app_refresh.borrow_mut() = Instant::now();
                     if let Some(ui) = weak.upgrade() {
@@ -1037,30 +1090,41 @@ fn run_gui(
             socket_path: socket_path.clone(),
             remote_search_generation: remote_search_generation.clone(),
             remote_result_tx: remote_result_tx.clone(),
+            diagnostics: diagnostics.clone(),
             profile,
         },
     );
 
     let weak = ui.as_weak();
     let ipc_visibility = is_visible.clone();
-    ipc::start_server(listener, move |request| {
+    let ipc_diagnostics = diagnostics.clone();
+    ipc::start_server(listener, diagnostics.clone(), move |request| {
         let request_started = Instant::now();
         let ipc_visibility = ipc_visibility.clone();
+        let diagnostics = ipc_diagnostics.clone();
         if let Err(error) = weak.upgrade_in_event_loop(move |ui| {
-            handle_ipc_request(&ui, ipc_visibility.as_ref(), request);
+            handle_ipc_request(&ui, ipc_visibility.as_ref(), request, diagnostics.as_ref());
             profile_stage(
                 profile,
                 &format!("IPC {request:?} queued-to-handled"),
                 request_started,
             );
         }) {
+            ipc_diagnostics.operational_failure(OperationalDiagnostic::new(
+                OperationalDiagnosticCode::IpcUiDispatch,
+            ));
             eprintln!("failed to queue rayslash IPC request on UI event loop: {error}");
         }
     });
 
     profile_stage(profile, "startup callbacks and IPC ready", startup_started);
     let show_started = Instant::now();
-    ui.show()?;
+    if let Err(error) = ui.show() {
+        diagnostics.operational_failure(OperationalDiagnostic::new(
+            OperationalDiagnosticCode::WindowShow,
+        ));
+        return Err(error);
+    }
     profile_stage(profile, "startup show call", show_started);
     profile_stage(profile, "startup ready for event loop", startup_started);
     Timer::single_shot(Duration::from_millis(500), {
@@ -1084,19 +1148,32 @@ fn spawn_desktop_app_watcher(
 ) {
     thread::spawn(move || {
         let (event_tx, event_rx) = mpsc::channel();
+        let watcher_diagnostics = diagnostics.clone();
         let Ok(mut watcher) =
-            notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                if event.is_ok() {
+            notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
+                Ok(_) => {
                     let _ = event_tx.send(());
                 }
+                Err(_) => watcher_diagnostics.operational_failure(OperationalDiagnostic::new(
+                    OperationalDiagnosticCode::DesktopWatcherWatch,
+                )),
             })
         else {
+            diagnostics.operational_failure(OperationalDiagnostic::new(
+                OperationalDiagnosticCode::DesktopWatcherInitialize,
+            ));
             return;
         };
         let mut watched = false;
         for directory in apps::desktop_application_dirs() {
-            if directory.is_dir() && watcher.watch(&directory, RecursiveMode::Recursive).is_ok() {
-                watched = true;
+            if directory.is_dir() {
+                if watcher.watch(&directory, RecursiveMode::Recursive).is_ok() {
+                    watched = true;
+                } else {
+                    diagnostics.operational_failure(OperationalDiagnostic::new(
+                        OperationalDiagnosticCode::DesktopWatcherWatch,
+                    ));
+                }
             }
         }
         if !watched {
@@ -1113,6 +1190,9 @@ fn spawn_desktop_app_watcher(
                 .upgrade_in_event_loop(|ui| ui.invoke_apply_desktop_refresh())
                 .is_err()
             {
+                diagnostics.operational_failure(OperationalDiagnostic::new(
+                    OperationalDiagnosticCode::WindowUiDispatch,
+                ));
                 return;
             }
         }

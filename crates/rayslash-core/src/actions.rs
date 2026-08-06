@@ -3,13 +3,16 @@ use std::{
     io,
     path::Path,
     process::{Child, Command, ExitStatus, Stdio},
-    sync::{Mutex, OnceLock, mpsc},
+    sync::{Arc, Mutex, OnceLock, mpsc},
     thread,
     time::{Duration, Instant},
 };
 
-use crate::search::ModuleAction;
 use crate::{APP_ID, APP_NAME, apps::DesktopApp};
+use crate::{
+    diagnostics::{OperationalDiagnostic, OperationalDiagnosticCode, Telemetry},
+    search::ModuleAction,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -228,6 +231,13 @@ pub fn open_target_command(target: &str) -> CommandSpec {
 }
 
 pub fn run_module_action(action: &ModuleAction) -> io::Result<()> {
+    run_module_action_with_telemetry(action, None)
+}
+
+pub fn run_module_action_with_telemetry(
+    action: &ModuleAction,
+    telemetry: Option<Arc<dyn Telemetry>>,
+) -> io::Result<()> {
     let command = match action {
         ModuleAction::OpenUrl(url) => open_target_command(url),
         ModuleAction::OpenPath(path) => CommandSpec {
@@ -247,7 +257,7 @@ pub fn run_module_action(action: &ModuleAction) -> io::Result<()> {
         | ModuleAction::ScheduleCommand { delay, .. } => Duration::from_secs(*delay),
         _ => Duration::ZERO,
     };
-    schedule_command(command, delay)
+    schedule_command(command, delay, telemetry)
 }
 
 fn notification_command(title: &str, body: &str) -> CommandSpec {
@@ -301,13 +311,23 @@ fn command_from_arguments(arguments: &[String]) -> io::Result<CommandSpec> {
     })
 }
 
-fn schedule_command(command: CommandSpec, delay: Duration) -> io::Result<()> {
+fn schedule_command(
+    command: CommandSpec,
+    delay: Duration,
+    telemetry: Option<Arc<dyn Telemetry>>,
+) -> io::Result<()> {
     if delay.is_zero() {
         spawn_and_reap(command)
     } else {
         thread::spawn(move || {
             thread::sleep(delay);
             if let Err(error) = spawn_and_reap(command) {
+                if let Some(telemetry) = telemetry {
+                    telemetry.operational_failure(OperationalDiagnostic::from_io(
+                        OperationalDiagnosticCode::ScheduledActionLaunch,
+                        &error,
+                    ));
+                }
                 eprintln!("failed to run scheduled rayslash action: {error}");
             }
         });

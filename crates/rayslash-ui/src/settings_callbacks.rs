@@ -1,6 +1,10 @@
 use std::{cell::Cell, cell::RefCell, path::PathBuf, rc::Rc, sync::Arc, time::Duration};
 
-use rayslash_core::{app_state, apps, config, projects, ranking, search};
+use rayslash_core::{
+    app_state, apps, config,
+    diagnostics::{OperationalDiagnostic, OperationalDiagnosticCode, Telemetry},
+    projects, ranking, search,
+};
 use slint::{ComponentHandle, Model, Timer, VecModel};
 
 use crate::{
@@ -83,7 +87,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                         app_install_state: &app_install_state,
                         choices_model: &alternate_opener_choices,
                         icon_cache: &icon_cache,
-                        telemetry: diagnostics.as_ref(),
+                        telemetry: diagnostics.clone(),
                         last_refresh: &last_desktop_app_refresh,
                         profile,
                         label: "settings-open",
@@ -249,6 +253,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             }
 
             if let Err(error) = config::save_config_with_backup(&config_to_save) {
+                diagnostics.operational_failure(config_save_diagnostic(&error));
                 eprintln!("{error}");
                 if let Some(ui) = weak.upgrade() {
                     ui.set_status_text(format!("Could not save settings: {error}").into());
@@ -314,6 +319,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let ranking_state = ranking_state.clone();
         let icon_cache = icon_cache.clone();
         let socket_path = socket_path.clone();
+        let diagnostics = diagnostics.clone();
         move |index, name, keyword, kind, target| {
             let Some(ui) = weak.upgrade() else {
                 return false;
@@ -356,6 +362,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
+                diagnostics.clone(),
             )
         }
     });
@@ -367,6 +374,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let ranking_state = ranking_state.clone();
         let icon_cache = icon_cache.clone();
         let socket_path = socket_path.clone();
+        let diagnostics = diagnostics.clone();
         move |index| {
             let Some(ui) = weak.upgrade() else {
                 return false;
@@ -388,6 +396,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
+                diagnostics.clone(),
             )
         }
     });
@@ -399,6 +408,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let ranking_state = ranking_state.clone();
         let icon_cache = icon_cache.clone();
         let socket_path = socket_path.clone();
+        let diagnostics = diagnostics.clone();
         move |index, name, keyword, url, enabled| {
             let Some(ui) = weak.upgrade() else {
                 return false;
@@ -439,6 +449,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
+                diagnostics.clone(),
             )
         }
     });
@@ -450,6 +461,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let ranking_state = ranking_state.clone();
         let icon_cache = icon_cache.clone();
         let socket_path = socket_path.clone();
+        let diagnostics = diagnostics.clone();
         move |index| {
             let Some(ui) = weak.upgrade() else {
                 return false;
@@ -471,6 +483,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 &ranking_state.borrow(),
                 &icon_cache,
                 &socket_path,
+                diagnostics.clone(),
             )
         }
     });
@@ -529,6 +542,9 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     }
                 }
                 Err(error) => {
+                    diagnostics.operational_failure(OperationalDiagnostic::new(
+                        OperationalDiagnosticCode::DiagnosticReportCopy,
+                    ));
                     eprintln!("failed to copy diagnostic report: {error}");
                     if let Some(ui) = weak.upgrade() {
                         ui.set_status_text("Could not copy diagnostic report.".into());
@@ -548,8 +564,10 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let current_results = current_results.clone();
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
+        let diagnostics = diagnostics.clone();
         move || {
             if let Err(error) = ranking::clear_ranking_state() {
+                diagnostics.operational_failure(ranking_clear_diagnostic(&error));
                 eprintln!("{error}");
                 if let Some(ui) = weak.upgrade() {
                     ui.set_status_text(format!("Could not clear ranking history: {error}").into());
@@ -606,12 +624,14 @@ fn save_collection_change(
     ranking: &ranking::RankingState,
     icon_cache: &Rc<RefCell<IconImageCache>>,
     socket_path: &std::path::Path,
+    telemetry: Arc<dyn Telemetry>,
 ) -> bool {
     if blocked {
         ui.set_status_text("Could not save settings: fix config.toml and restart rayslash.".into());
         return false;
     }
     if let Err(error) = config::save_config_with_backup(&config_to_save) {
+        telemetry.operational_failure(config_save_diagnostic(&error));
         ui.set_status_text(format!("Could not save settings: {error}").into());
         return false;
     }
@@ -637,6 +657,9 @@ fn save_collection_change(
                 }
             }
         }) {
+            telemetry.operational_failure(OperationalDiagnostic::new(
+                OperationalDiagnosticCode::WindowUiDispatch,
+            ));
             eprintln!("failed to refresh search favicons on the UI event loop: {error}");
         }
     });
@@ -651,6 +674,30 @@ fn save_collection_change(
     );
     set_ephemeral_status(ui, message);
     true
+}
+
+fn config_save_diagnostic(error: &config::SaveConfigError) -> OperationalDiagnostic {
+    match error {
+        config::SaveConfigError::CreateDir { source, .. }
+        | config::SaveConfigError::Backup { source, .. }
+        | config::SaveConfigError::Write { source, .. } => {
+            OperationalDiagnostic::from_io(OperationalDiagnosticCode::MainConfigurationSave, source)
+        }
+        config::SaveConfigError::Serialize { .. } => {
+            OperationalDiagnostic::new(OperationalDiagnosticCode::MainConfigurationSave)
+        }
+    }
+}
+
+fn ranking_clear_diagnostic(error: &ranking::ClearRankingStateError) -> OperationalDiagnostic {
+    match error {
+        ranking::ClearRankingStateError::Remove { source, .. } => {
+            OperationalDiagnostic::from_io(OperationalDiagnosticCode::RankingStateClear, source)
+        }
+        ranking::ClearRankingStateError::Unavailable => {
+            OperationalDiagnostic::new(OperationalDiagnosticCode::RankingStateClear)
+        }
+    }
 }
 
 fn set_ephemeral_status(ui: &AppWindow, message: &str) {

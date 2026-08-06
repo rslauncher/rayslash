@@ -87,11 +87,13 @@ Settings can be changed from the launcher or by editing:
 
 Folder sources, module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
 
-Anonymous application-discovery diagnostics are disabled by default and can be enabled or
-disabled at any time in Settings → Diagnostics. That section also shows the latest local scan
-summary and can copy a sanitized report for a bug report. Automatic reports contain only aggregate
-discovery outcomes and coarse, allowlisted Linux environment categories; application names, paths,
-commands, searches, history, hostnames, and persistent identifiers are never collected. Builds
+Anonymous diagnostics are disabled by default and can be enabled or disabled at any time in
+Settings → Diagnostics. That section shows the latest local application scan plus aggregate
+operational failure counts and can copy a sanitized report for a bug report. Automatic reports
+contain only aggregate discovery outcomes, stable failure codes, coarse I/O categories, and
+allowlisted Linux environment categories. Application names, module IDs, paths, commands, URLs,
+searches, history, raw errors, stack traces, hostnames, and persistent identifiers are never
+collected. Repeated identical operational failures are remotely suppressed for ten minutes. Builds
 without a configured `RAYSLASH_SENTRY_DSN` never submit remote diagnostics.
 
 ## Modules

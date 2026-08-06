@@ -12,7 +12,11 @@ use std::{
     time::Instant,
 };
 
-use rayslash_core::{app_state, apps, config, modules, projects, ranking, search};
+use rayslash_core::{
+    app_state, apps, config,
+    diagnostics::{OperationalDiagnostic, OperationalDiagnosticCode, Telemetry},
+    modules, projects, ranking, search,
+};
 use semver::Version;
 use slint::{ComponentHandle, Model, VecModel};
 
@@ -29,6 +33,7 @@ pub(crate) struct RuntimeModules {
     pub config: modules::ModulesConfig,
     pub writes_blocked: bool,
     pub migration_pending: bool,
+    pub diagnostic: Option<OperationalDiagnostic>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -108,6 +113,7 @@ pub(crate) fn load_runtime_modules(
             config: modules::ModulesConfig::from_legacy_provider_config(legacy_providers),
             writes_blocked: true,
             migration_pending: false,
+            diagnostic: None,
         };
     }
 
@@ -119,6 +125,7 @@ pub(crate) fn load_runtime_modules(
                 config: outcome.into_config(),
                 writes_blocked: false,
                 migration_pending,
+                diagnostic: None,
             }
         }
         Err(error) => {
@@ -127,8 +134,77 @@ pub(crate) fn load_runtime_modules(
                 config: modules::ModulesConfig::from_legacy_provider_config(legacy_providers),
                 writes_blocked: true,
                 migration_pending: false,
+                diagnostic: Some(initialize_modules_diagnostic(&error)),
             }
         }
+    }
+}
+
+fn initialize_modules_diagnostic(
+    error: &modules::InitializeModulesConfigError,
+) -> OperationalDiagnostic {
+    match error {
+        modules::InitializeModulesConfigError::Load(modules::LoadModulesConfigError::Read {
+            source,
+            ..
+        }) => OperationalDiagnostic::from_io(
+            OperationalDiagnosticCode::ModuleConfigurationLoad,
+            source,
+        ),
+        modules::InitializeModulesConfigError::Save(
+            modules::SaveModulesConfigError::CreateDir { source, .. }
+            | modules::SaveModulesConfigError::Write { source, .. },
+        ) => OperationalDiagnostic::from_io(
+            OperationalDiagnosticCode::ModuleConfigurationSave,
+            source,
+        ),
+        modules::InitializeModulesConfigError::Load(_) => {
+            OperationalDiagnostic::new(OperationalDiagnosticCode::ModuleConfigurationLoad)
+        }
+        modules::InitializeModulesConfigError::Save(_)
+        | modules::InitializeModulesConfigError::ConfigDirUnavailable => {
+            OperationalDiagnostic::new(OperationalDiagnosticCode::ModuleConfigurationSave)
+        }
+    }
+}
+
+pub(crate) fn save_modules_diagnostic(
+    error: &modules::SaveModulesConfigError,
+) -> OperationalDiagnostic {
+    match error {
+        modules::SaveModulesConfigError::CreateDir { source, .. }
+        | modules::SaveModulesConfigError::Write { source, .. } => OperationalDiagnostic::from_io(
+            OperationalDiagnosticCode::ModuleConfigurationSave,
+            source,
+        ),
+        modules::SaveModulesConfigError::UnsupportedVersion { .. }
+        | modules::SaveModulesConfigError::Serialize { .. } => {
+            OperationalDiagnostic::new(OperationalDiagnosticCode::ModuleConfigurationSave)
+        }
+    }
+}
+
+pub(crate) fn installed_modules_load_diagnostic(
+    error: &modules::PackageError,
+) -> OperationalDiagnostic {
+    match error {
+        modules::PackageError::Io { source, .. } => OperationalDiagnostic::from_io(
+            OperationalDiagnosticCode::ModuleInstalledStateLoad,
+            source,
+        ),
+        _ => OperationalDiagnostic::new(OperationalDiagnosticCode::ModuleInstalledStateLoad),
+    }
+}
+
+fn module_operation_code(action: &str) -> OperationalDiagnosticCode {
+    match action {
+        "Remove" | "Remove all" | "Delete data" | "Confirm delete" => {
+            OperationalDiagnosticCode::ModuleRemove
+        }
+        "Update" | "Review update" | "Repair" | "Restore" => {
+            OperationalDiagnosticCode::ModuleUpdate
+        }
+        _ => OperationalDiagnosticCode::ModuleInstall,
     }
 }
 
@@ -678,6 +754,7 @@ pub(crate) struct ModuleSettingsCallbackContext {
     pub socket_path: PathBuf,
     pub remote_search_generation: Arc<AtomicU64>,
     pub remote_result_tx: mpsc::Sender<(u64, String, SearchResultSet, Instant)>,
+    pub diagnostics: Arc<dyn Telemetry>,
     pub profile: bool,
 }
 
@@ -701,6 +778,7 @@ pub(crate) fn register_module_settings_callback(
         socket_path,
         remote_search_generation,
         remote_result_tx,
+        diagnostics,
         profile,
     } = context;
 
@@ -767,6 +845,7 @@ pub(crate) fn register_module_settings_callback(
         let socket_path = socket_path.clone();
         let remote_search_generation = remote_search_generation.clone();
         let remote_result_tx = remote_result_tx.clone();
+        let diagnostics = diagnostics.clone();
         move || {
             let completions = std::mem::take(
                 &mut *pending_completions_for_ui
@@ -791,6 +870,7 @@ pub(crate) fn register_module_settings_callback(
                             installed.as_ref(),
                         );
                         if let Err(error) = modules::save_modules_config(&config) {
+                            diagnostics.operational_failure(save_modules_diagnostic(&error));
                             let details = format!(
                                 "Module changed, but its setting could not be saved: {error}"
                             );
@@ -828,6 +908,9 @@ pub(crate) fn register_module_settings_callback(
                         }
                     }
                     Err(error) => {
+                        diagnostics.operational_failure(OperationalDiagnostic::new(
+                            module_operation_code(&action),
+                        ));
                         let details =
                             format!("Could not {} module: {error}", action.to_ascii_lowercase());
                         operations.borrow_mut().insert(
@@ -860,6 +943,9 @@ pub(crate) fn register_module_settings_callback(
                     next_config
                 };
                 if let Err(error) = config::save_config_with_backup(&compatibility_config) {
+                    diagnostics.operational_failure(OperationalDiagnostic::new(
+                        OperationalDiagnosticCode::MainConfigurationSave,
+                    ));
                     eprintln!(
                         "module state was saved, but config.toml compatibility mirror failed: {error}"
                     );
@@ -931,6 +1017,7 @@ pub(crate) fn register_module_settings_callback(
     });
     thread::spawn({
         let weak = ui.as_weak();
+        let diagnostics = diagnostics.clone();
         move || {
             while let Ok(completion) = install_rx.recv() {
                 pending_completions
@@ -941,6 +1028,9 @@ pub(crate) fn register_module_settings_callback(
                     .upgrade_in_event_loop(|ui| ui.invoke_apply_module_operations())
                     .is_err()
                 {
+                    diagnostics.operational_failure(OperationalDiagnostic::new(
+                        OperationalDiagnosticCode::WindowUiDispatch,
+                    ));
                     break;
                 }
             }
@@ -954,6 +1044,7 @@ pub(crate) fn register_module_settings_callback(
         let module_model = module_model.clone();
         let install_tx = install_tx.clone();
         let pending_permission_approvals = pending_permission_approvals.clone();
+        let diagnostics = diagnostics.clone();
         let operations = operations.clone();
         let sort_order = sort_order.clone();
         move |module_id, action| {
@@ -1002,6 +1093,9 @@ pub(crate) fn register_module_settings_callback(
                         if let Err(error) = rayslash_core::actions::run_module_action(
                             &search::ModuleAction::OpenUrl(url),
                         ) {
+                            diagnostics.operational_failure(OperationalDiagnostic::new(
+                                OperationalDiagnosticCode::ModuleActionLaunch,
+                            ));
                             ui.set_status_text(
                                 format!("Could not open module link: {error}").into(),
                             );
@@ -1207,6 +1301,7 @@ pub(crate) fn register_module_settings_callback(
     ui.on_settings_module_toggle_requested({
         let weak = ui.as_weak();
         let sort_order = sort_order.clone();
+        let diagnostics = diagnostics.clone();
         move |module_id, enabled| {
             let Some(ui) = weak.upgrade() else {
                 return;
@@ -1246,6 +1341,7 @@ pub(crate) fn register_module_settings_callback(
             }
 
             if let Err(error) = modules::save_modules_config(&next_modules) {
+                diagnostics.operational_failure(save_modules_diagnostic(&error));
                 eprintln!("{error}");
                 refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow(), *sort_order.borrow());
                 ui.set_status_text(format!("Could not save module setting: {error}").into());
@@ -1265,6 +1361,9 @@ pub(crate) fn register_module_settings_callback(
             let compatibility_error =
                 config::save_config_with_backup(&compatibility_config).err();
             if let Some(error) = compatibility_error.as_ref() {
+                diagnostics.operational_failure(OperationalDiagnostic::new(
+                    OperationalDiagnosticCode::MainConfigurationSave,
+                ));
                 eprintln!(
                     "module state was saved, but config.toml compatibility mirror failed: {error}"
                 );

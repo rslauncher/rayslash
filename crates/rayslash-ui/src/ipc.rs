@@ -3,8 +3,11 @@ use std::{
     io::{self, BufRead, BufReader, Write},
     os::unix::net::{UnixListener, UnixStream},
     path::{Path, PathBuf},
+    sync::Arc,
     thread::{self, JoinHandle},
 };
+
+use rayslash_core::diagnostics::{OperationalDiagnostic, OperationalDiagnosticCode, Telemetry};
 
 const SOCKET_FILE_NAME: &str = "rayslash.sock";
 
@@ -85,6 +88,7 @@ fn effective_user_id() -> u32 {
 
 pub fn start_server(
     listener: UnixListener,
+    telemetry: Arc<dyn Telemetry>,
     on_request: impl Fn(IpcRequest) + Send + 'static,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
@@ -93,9 +97,21 @@ pub fn start_server(
                 Ok(stream) => match read_request(stream) {
                     Ok(Some(request)) => on_request(request),
                     Ok(None) => {}
-                    Err(error) => eprintln!("failed to read rayslash IPC request: {error}"),
+                    Err(error) => {
+                        telemetry.operational_failure(OperationalDiagnostic::from_io(
+                            OperationalDiagnosticCode::IpcRead,
+                            &error,
+                        ));
+                        eprintln!("failed to read rayslash IPC request: {error}");
+                    }
                 },
-                Err(error) => eprintln!("failed to accept rayslash IPC connection: {error}"),
+                Err(error) => {
+                    telemetry.operational_failure(OperationalDiagnostic::from_io(
+                        OperationalDiagnosticCode::IpcAccept,
+                        &error,
+                    ));
+                    eprintln!("failed to accept rayslash IPC connection: {error}");
+                }
             }
         }
     })

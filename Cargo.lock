@@ -4271,6 +4271,7 @@ dependencies = [
  "rfd",
  "semver",
  "sentry",
+ "serde",
  "serde_json",
  "slint",
  "slint-build",

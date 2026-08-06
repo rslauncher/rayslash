@@ -5,7 +5,11 @@ use std::{
 };
 
 use rayslash_core::{
-    actions, app_state, apps, config, projects, providers::ProviderAction, ranking, search,
+    actions, app_state, apps, config,
+    diagnostics::{OperationalDiagnostic, OperationalDiagnosticCode, Telemetry},
+    projects,
+    providers::ProviderAction,
+    ranking, search,
 };
 use slint::ComponentHandle;
 
@@ -19,6 +23,7 @@ pub(crate) struct ActivationCallbackContext {
     pub projects: Rc<RefCell<Arc<Vec<projects::Project>>>>,
     pub apps: Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     pub is_visible: Arc<AtomicBool>,
+    pub telemetry: Arc<dyn Telemetry>,
 }
 
 pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCallbackContext) {
@@ -30,6 +35,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
         projects,
         apps,
         is_visible,
+        telemetry,
     } = context;
 
     ui.on_activate_selected_result({
@@ -53,7 +59,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                 }
                 ProviderAction::Dismiss => {
                     if let Some(ui) = weak.upgrade() {
-                        hide_launcher(&ui, is_visible.as_ref());
+                        hide_launcher(&ui, is_visible.as_ref(), telemetry.as_ref());
                     }
                 }
                 ProviderAction::OpenFolder(path) => {
@@ -86,7 +92,9 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                             projects: &projects,
                             apps: &apps,
                             visible: &is_visible,
+                            telemetry: &telemetry,
                         },
+                        OperationalDiagnosticCode::FolderLaunch,
                     );
                 }
                 ProviderAction::LaunchApp {
@@ -111,7 +119,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                         );
                     });
                     if outcome.is_ok() {
-                        mark_app_selected(&app_install_state, &result);
+                        mark_app_selected(&app_install_state, &result, telemetry.clone());
                     }
                     finish_launch(
                         &weak,
@@ -123,11 +131,13 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                             projects: &projects,
                             apps: &apps,
                             visible: &is_visible,
+                            telemetry: &telemetry,
                         },
+                        OperationalDiagnosticCode::ApplicationLaunch,
                     );
                 }
                 ProviderAction::Module(action) => {
-                    activate_module(&weak, &result, action, &is_visible)
+                    activate_module(&weak, &result, action, &is_visible, &telemetry)
                 }
             }
         }
@@ -139,16 +149,20 @@ fn activate_module(
     result: &search::SearchResult,
     action: search::ModuleAction,
     is_visible: &Arc<AtomicBool>,
+    telemetry: &Arc<dyn Telemetry>,
 ) {
     match &action {
         search::ModuleAction::CopyText(text) => match copy_to_clipboard(text) {
             Ok(()) => {
                 if let Some(ui) = weak.upgrade() {
                     ui.set_status_text(format!("Copied result: {text}").into());
-                    hide_launcher(&ui, is_visible.as_ref());
+                    hide_launcher(&ui, is_visible.as_ref(), telemetry.as_ref());
                 }
             }
             Err(error) => {
+                telemetry.operational_failure(OperationalDiagnostic::new(
+                    OperationalDiagnosticCode::ClipboardWrite,
+                ));
                 eprintln!("failed to copy module result: {error}");
                 if let Some(ui) = weak.upgrade() {
                     ui.set_status_text("Could not copy module result.".into());
@@ -165,14 +179,18 @@ fn activate_module(
                 ui.set_status_text(format!("Preview only: {}", result.title).into());
             }
         }
-        _ => match actions::run_module_action(&action) {
+        _ => match actions::run_module_action_with_telemetry(&action, Some(telemetry.clone())) {
             Ok(()) => {
                 if let Some(ui) = weak.upgrade() {
                     ui.set_status_text(format!("Activated {}", result.title).into());
-                    hide_launcher(&ui, is_visible.as_ref());
+                    hide_launcher(&ui, is_visible.as_ref(), telemetry.as_ref());
                 }
             }
             Err(error) => {
+                telemetry.operational_failure(OperationalDiagnostic::from_io(
+                    OperationalDiagnosticCode::ModuleActionLaunch,
+                    &error,
+                ));
                 eprintln!("failed to activate module result {}: {error}", result.title);
                 if let Some(ui) = weak.upgrade() {
                     ui.set_status_text(format!("Could not activate {}", result.title).into());
@@ -188,6 +206,7 @@ struct LaunchState<'a> {
     projects: &'a Rc<RefCell<Arc<Vec<projects::Project>>>>,
     apps: &'a Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     visible: &'a Arc<AtomicBool>,
+    telemetry: &'a Arc<dyn Telemetry>,
 }
 
 fn finish_launch(
@@ -195,6 +214,7 @@ fn finish_launch(
     outcome: std::io::Result<()>,
     result: &search::SearchResult,
     state: LaunchState<'_>,
+    failure_code: OperationalDiagnosticCode,
 ) {
     match outcome {
         Ok(()) => {
@@ -206,12 +226,16 @@ fn finish_launch(
                     &state.apps.borrow(),
                     result,
                     ui.get_query_text().as_str(),
+                    state.telemetry.clone(),
                 );
                 ui.set_status_text(format!("Opening {}", result.title).into());
-                hide_launcher(&ui, state.visible.as_ref());
+                hide_launcher(&ui, state.visible.as_ref(), state.telemetry.as_ref());
             }
         }
         Err(error) => {
+            state
+                .telemetry
+                .operational_failure(OperationalDiagnostic::from_io(failure_code, &error));
             eprintln!("failed to activate {}: {error}", result.title);
             if let Some(ui) = weak.upgrade() {
                 ui.set_status_text(format!("Could not open {}", result.title).into());
@@ -223,13 +247,14 @@ fn finish_launch(
 fn mark_app_selected(
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     result: &search::SearchResult,
+    telemetry: Arc<dyn Telemetry>,
 ) {
     let Some(app_id) = result.app_id() else {
         return;
     };
     let changed = app_install_state.borrow_mut().mark_app_selected(app_id);
     if changed {
-        persistence::save_app_state(app_install_state.borrow().clone());
+        persistence::save_app_state(app_install_state.borrow().clone(), telemetry);
     }
 }
 
@@ -240,6 +265,7 @@ fn record_learned_launch(
     apps: &[apps::DesktopApp],
     result: &search::SearchResult,
     query: &str,
+    telemetry: Arc<dyn Telemetry>,
 ) {
     if !config.ranking.learn_from_usage {
         return;
@@ -255,7 +281,7 @@ fn record_learned_launch(
             std::time::SystemTime::now(),
         );
     }
-    persistence::save_ranking_state(ranking_state.borrow().clone());
+    persistence::save_ranking_state(ranking_state.borrow().clone(), telemetry);
 }
 
 fn active_learning_ids(projects: &[projects::Project], apps: &[apps::DesktopApp]) -> Vec<String> {
