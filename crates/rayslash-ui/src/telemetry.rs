@@ -56,9 +56,33 @@ impl DiagnosticsTelemetry {
     }
 
     pub(crate) fn local_report(&self) -> String {
-        let summary = self.local_summary();
+        let statistics = self
+            .latest
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        let (summary, read, parsed, consistent, structured) = statistics.as_ref().map_or_else(
+            || {
+                (
+                    "No application scan has completed yet".to_owned(),
+                    "unknown".to_owned(),
+                    "unknown".to_owned(),
+                    "unknown".to_owned(),
+                    "null".to_owned(),
+                )
+            },
+            |statistics| {
+                (
+                    statistics.local_summary(),
+                    statistics.successfully_read().to_string(),
+                    statistics.successfully_parsed().to_string(),
+                    statistics.is_consistent().to_string(),
+                    serde_json::to_string_pretty(statistics).unwrap_or_else(|_| "null".to_owned()),
+                )
+            },
+        );
         format!(
-            "Rayslash diagnostic report\nVersion: {}\nArchitecture: {}\nDistribution: {} {}\nDesktop: {}\nSession: {}\nInstallation: {}\n\nApplication discovery:\n{}\n\nPrivacy: this report contains aggregate counts only; it excludes application names, paths, commands, searches, and history.",
+            "Rayslash diagnostic report\nVersion: {}\nArchitecture: {}\nDistribution: {} {}\nDesktop: {}\nSession: {}\nInstallation: {}\n\nApplication discovery:\n{}\nSuccessfully read: {}\nSuccessfully parsed: {}\nAccounting consistent: {}\n\nStructured aggregate:\n{}\n\nPrivacy: this report contains aggregate counts only; it excludes application names, paths, commands, searches, and history.",
             env!("CARGO_PKG_VERSION"),
             self.environment.architecture,
             self.environment.distribution,
@@ -67,6 +91,10 @@ impl DiagnosticsTelemetry {
             self.environment.session,
             self.environment.installation,
             summary,
+            read,
+            parsed,
+            consistent,
+            structured,
         )
     }
 
@@ -97,6 +125,10 @@ impl DiagnosticsTelemetry {
 
         let mut tags = self.environment.tags();
         tags.insert("event_schema".to_owned(), "application_scan_v1".to_owned());
+        tags.insert(
+            "accounting_consistent".to_owned(),
+            statistics.is_consistent().to_string(),
+        );
         let mut extra = BTreeMap::new();
         extra.insert(
             "scan".to_owned(),
@@ -303,6 +335,7 @@ fn installation_type() -> &'static str {
 
 #[cfg(test)]
 mod tests {
+    use rayslash_core::apps::{ApplicationSource, DesktopCandidateOutcome, SourceScanStatistics};
     use sentry::protocol::{Request, User};
 
     use super::*;
@@ -361,5 +394,38 @@ mod tests {
         assert!(scrubbed.user.is_none());
         assert!(scrubbed.request.is_none());
         assert!(scrubbed.server_name.is_none());
+    }
+
+    #[test]
+    fn local_report_includes_complete_sanitized_source_accounting() {
+        let telemetry = DiagnosticsTelemetry {
+            enabled: AtomicBool::new(false),
+            latest: Mutex::new(None),
+            last_remote_scan: Mutex::new(None),
+            remote: None,
+            environment: SafeEnvironment::detect(),
+        };
+        telemetry.record_cached_scan(ApplicationScanStatistics {
+            candidates: 1,
+            source_errors: 0,
+            outcomes: [(DesktopCandidateOutcome::MissingExecutable, 1)].into(),
+            sources: [(
+                ApplicationSource::UserFlatpak,
+                SourceScanStatistics {
+                    candidates: 1,
+                    source_errors: 0,
+                    outcomes: [(DesktopCandidateOutcome::MissingExecutable, 1)].into(),
+                },
+            )]
+            .into(),
+        });
+
+        let report = telemetry.local_report();
+
+        assert!(report.contains("Successfully read: 1"));
+        assert!(report.contains("Successfully parsed: 1"));
+        assert!(report.contains("Accounting consistent: true"));
+        assert!(report.contains("\"user_flatpak\""));
+        assert!(report.contains("\"missing_executable\": 1"));
     }
 }
