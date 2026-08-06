@@ -7,6 +7,10 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
+  # Allow official builds to embed the optional public diagnostics endpoint supplied by CI.
+  # An unset/empty value leaves remote diagnostics unavailable without affecting the app.
+  secret-env:
+    - RAYSLASH_SENTRY_DSN
 # The host is required launcher infrastructure, not a module. No official or community
 # module package is bundled; users still choose every module from Settings -> Modules.
 finish-args:

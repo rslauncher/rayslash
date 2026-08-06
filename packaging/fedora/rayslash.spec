@@ -1,5 +1,5 @@
 Name:           rayslash
-Version:        0.2.3
+Version:        0.2.4
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.4
@@ -83,6 +83,9 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Thu Aug 06 2026 RaySlash contributors - 0.2.4-1
+- Add privacy-conscious application discovery diagnostics and fix Ctrl+Enter input state.
+
 * Sun Jul 26 2026 RaySlash contributors - 0.2.3-1
 - Ship the split module compiler, persistent timer notifications, and optimized runtime paths.
 

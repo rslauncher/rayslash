@@ -91,6 +91,7 @@ pub fn config_with_max_results(max_results: usize) -> config::Config {
             ..config::AppearanceConfig::default()
         },
         ranking: config::RankingConfig::default(),
+        diagnostics: config::DiagnosticsConfig::default(),
     }
 }
 

@@ -13,6 +13,10 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+env:
+  # Optional public client routing identifier. Builds remain fully functional when unset.
+  RAYSLASH_SENTRY_DSN: ${{ vars.RAYSLASH_SENTRY_DSN }}
+
 jobs:
   prepare:
     runs-on: ubuntu-latest

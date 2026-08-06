@@ -14,6 +14,7 @@ use crate::{
         SettingsConfigError, config_from_settings_fields, first_existing_folder_source,
         parse_alias_kind, web_search_items,
     },
+    telemetry::DiagnosticsTelemetry,
 };
 
 pub(crate) struct SettingsCallbackContext {
@@ -29,6 +30,7 @@ pub(crate) struct SettingsCallbackContext {
     pub socket_path: PathBuf,
     pub suppress_next_focus_hide: Rc<Cell<bool>>,
     pub last_desktop_app_refresh: Rc<RefCell<std::time::Instant>>,
+    pub diagnostics: Arc<DiagnosticsTelemetry>,
     pub settings_save_blocked: bool,
     pub profile: bool,
 }
@@ -47,6 +49,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         socket_path,
         suppress_next_focus_hide,
         last_desktop_app_refresh,
+        diagnostics,
         settings_save_blocked,
         profile,
     } = context;
@@ -65,6 +68,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let last_desktop_app_refresh = last_desktop_app_refresh.clone();
         let ranking_state = ranking_state.clone();
         let socket_path = socket_path.clone();
+        let diagnostics = diagnostics.clone();
         move || {
             if let Some(ui) = weak.upgrade() {
                 if ui.get_settings_open() {
@@ -79,6 +83,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                         app_install_state: &app_install_state,
                         choices_model: &alternate_opener_choices,
                         icon_cache: &icon_cache,
+                        telemetry: diagnostics.as_ref(),
                         last_refresh: &last_desktop_app_refresh,
                         profile,
                         label: "settings-open",
@@ -100,6 +105,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     &icon_cache,
                     &socket_path,
                 );
+                ui.set_settings_diagnostics_summary(diagnostics.local_summary().into());
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
                 ui.invoke_focus_settings();
@@ -144,6 +150,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let results_model = results_model.clone();
         let icon_cache = icon_cache.clone();
         let socket_path = socket_path.clone();
+        let diagnostics = diagnostics.clone();
         move |folder_sources_text,
               editor_command,
               apps_enabled,
@@ -157,6 +164,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
               utility_actions_enabled,
               alternate_folder_opener_enabled,
               learn_from_usage,
+              send_anonymous_diagnostics,
               theme,
               density,
               max_results_text,
@@ -186,6 +194,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 utility_actions_enabled,
                 alternate_folder_opener_enabled,
                 learn_from_usage,
+                send_anonymous_diagnostics,
                 theme.as_str(),
                 density.as_str(),
                 max_results_text.as_str(),
@@ -248,6 +257,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             }
 
             *config_state.borrow_mut() = runtime_config;
+            diagnostics.set_enabled(config_state.borrow().diagnostics.send_anonymous_diagnostics);
             let updated_projects =
                 projects::scan_project_roots(&config_state.borrow().folder_sources);
             *projects.borrow_mut() = Arc::new(updated_projects);
@@ -495,6 +505,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     ui.get_settings_provider_utility_actions(),
                     ui.get_settings_alternate_folder_opener_enabled(),
                     ui.get_settings_ranking_learn_from_usage(),
+                    ui.get_settings_send_anonymous_diagnostics(),
                     ui.get_settings_theme(),
                     ui.get_settings_density(),
                     ui.get_settings_max_results(),
@@ -502,6 +513,27 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     ui.get_settings_aliases_text(),
                     ui.get_settings_web_searches_text(),
                 );
+            }
+        }
+    });
+
+    ui.on_settings_copy_diagnostics_requested({
+        let weak = ui.as_weak();
+        let diagnostics = diagnostics.clone();
+        move || {
+            let report = diagnostics.local_report();
+            match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(report)) {
+                Ok(()) => {
+                    if let Some(ui) = weak.upgrade() {
+                        set_ephemeral_status(&ui, "Diagnostic report copied.");
+                    }
+                }
+                Err(error) => {
+                    eprintln!("failed to copy diagnostic report: {error}");
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_status_text("Could not copy diagnostic report.".into());
+                    }
+                }
             }
         }
     });

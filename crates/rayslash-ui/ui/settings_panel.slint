@@ -135,6 +135,8 @@ export component SettingsPanel inherits FocusScope {
     in-out property <bool> provider-utility-actions;
     in-out property <bool> alternate-folder-opener-enabled;
     in-out property <bool> ranking-learn-from-usage;
+    in-out property <bool> send-anonymous-diagnostics;
+    in property <string> diagnostics-summary;
     in-out property <string> theme;
     in-out property <string> density;
     in-out property <string> max-results;
@@ -154,6 +156,7 @@ export component SettingsPanel inherits FocusScope {
     callback browse-folder-requested(string);
     callback choose-alternate-opener-requested(string);
     callback clear-ranking-requested();
+    callback copy-diagnostics-requested();
     callback alias-save-requested(int, string, string, string, string) -> bool;
     callback alias-remove-requested(int) -> bool;
     callback web-search-save-requested(int, string, string, string, bool) -> bool;
@@ -165,7 +168,7 @@ export component SettingsPanel inherits FocusScope {
     callback module-sort-requested(string);
     pure callback feedback-kind(string) -> string;
     pure callback feedback-duration-ms(string) -> int;
-    callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
+    callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     private property <string> settings-section: "general";
     private property <int> web-search-editor-index: -1;
@@ -274,6 +277,7 @@ export component SettingsPanel inherits FocusScope {
             root.provider-utility-actions,
             root.alternate-folder-opener-enabled,
             root.ranking-learn-from-usage,
+            root.send-anonymous-diagnostics,
             root.theme,
             root.density,
             settings-max-results-input.text,
@@ -1044,7 +1048,7 @@ export component SettingsPanel inherits FocusScope {
             }
 
             Rectangle {
-                height: 116px;
+                height: 276px;
                 border-radius: 10px;
                 background: root.field-bg;
                 border-width: 1px;
@@ -1053,6 +1057,57 @@ export component SettingsPanel inherits FocusScope {
                 VerticalLayout {
                     padding: 10px;
                     spacing: 8px;
+
+                    HorizontalLayout {
+                        height: 48px;
+                        spacing: 10px;
+
+                        VerticalLayout {
+                            spacing: 3px;
+                            Text { text: "Send anonymous diagnostics"; color: root.text-main; font-size: 11px; font-weight: 700; }
+                            Text {
+                                text: "Sends aggregate application-discovery outcomes and coarse Linux environment details. Names, searches, commands, and paths are never collected.";
+                                color: root.text-muted;
+                                font-size: 9px;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        Rectangle {
+                            width: 42px;
+                            MiniToggle {
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                                checked <=> root.send-anonymous-diagnostics;
+                                light: root.light;
+                                toggled => { root.save-settings(); }
+                            }
+                        }
+                    }
+
+                    Text {
+                        height: 32px;
+                        text: root.diagnostics-summary;
+                        color: root.text-soft;
+                        font-size: 9px;
+                        wrap: word-wrap;
+                        overflow: elide;
+                    }
+
+                    Rectangle {
+                        height: 34px;
+                        border-radius: 7px;
+                        background: copy-diagnostics.pressed ? root.field-bg-pressed : copy-diagnostics.has-hover ? root.field-bg-hover : transparent;
+                        border-width: 1px;
+                        border-color: root.field-border;
+                        Text { text: "Copy diagnostic report"; color: root.text-main; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        copy-diagnostics := TouchArea { mouse-cursor: pointer; clicked => { root.copy-diagnostics-requested(); } }
+                    }
+
+                    Rectangle {
+                        height: 1px;
+                        background: root.field-border;
+                    }
 
                     HorizontalLayout {
                         height: 38px;

@@ -87,6 +87,11 @@ Settings can be changed from the launcher or by editing:
 
 Folder sources, module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
 
+Anonymous application-discovery diagnostics are disabled by default and can be enabled or
+disabled at any time in Settings → Diagnostics. That section also shows the latest local scan
+summary and can copy a sanitized report for a bug report. See [Diagnostics and privacy](docs/diagnostics.md)
+for the exact collection policy and developer setup.
+
 ## Modules
 
 Module authors can start with the [SDK quickstart](https://github.com/rslauncher/rayslash-module-sdk/blob/main/docs/AUTHORING.md). The SDK contains the stable WIT contract, manifest schema, validator/packager, and release template. Community submissions are pull requests to the [signed registry](https://github.com/rslauncher/rayslash-registry); no paid service or custom backend is required.

@@ -3,7 +3,10 @@ mod fixtures;
 use std::{ffi::OsString, path::PathBuf};
 
 use fixtures::{TempDir, desktop_entry, write_hicolor_app_icon};
-use rayslash_core::apps::{discover_desktop_apps_in_dirs, resolve_desktop_icon_in_dirs};
+use rayslash_core::apps::{
+    DesktopCandidateOutcome, discover_desktop_apps_in_dirs_with_diagnostics,
+    resolve_desktop_icon_in_dirs,
+};
 
 #[test]
 fn desktop_discovery_uses_fixtures_for_filtering_ids_exec_and_absolute_icons() {
@@ -64,7 +67,8 @@ fn desktop_discovery_uses_fixtures_for_filtering_ids_exec_and_absolute_icons() {
     )
     .expect("write missing TryExec desktop file");
 
-    let apps = discover_desktop_apps_in_dirs(&[dir.path().to_path_buf()]);
+    let scan = discover_desktop_apps_in_dirs_with_diagnostics(&[dir.path().to_path_buf()]);
+    let apps = &scan.apps;
 
     assert_eq!(
         apps.iter().map(|app| app.name.as_str()).collect::<Vec<_>>(),
@@ -77,6 +81,63 @@ fn desktop_discovery_uses_fixtures_for_filtering_ids_exec_and_absolute_icons() {
         vec![OsString::from("--name"), OsString::from("two words")]
     );
     assert_eq!(apps[1].icon_path.as_deref(), Some(icon.as_path()));
+    assert!(scan.statistics.is_consistent());
+    assert_eq!(scan.statistics.candidates, 7);
+    assert_eq!(
+        scan.statistics
+            .outcome_count(DesktopCandidateOutcome::Indexed),
+        2
+    );
+    for outcome in [
+        DesktopCandidateOutcome::Hidden,
+        DesktopCandidateOutcome::NoDisplay,
+        DesktopCandidateOutcome::MissingExec,
+        DesktopCandidateOutcome::MissingExecutable,
+        DesktopCandidateOutcome::InvalidTryExec,
+    ] {
+        assert_eq!(scan.statistics.outcome_count(outcome), 1, "{outcome:?}");
+    }
+}
+
+#[test]
+fn desktop_discovery_accounts_for_malformed_encoding_unsupported_and_duplicates() {
+    let user = TempDir::new("rayslash-desktop-accounting-user");
+    let system = TempDir::new("rayslash-desktop-accounting-system");
+    user.write("same.desktop", desktop_entry("First", "/bin/true"))
+        .expect("write first duplicate candidate");
+    user.write("malformed.desktop", "Name=No desktop entry group\n")
+        .expect("write malformed candidate");
+    user.write("invalid-encoding.desktop", [0xff, 0xfe, 0xfd])
+        .expect("write invalid encoding candidate");
+    system
+        .write("same.desktop", desktop_entry("Second", "/bin/true"))
+        .expect("write duplicate candidate");
+    system
+        .write(
+            "link.desktop",
+            "[Desktop Entry]\nType=Link\nName=Documentation\nURL=https://example.com\n",
+        )
+        .expect("write unsupported candidate");
+
+    let scan = discover_desktop_apps_in_dirs_with_diagnostics(&[
+        user.path().to_path_buf(),
+        system.path().to_path_buf(),
+    ]);
+
+    assert_eq!(scan.apps.len(), 1);
+    assert_eq!(scan.statistics.candidates, 5);
+    assert_eq!(scan.statistics.successfully_read(), 3);
+    assert_eq!(scan.statistics.successfully_parsed(), 2);
+    assert!(scan.statistics.is_consistent());
+    for outcome in [
+        DesktopCandidateOutcome::Indexed,
+        DesktopCandidateOutcome::Duplicate,
+        DesktopCandidateOutcome::MalformedDesktopEntry,
+        DesktopCandidateOutcome::InvalidEncoding,
+        DesktopCandidateOutcome::UnsupportedType,
+    ] {
+        assert_eq!(scan.statistics.outcome_count(outcome), 1, "{outcome:?}");
+    }
 }
 
 fn write_executable(dir: &TempDir, relative: &str) -> PathBuf {

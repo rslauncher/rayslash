@@ -8,11 +8,37 @@ use crate::actions::CommandSpec;
 use serde::{Deserialize, Serialize};
 
 pub use app_discovery::{
+    ApplicationScan, ApplicationScanStatistics, ApplicationSource, SourceScanStatistics,
     desktop_application_dirs, desktop_apps_cache_is_current, discover_and_cache_desktop_apps,
-    discover_desktop_apps, discover_desktop_apps_in_dirs, load_cached_desktop_apps,
+    discover_and_cache_desktop_apps_with_diagnostics, discover_desktop_apps,
+    discover_desktop_apps_in_dirs, discover_desktop_apps_in_dirs_with_diagnostics,
+    load_cached_desktop_apps, load_cached_desktop_scan,
 };
 pub use desktop_entry::{parse_desktop_entry, parse_exec_command};
 pub use icon_lookup::resolve_desktop_icon_in_dirs;
+
+/// The single final disposition assigned to a desktop-entry candidate.
+///
+/// These values are safe to aggregate in diagnostics: they contain no desktop-entry data,
+/// paths, commands, or error messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DesktopCandidateOutcome {
+    Indexed,
+    Duplicate,
+    Hidden,
+    NoDisplay,
+    UnsupportedType,
+    MissingName,
+    MissingExec,
+    MalformedDesktopEntry,
+    DesktopEnvironmentFiltered,
+    InvalidTryExec,
+    MissingExecutable,
+    InvalidEncoding,
+    ReadFailure,
+    MetadataFailure,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DesktopAction {

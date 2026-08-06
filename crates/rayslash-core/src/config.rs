@@ -29,6 +29,8 @@ pub struct Config {
     pub appearance: AppearanceConfig,
     #[serde(default)]
     pub ranking: RankingConfig,
+    #[serde(default)]
+    pub diagnostics: DiagnosticsConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -128,6 +130,13 @@ pub struct RankingConfig {
     pub learn_from_usage: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct DiagnosticsConfig {
+    /// Explicit opt-in. Anonymous diagnostics are disabled unless this is true.
+    #[serde(default)]
+    pub send_anonymous_diagnostics: bool,
+}
+
 #[derive(Debug)]
 pub enum ConfigError {
     Read {
@@ -212,6 +221,7 @@ impl Default for Config {
             actions: ActionConfig::default(),
             appearance: AppearanceConfig::default(),
             ranking: RankingConfig::default(),
+            diagnostics: DiagnosticsConfig::default(),
         }
     }
 }
