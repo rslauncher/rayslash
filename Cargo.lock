@@ -4260,7 +4260,7 @@ dependencies = [
 
 [[package]]
 name = "rayslash"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "arboard",
  "dirs",
@@ -4280,7 +4280,7 @@ dependencies = [
 
 [[package]]
 name = "rayslash-core"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "base64",
  "chrono",

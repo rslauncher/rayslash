@@ -14,6 +14,7 @@ pub enum OperationalDiagnosticArea {
     Ipc,
     Action,
     Modules,
+    Updates,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -34,6 +35,8 @@ pub enum OperationalDiagnosticCode {
     WindowUiDispatch,
     DesktopWatcherInitialize,
     DesktopWatcherWatch,
+    ProjectWatcherInitialize,
+    ProjectWatcherWatch,
     IpcAccept,
     IpcRead,
     IpcUiDispatch,
@@ -54,6 +57,9 @@ pub enum OperationalDiagnosticCode {
     ModuleRuntimeProtocol,
     ModuleRuntimeInvalidResponse,
     ModuleRuntimeOther,
+    AppUpdateCheck,
+    AppUpdateDownload,
+    AppUpdateInstall,
 }
 
 impl OperationalDiagnosticCode {
@@ -73,7 +79,9 @@ impl OperationalDiagnosticCode {
             | Self::WindowHide
             | Self::WindowUiDispatch
             | Self::DesktopWatcherInitialize
-            | Self::DesktopWatcherWatch => OperationalDiagnosticArea::Launcher,
+            | Self::DesktopWatcherWatch
+            | Self::ProjectWatcherInitialize
+            | Self::ProjectWatcherWatch => OperationalDiagnosticArea::Launcher,
             Self::IpcAccept | Self::IpcRead | Self::IpcUiDispatch => OperationalDiagnosticArea::Ipc,
             Self::ApplicationLaunch
             | Self::FolderLaunch
@@ -92,6 +100,9 @@ impl OperationalDiagnosticCode {
             | Self::ModuleRuntimeProtocol
             | Self::ModuleRuntimeInvalidResponse
             | Self::ModuleRuntimeOther => OperationalDiagnosticArea::Modules,
+            Self::AppUpdateCheck | Self::AppUpdateDownload | Self::AppUpdateInstall => {
+                OperationalDiagnosticArea::Updates
+            }
         }
     }
 }

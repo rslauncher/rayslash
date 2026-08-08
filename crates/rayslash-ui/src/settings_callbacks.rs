@@ -1,4 +1,11 @@
-use std::{cell::Cell, cell::RefCell, path::PathBuf, rc::Rc, sync::Arc, time::Duration};
+use std::{
+    cell::Cell,
+    cell::RefCell,
+    path::PathBuf,
+    rc::Rc,
+    sync::{Arc, mpsc},
+    time::Duration,
+};
 
 use rayslash_core::{
     app_state, apps, config,
@@ -35,6 +42,7 @@ pub(crate) struct SettingsCallbackContext {
     pub suppress_next_focus_hide: Rc<Cell<bool>>,
     pub last_desktop_app_refresh: Rc<RefCell<std::time::Instant>>,
     pub diagnostics: Arc<DiagnosticsTelemetry>,
+    pub project_watch_tx: mpsc::Sender<Vec<PathBuf>>,
     pub settings_save_blocked: bool,
     pub profile: bool,
 }
@@ -54,6 +62,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         suppress_next_focus_hide,
         last_desktop_app_refresh,
         diagnostics,
+        project_watch_tx,
         settings_save_blocked,
         profile,
     } = context;
@@ -184,7 +193,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 return;
             }
 
-            let config_to_save = match config_from_settings_fields(
+            let mut config_to_save = match config_from_settings_fields(
                 folder_sources_text.as_str(),
                 editor_command.as_str(),
                 apps_enabled,
@@ -246,6 +255,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     return;
                 }
             };
+            config_to_save.updates = config_state.borrow().updates.clone();
 
             let runtime_config = config_to_save.clone().normalized();
             if runtime_config == *config_state.borrow() {
@@ -262,6 +272,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             }
 
             *config_state.borrow_mut() = runtime_config;
+            let _ = project_watch_tx.send(config_state.borrow().folder_sources.clone());
             diagnostics.set_enabled(config_state.borrow().diagnostics.send_anonymous_diagnostics);
             let updated_projects =
                 projects::scan_project_roots(&config_state.borrow().folder_sources);
@@ -554,6 +565,43 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         }
     });
 
+    ui.on_settings_update_preferences_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        let diagnostics = diagnostics.clone();
+        move |notify_app_updates, notify_module_updates| {
+            if settings_save_blocked {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_status_text(
+                        "Could not save update preferences: fix config.toml and restart rayslash."
+                            .into(),
+                    );
+                }
+                return;
+            }
+            let mut next = config_state.borrow().clone();
+            next.updates.notify_app_updates = notify_app_updates;
+            next.updates.notify_module_updates = notify_module_updates;
+            if next == *config_state.borrow() {
+                return;
+            }
+            if let Err(error) = config::save_config_with_backup(&next) {
+                diagnostics.operational_failure(config_save_diagnostic(&error));
+                eprintln!("{error}");
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_status_text(
+                        format!("Could not save update preferences: {error}").into(),
+                    );
+                }
+                return;
+            }
+            *config_state.borrow_mut() = next;
+            if let Some(ui) = weak.upgrade() {
+                set_ephemeral_status(&ui, "Update notification preferences saved.");
+            }
+        }
+    });
+
     ui.on_settings_clear_ranking_requested({
         let weak = ui.as_weak();
         let config_state = config_state.clone();
@@ -700,7 +748,7 @@ fn ranking_clear_diagnostic(error: &ranking::ClearRankingStateError) -> Operatio
     }
 }
 
-fn set_ephemeral_status(ui: &AppWindow, message: &str) {
+pub(crate) fn set_ephemeral_status(ui: &AppWindow, message: &str) {
     ui.set_status_text(message.into());
 
     let expected = message.to_owned();

@@ -11,6 +11,7 @@ pub mod projects;
 pub mod providers;
 pub mod ranking;
 pub mod search;
+pub mod updates;
 pub mod web_search;
 
 pub const APP_NAME: &str = "rayslash";

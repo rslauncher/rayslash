@@ -20,6 +20,8 @@ fn default_config_has_public_defaults() {
     assert_eq!(config.actions, ActionConfig::default());
     assert_eq!(config.appearance, AppearanceConfig::default());
     assert!(!config.diagnostics.send_anonymous_diagnostics);
+    assert!(config.updates.notify_app_updates);
+    assert!(config.updates.notify_module_updates);
 }
 
 #[test]
@@ -360,6 +362,10 @@ fn config_can_be_saved_and_loaded_from_toml() {
         diagnostics: config::DiagnosticsConfig {
             send_anonymous_diagnostics: true,
         },
+        updates: config::UpdatesConfig {
+            notify_app_updates: false,
+            notify_module_updates: true,
+        },
     };
 
     config::save_config_to_path(&path, &config).expect("save config");
@@ -391,6 +397,7 @@ fn config_can_be_saved_and_loaded_from_toml() {
     assert_eq!(loaded.actions, config.actions);
     assert_eq!(loaded.appearance, config.appearance);
     assert_eq!(loaded.ranking, config.ranking);
+    assert_eq!(loaded.updates, config.updates);
     assert_no_temp_save_files(path.parent().expect("config parent"));
 }
 

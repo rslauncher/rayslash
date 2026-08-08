@@ -53,6 +53,8 @@ pub(crate) fn set_settings_properties(
     ui.set_settings_alternate_folder_opener_enabled(config.actions.alternate_folder_opener_enabled);
     ui.set_settings_ranking_learn_from_usage(config.ranking.learn_from_usage);
     ui.set_settings_send_anonymous_diagnostics(config.diagnostics.send_anonymous_diagnostics);
+    ui.set_settings_notify_app_updates(config.updates.notify_app_updates);
+    ui.set_settings_notify_module_updates(config.updates.notify_module_updates);
     ui.set_settings_theme(appearance_theme_label(config.appearance.theme).into());
     ui.set_settings_density(appearance_density_label(config.appearance.density).into());
     ui.set_settings_max_results(config.appearance.max_results.to_string().into());
@@ -161,6 +163,7 @@ pub(crate) fn config_from_settings_fields(
         diagnostics: config::DiagnosticsConfig {
             send_anonymous_diagnostics,
         },
+        updates: config::UpdatesConfig::default(),
     })
 }
 

@@ -148,6 +148,16 @@ export component SettingsPanel inherits FocusScope {
     in property <string> app-count;
     in property <string> icon-count;
     in property <string> ranking-entry-count;
+    in property <string> app-version;
+    in property <string> latest-app-version;
+    in property <string> installation-kind;
+    in property <string> app-update-status;
+    in property <string> app-update-action;
+    in property <bool> app-update-available;
+    in property <bool> app-update-busy;
+    in property <int> module-update-count;
+    in-out property <bool> notify-app-updates;
+    in-out property <bool> notify-module-updates;
     in-out property <bool> alternate-picker-open;
     in-out property <bool> web-search-editor-open;
     in-out property <bool> alias-editor-open;
@@ -157,6 +167,9 @@ export component SettingsPanel inherits FocusScope {
     callback choose-alternate-opener-requested(string);
     callback clear-ranking-requested();
     callback copy-diagnostics-requested();
+    callback check-app-update-requested();
+    callback install-app-update-requested();
+    callback update-preferences-requested(bool, bool);
     callback alias-save-requested(int, string, string, string, string) -> bool;
     callback alias-remove-requested(int) -> bool;
     callback web-search-save-requested(int, string, string, string, bool) -> bool;
@@ -170,7 +183,7 @@ export component SettingsPanel inherits FocusScope {
     pure callback feedback-duration-ms(string) -> int;
     callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
-    private property <string> settings-section: "general";
+    in-out property <string> settings-section: "general";
     private property <int> web-search-editor-index: -1;
     private property <string> web-search-editor-name: "";
     private property <string> web-search-editor-keyword: "";
@@ -213,6 +226,7 @@ export component SettingsPanel inherits FocusScope {
     public function focus-settings() {
         settings-scroll.viewport-y = 0px;
         modules-panel.reset-scroll();
+        info-scroll.viewport-y = 0px;
         root.focus();
     }
 
@@ -347,6 +361,19 @@ export component SettingsPanel inherits FocusScope {
             clicked => {
                 root.settings-section = "general";
                 settings-scroll.viewport-y = 0px;
+                root.focus();
+            }
+        }
+
+        SettingsTab {
+            x: 208px;
+            width: 94px;
+            label: "Info";
+            selected: root.settings-section == "info";
+            light: root.light;
+            clicked => {
+                root.settings-section = "info";
+                info-scroll.viewport-y = 0px;
                 root.focus();
             }
         }
@@ -1198,6 +1225,145 @@ export component SettingsPanel inherits FocusScope {
                 height: 8px;
                 background: transparent;
             }
+        }
+    }
+
+    info-scroll := Flickable {
+        y: 47px;
+        width: 100%;
+        height: parent.height - 47px;
+        visible: root.settings-section == "info";
+        viewport-width: self.width;
+        viewport-height: root.open ? max(self.height, info-content.preferred-height) : 0px;
+        interactive: root.open && root.settings-section == "info";
+
+        info-content := VerticalLayout {
+            width: info-scroll.width;
+            spacing: 10px;
+
+            Text { text: "Application update"; color: root.text-main; font-size: 12px; font-weight: 700; }
+
+            Rectangle {
+                height: 150px;
+                border-radius: 10px;
+                background: root.field-bg;
+                border-width: 1px;
+                border-color: root.app-update-available ? #3c82e6 : root.field-border;
+
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 7px;
+
+                    HorizontalLayout {
+                        height: 42px;
+                        spacing: 10px;
+                        VerticalLayout {
+                            spacing: 2px;
+                            Text { text: "Rayslash " + root.app-version; color: root.text-strong; font-size: 16px; font-weight: 800; }
+                            Text { text: root.installation-kind + " installation"; color: root.text-muted; font-size: 10px; }
+                        }
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        Rectangle {
+                            width: 88px;
+                            height: 24px;
+                            border-radius: 12px;
+                            background: root.app-update-available ? #3c82e6 : root.light ? #e5e5e5 : #303030;
+                            Text { text: root.app-update-available ? "Update ready" : "Up to date"; color: root.app-update-available ? #ffffff : root.text-muted; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        }
+                    }
+
+                    Text { text: "Latest release: " + root.latest-app-version; color: root.text-soft; font-size: 10px; }
+                    Text { text: root.app-update-status; color: root.text-muted; font-size: 10px; overflow: elide; }
+
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 8px;
+                        background: update-touch.pressed ? root.field-bg-pressed : update-touch.has-hover ? root.field-bg-hover : root.app-update-available ? #286fd1 : root.field-bg;
+                        border-width: 1px;
+                        border-color: root.app-update-available ? #4f92ed : root.field-border;
+                        opacity: root.app-update-busy ? 0.62 : 1;
+                        Text { text: root.app-update-busy ? "Working…" : root.app-update-action; color: root.app-update-available ? #ffffff : root.text-main; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        update-touch := TouchArea {
+                            enabled: !root.app-update-busy;
+                            mouse-cursor: pointer;
+                            clicked => {
+                                if (root.app-update-available) { root.install-app-update-requested(); }
+                                else { root.check-app-update-requested(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Text { text: "Update notifications"; color: root.text-main; font-size: 12px; font-weight: 700; }
+
+            HorizontalLayout {
+                height: 68px;
+                spacing: 8px;
+
+                SettingToggle {
+                    label: "Rayslash updates";
+                    description: "Blue settings badge";
+                    light: root.light;
+                    tooltips-enabled: root.show-tooltips;
+                    checked <=> root.notify-app-updates;
+                    toggled => { root.update-preferences-requested(root.notify-app-updates, root.notify-module-updates); }
+                }
+
+                SettingToggle {
+                    label: "Module updates";
+                    description: "Orange settings badge";
+                    light: root.light;
+                    tooltips-enabled: root.show-tooltips;
+                    checked <=> root.notify-module-updates;
+                    toggled => { root.update-preferences-requested(root.notify-app-updates, root.notify-module-updates); }
+                }
+            }
+
+            Rectangle {
+                height: 72px;
+                border-radius: 10px;
+                background: root.field-bg;
+                border-width: 1px;
+                border-color: root.module-update-count > 0 ? #e99a32 : root.field-border;
+                HorizontalLayout {
+                    padding: 10px;
+                    spacing: 10px;
+                    VerticalLayout {
+                        spacing: 4px;
+                        Text { text: root.module-update-count > 0 ? root.module-update-count + " module update" + (root.module-update-count == 1 ? "" : "s") + " available" : "Modules are up to date"; color: root.text-strong; font-size: 12px; font-weight: 700; }
+                        Text { text: "Module updates remain explicit and individually reviewed."; color: root.text-muted; font-size: 9px; }
+                    }
+                    Rectangle {
+                        width: 104px;
+                        height: 34px;
+                        border-radius: 8px;
+                        background: modules-touch.pressed ? root.field-bg-pressed : modules-touch.has-hover ? root.field-bg-hover : transparent;
+                        border-width: 1px;
+                        border-color: root.field-border;
+                        Text { text: "Open Modules"; color: root.text-main; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        modules-touch := TouchArea { mouse-cursor: pointer; clicked => { root.settings-section = "modules"; modules-panel.reset-scroll(); modules-panel.focus-modules(); } }
+                    }
+                }
+            }
+
+            Text { text: "About"; color: root.text-main; font-size: 12px; font-weight: 700; }
+            Rectangle {
+                height: 92px;
+                border-radius: 10px;
+                background: root.field-bg;
+                border-width: 1px;
+                border-color: root.field-border;
+                VerticalLayout {
+                    padding: 10px;
+                    spacing: 5px;
+                    Text { text: "Rayslash " + root.app-version; color: root.text-strong; font-size: 13px; font-weight: 800; }
+                    Text { text: "Keyboard-first Linux application launcher"; color: root.text-muted; font-size: 10px; }
+                    Text { text: "Updates are downloaded from verified GitHub release assets and checked against SHA256SUMS before installation."; color: root.text-soft; font-size: 9px; wrap: word-wrap; }
+                }
+            }
+
+            Rectangle { height: 8px; background: transparent; }
         }
     }
 

@@ -31,6 +31,8 @@ pub struct Config {
     pub ranking: RankingConfig,
     #[serde(default)]
     pub diagnostics: DiagnosticsConfig,
+    #[serde(default)]
+    pub updates: UpdatesConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,6 +139,14 @@ pub struct DiagnosticsConfig {
     pub send_anonymous_diagnostics: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdatesConfig {
+    #[serde(default = "default_true")]
+    pub notify_app_updates: bool,
+    #[serde(default = "default_true")]
+    pub notify_module_updates: bool,
+}
+
 #[derive(Debug)]
 pub enum ConfigError {
     Read {
@@ -222,6 +232,7 @@ impl Default for Config {
             appearance: AppearanceConfig::default(),
             ranking: RankingConfig::default(),
             diagnostics: DiagnosticsConfig::default(),
+            updates: UpdatesConfig::default(),
         }
     }
 }
@@ -266,6 +277,15 @@ impl Default for RankingConfig {
     fn default() -> Self {
         Self {
             learn_from_usage: true,
+        }
+    }
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            notify_app_updates: true,
+            notify_module_updates: true,
         }
     }
 }
