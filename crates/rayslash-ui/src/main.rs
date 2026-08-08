@@ -589,9 +589,6 @@ fn run_gui(
                             ),
                         );
                     }
-                    if registry.from_cache {
-                        ui.set_status_text("Using the last verified module catalog.".into());
-                    }
                 } else {
                     module_model.set_vec(module_items(
                         &module_state.borrow(),
@@ -653,11 +650,14 @@ fn run_gui(
         },
     );
     if cfg!(debug_assertions)
-        && std::env::var_os("RAYSLASH_PREVIEW_SETTINGS").as_deref()
-            == Some(std::ffi::OsStr::new("info"))
+        && let Ok(section) = std::env::var("RAYSLASH_PREVIEW_SETTINGS")
     {
         ui.set_settings_open(true);
-        ui.set_settings_section("info".into());
+        ui.set_settings_section(if section.starts_with("info") {
+            "info".into()
+        } else {
+            "general".into()
+        });
     }
     ui.invoke_focus_search();
 
@@ -1244,11 +1244,14 @@ fn run_gui(
         let weak = ui.as_weak();
         Timer::single_shot(Duration::from_secs(1), move || {
             if let Some(ui) = weak.upgrade() {
-                if std::env::var_os("RAYSLASH_PREVIEW_SETTINGS").as_deref()
-                    == Some(std::ffi::OsStr::new("info"))
-                {
+                if let Ok(section) = std::env::var("RAYSLASH_PREVIEW_SETTINGS") {
                     ui.set_settings_open(true);
-                    ui.set_settings_section("info".into());
+                    match section.as_str() {
+                        "info" => ui.set_settings_section("info".into()),
+                        "info-modules" => ui.invoke_show_module_status_preview(),
+                        "diagnostics" => ui.invoke_show_diagnostics_preview(),
+                        _ => ui.set_settings_section("general".into()),
+                    }
                 }
                 if std::env::var_os("RAYSLASH_PREVIEW_UPDATES").as_deref()
                     == Some(std::ffi::OsStr::new("1"))

@@ -1,5 +1,5 @@
 Name:           rayslash
-Version:        0.2.5
+Version:        0.2.6
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.4
@@ -83,6 +83,9 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Sat Aug 08 2026 RaySlash contributors - 0.2.6-1
+- Refine update indicators, diagnostics readability, and release information layout.
+
 * Sat Aug 08 2026 RaySlash contributors - 0.2.5-1
 - Add verified in-app updates, update notifications, version information, and live project discovery.
 

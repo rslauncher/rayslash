@@ -8,7 +8,7 @@ use std::{
 };
 
 use rayslash_core::{
-    app_state, apps, config,
+    PROJECT_URL, actions, app_state, apps, config,
     diagnostics::{OperationalDiagnostic, OperationalDiagnosticCode, Telemetry},
     projects, ranking, search,
 };
@@ -318,6 +318,22 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             if let Some(ui) = weak.upgrade() {
                 ui.set_settings_alternate_folder_opener_command(command.clone());
                 ui.set_status_text(format!("Selected alternate opener: {command}").into());
+            }
+        }
+    });
+
+    ui.on_settings_open_project_url_requested({
+        let weak = ui.as_weak();
+        let diagnostics = diagnostics.clone();
+        move || {
+            if let Err(error) = actions::open_url(PROJECT_URL) {
+                diagnostics.operational_failure(OperationalDiagnostic::new(
+                    OperationalDiagnosticCode::ProjectWebsiteLaunch,
+                ));
+                eprintln!("could not open project website: {error}");
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_status_text("Could not open the Rayslash GitHub repository.".into());
+                }
             }
         }
     });

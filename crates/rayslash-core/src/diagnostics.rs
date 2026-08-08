@@ -46,6 +46,7 @@ pub enum OperationalDiagnosticCode {
     ScheduledActionLaunch,
     ClipboardWrite,
     DiagnosticReportCopy,
+    ProjectWebsiteLaunch,
     ModuleRegistryRefresh,
     ModuleInstalledStateLoad,
     ModuleInstall,
@@ -88,7 +89,8 @@ impl OperationalDiagnosticCode {
             | Self::ModuleActionLaunch
             | Self::ScheduledActionLaunch
             | Self::ClipboardWrite
-            | Self::DiagnosticReportCopy => OperationalDiagnosticArea::Action,
+            | Self::DiagnosticReportCopy
+            | Self::ProjectWebsiteLaunch => OperationalDiagnosticArea::Action,
             Self::ModuleRegistryRefresh
             | Self::ModuleInstalledStateLoad
             | Self::ModuleInstall
