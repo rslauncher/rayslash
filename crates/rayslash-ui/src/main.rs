@@ -1327,9 +1327,10 @@ fn spawn_desktop_app_watcher(
         let watcher_diagnostics = diagnostics.clone();
         let Ok(mut watcher) =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
-                Ok(_) => {
+                Ok(event) if filesystem_event_requires_refresh(&event) => {
                     let _ = event_tx.send(());
                 }
+                Ok(_) => {}
                 Err(_) => watcher_diagnostics.operational_failure(OperationalDiagnostic::new(
                     OperationalDiagnosticCode::DesktopWatcherWatch,
                 )),
@@ -1388,9 +1389,10 @@ fn spawn_project_watcher(
         let mut watcher =
             match notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
                 match event {
-                    Ok(_) => {
+                    Ok(event) if filesystem_event_requires_refresh(&event) => {
                         let _ = event_tx.send(());
                     }
+                    Ok(_) => {}
                     Err(_) => watcher_diagnostics.operational_failure(OperationalDiagnostic::new(
                         OperationalDiagnosticCode::ProjectWatcherWatch,
                     )),
@@ -1484,5 +1486,31 @@ fn configure_project_watches(
                 ));
             }
         }
+    }
+}
+
+fn filesystem_event_requires_refresh(event: &notify::Event) -> bool {
+    !matches!(event.kind, notify::EventKind::Access(_))
+}
+
+#[cfg(test)]
+mod watcher_tests {
+    use notify::event::{AccessKind, AccessMode, CreateKind};
+
+    use super::*;
+
+    #[test]
+    fn file_access_events_do_not_trigger_catalog_rescans() {
+        let event =
+            notify::Event::new(notify::EventKind::Access(AccessKind::Open(AccessMode::Any)));
+
+        assert!(!filesystem_event_requires_refresh(&event));
+    }
+
+    #[test]
+    fn filesystem_changes_still_trigger_catalog_rescans() {
+        let event = notify::Event::new(notify::EventKind::Create(CreateKind::Folder));
+
+        assert!(filesystem_event_requires_refresh(&event));
     }
 }
