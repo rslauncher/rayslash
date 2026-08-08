@@ -1,4 +1,5 @@
 mod activation;
+mod app_updates;
 mod cli;
 mod ipc;
 mod module_settings;
@@ -27,6 +28,7 @@ use std::{
 };
 
 use activation::{ActivationCallbackContext, register_activation_callback};
+use app_updates::{AppUpdateContext, register_app_updates};
 use module_settings::{
     ModuleSettingsCallbackContext, installed_modules_load_diagnostic, load_runtime_modules,
     module_items, register_module_settings_callback, save_modules_diagnostic,
@@ -50,9 +52,11 @@ use runtime_state::{
     query_execution_hint_with_config, refresh_result_view, refresh_settings_dependent_ui,
     search_result_set, should_preserve_pending_module_results, sync_app_install_state,
 };
-use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
+use settings_callbacks::{
+    SettingsCallbackContext, register_settings_callbacks, set_ephemeral_status,
+};
 use slint::{
-    ComponentHandle, Timer, VecModel,
+    ComponentHandle, Model, Timer, VecModel,
     winit_030::{EventResult, WinitWindowAccessor, winit},
 };
 use telemetry::DiagnosticsTelemetry;
@@ -110,6 +114,10 @@ fn main() -> ExitCode {
     let request = match command {
         cli::CliCommand::Run => ipc::IpcRequest::Show,
         cli::CliCommand::Toggle => ipc::IpcRequest::Toggle,
+        cli::CliCommand::Version => {
+            println!("rayslash {}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
     };
     let socket_path = ipc::socket_path();
 
@@ -153,7 +161,8 @@ fn run_resident(socket_path: std::path::PathBuf, request: ipc::IpcRequest) -> Re
         }
     };
 
-    let result = run_gui(listener, socket_path.clone());
+    let restart_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let result = run_gui(listener, socket_path.clone(), restart_requested.clone());
     if let Err(error) = std::fs::remove_file(&socket_path)
         && error.kind() != io::ErrorKind::NotFound
     {
@@ -163,12 +172,18 @@ fn run_resident(socket_path: std::path::PathBuf, request: ipc::IpcRequest) -> Re
         );
     }
 
+    if restart_requested.load(Ordering::Acquire) {
+        restart_after_update()
+            .map_err(|error| format!("update installed, but restart failed: {error}"))?;
+    }
+
     result.map_err(|error| format!("failed to run rayslash UI: {error}"))
 }
 
 fn run_gui(
     listener: std::os::unix::net::UnixListener,
     socket_path: PathBuf,
+    restart_requested: Arc<std::sync::atomic::AtomicBool>,
 ) -> Result<(), slint::PlatformError> {
     let profile = profile_enabled();
     let startup_started = Instant::now();
@@ -279,6 +294,7 @@ fn run_gui(
     let projects = Rc::new(RefCell::new(Arc::new(projects::scan_project_roots(
         &config_state.borrow().folder_sources,
     ))));
+    let pending_project_refresh = Arc::new(Mutex::new(None));
     profile_stage(
         profile,
         &format!("project scan ({} projects)", projects.borrow().len()),
@@ -526,6 +542,13 @@ fn run_gui(
         &module_catalog.borrow(),
     )));
     ui.set_settings_modules(module_model.clone().into());
+    ui.set_settings_module_update_count(module_update_count(&module_model));
+    if cfg!(debug_assertions)
+        && std::env::var_os("RAYSLASH_PREVIEW_UPDATES").as_deref()
+            == Some(std::ffi::OsStr::new("1"))
+    {
+        ui.set_settings_module_update_count(3);
+    }
     if module_migration_pending {
         ui.set_status_text(
             "Optional providers were migrated without downloading code. Open Settings → Modules and choose Restore for each module you want."
@@ -542,6 +565,7 @@ fn run_gui(
         let module_catalog = module_catalog.clone();
         let module_state = module_state.clone();
         let module_model = module_model.clone();
+        let config_state = config_state.clone();
         move || match pending_registry_refresh_for_ui
             .lock()
             .unwrap_or_else(|error| error.into_inner())
@@ -550,7 +574,21 @@ fn run_gui(
             Some(Ok(registry)) => {
                 *module_catalog.borrow_mut() = registry.index.modules;
                 if let Some(ui) = weak.upgrade() {
+                    let previous_updates = ui.get_settings_module_update_count();
                     ui.invoke_settings_module_sort_requested(ui.get_settings_module_sort_order());
+                    let updates = module_update_count(&module_model);
+                    ui.set_settings_module_update_count(updates);
+                    if updates > previous_updates
+                        && config_state.borrow().updates.notify_module_updates
+                    {
+                        set_ephemeral_status(
+                            &ui,
+                            &format!(
+                                "{updates} module update{} available.",
+                                if updates == 1 { " is" } else { "s are" }
+                            ),
+                        );
+                    }
                     if registry.from_cache {
                         ui.set_status_text("Using the last verified module catalog.".into());
                     }
@@ -606,6 +644,21 @@ fn run_gui(
         &socket_path,
     );
     ui.set_settings_diagnostics_summary(diagnostics.local_summary().into());
+    register_app_updates(
+        &ui,
+        AppUpdateContext {
+            config_state: config_state.clone(),
+            diagnostics: diagnostics.clone(),
+            restart_requested,
+        },
+    );
+    if cfg!(debug_assertions)
+        && std::env::var_os("RAYSLASH_PREVIEW_SETTINGS").as_deref()
+            == Some(std::ffi::OsStr::new("info"))
+    {
+        ui.set_settings_open(true);
+        ui.set_settings_section("info".into());
+    }
     ui.invoke_focus_search();
 
     if profile && std::env::var_os("RAYSLASH_PROFILE_FRAME").is_some_and(|value| value != "0") {
@@ -997,10 +1050,71 @@ fn run_gui(
             suppress_next_focus_hide: suppress_next_focus_hide.clone(),
             last_desktop_app_refresh: last_desktop_app_refresh.clone(),
             diagnostics: diagnostics.clone(),
+            project_watch_tx: spawn_project_watcher(
+                ui.as_weak(),
+                config_state.borrow().folder_sources.clone(),
+                pending_project_refresh.clone(),
+                diagnostics.clone(),
+            ),
             settings_save_blocked,
             profile,
         },
     );
+
+    ui.on_apply_project_refresh({
+        let weak = ui.as_weak();
+        let pending_project_refresh = pending_project_refresh.clone();
+        let projects = projects.clone();
+        let config_state = config_state.clone();
+        let ranking_state = ranking_state.clone();
+        let app_install_state = app_install_state.clone();
+        let apps = apps.clone();
+        let current_results = current_results.clone();
+        let results_model = results_model.clone();
+        let icon_cache = icon_cache.clone();
+        let socket_path = socket_path.clone();
+        move || {
+            let refreshed = pending_project_refresh
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take();
+            let Some(refreshed) = refreshed else {
+                return;
+            };
+            *projects.borrow_mut() = Arc::new(refreshed);
+            if let Some(ui) = weak.upgrade() {
+                refresh_settings_dependent_ui(
+                    &ui,
+                    &config_state.borrow(),
+                    &projects.borrow(),
+                    &apps.borrow(),
+                    &ranking_state.borrow(),
+                    &icon_cache,
+                    &socket_path,
+                );
+                let query = effective_search_query(
+                    ui.get_query_text().as_str(),
+                    ui.get_active_search_keyword().as_str(),
+                );
+                refresh_result_view(
+                    &ui,
+                    ResultRefreshContext {
+                        config: &config_state.borrow(),
+                        ranking_state: &ranking_state.borrow(),
+                        app_state: &app_install_state.borrow(),
+                        projects: &projects.borrow(),
+                        apps: &apps.borrow(),
+                        current_results: &current_results,
+                        results_model: &results_model,
+                        icon_cache: &icon_cache,
+                        profile,
+                    },
+                    &query,
+                    ResultSelection::QueryDefault,
+                );
+            }
+        }
+    });
 
     {
         let pending_app_refresh = pending_app_refresh.clone();
@@ -1125,6 +1239,53 @@ fn run_gui(
         ));
         return Err(error);
     }
+    #[cfg(debug_assertions)]
+    if let Some(snapshot_path) = std::env::var_os("RAYSLASH_PREVIEW_SNAPSHOT") {
+        let weak = ui.as_weak();
+        Timer::single_shot(Duration::from_secs(1), move || {
+            if let Some(ui) = weak.upgrade() {
+                if std::env::var_os("RAYSLASH_PREVIEW_SETTINGS").as_deref()
+                    == Some(std::ffi::OsStr::new("info"))
+                {
+                    ui.set_settings_open(true);
+                    ui.set_settings_section("info".into());
+                }
+                if std::env::var_os("RAYSLASH_PREVIEW_UPDATES").as_deref()
+                    == Some(std::ffi::OsStr::new("1"))
+                {
+                    ui.set_settings_module_update_count(3);
+                    ui.set_status_text("".into());
+                }
+                if let Ok(query) = std::env::var("RAYSLASH_PREVIEW_QUERY") {
+                    ui.set_query_text(query.clone().into());
+                    ui.invoke_query_changed(query.into());
+                }
+                ui.window().request_redraw();
+                let weak = ui.as_weak();
+                Timer::single_shot(Duration::from_millis(500), move || {
+                    if let Some(ui) = weak.upgrade() {
+                        match ui.window().take_snapshot() {
+                            Ok(pixels) => {
+                                if let Err(error) = image::save_buffer(
+                                    &snapshot_path,
+                                    pixels.as_bytes(),
+                                    pixels.width(),
+                                    pixels.height(),
+                                    image::ColorType::Rgba8,
+                                ) {
+                                    eprintln!("could not save UI preview snapshot: {error}");
+                                }
+                            }
+                            Err(error) => {
+                                eprintln!("could not capture UI preview snapshot: {error}")
+                            }
+                        }
+                        let _ = slint::quit_event_loop();
+                    }
+                });
+            }
+        });
+    }
     profile_stage(profile, "startup show call", show_started);
     profile_stage(profile, "startup ready for event loop", startup_started);
     Timer::single_shot(Duration::from_millis(500), {
@@ -1139,6 +1300,21 @@ fn run_gui(
         }
     });
     slint::run_event_loop_until_quit()
+}
+
+fn module_update_count(model: &VecModel<crate::ModuleItem>) -> i32 {
+    model.iter().filter(|item| item.update_available).count() as i32
+}
+
+fn restart_after_update() -> io::Result<()> {
+    if std::env::var_os("FLATPAK_ID").is_some() {
+        std::process::Command::new("flatpak-spawn")
+            .args(["--host", "flatpak", "run", rayslash_core::APP_ID])
+            .spawn()?;
+    } else {
+        std::process::Command::new(std::env::current_exe()?).spawn()?;
+    }
+    Ok(())
 }
 
 fn spawn_desktop_app_watcher(
@@ -1197,4 +1373,116 @@ fn spawn_desktop_app_watcher(
             }
         }
     });
+}
+
+fn spawn_project_watcher(
+    weak: slint::Weak<AppWindow>,
+    initial_roots: Vec<PathBuf>,
+    pending_project_refresh: Arc<Mutex<Option<Vec<projects::Project>>>>,
+    diagnostics: Arc<DiagnosticsTelemetry>,
+) -> mpsc::Sender<Vec<PathBuf>> {
+    let (roots_tx, roots_rx) = mpsc::channel::<Vec<PathBuf>>();
+    thread::spawn(move || {
+        let (event_tx, event_rx) = mpsc::channel();
+        let watcher_diagnostics = diagnostics.clone();
+        let mut watcher =
+            match notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+                match event {
+                    Ok(_) => {
+                        let _ = event_tx.send(());
+                    }
+                    Err(_) => watcher_diagnostics.operational_failure(OperationalDiagnostic::new(
+                        OperationalDiagnosticCode::ProjectWatcherWatch,
+                    )),
+                }
+            }) {
+                Ok(watcher) => Some(watcher),
+                Err(_) => {
+                    diagnostics.operational_failure(OperationalDiagnostic::new(
+                        OperationalDiagnosticCode::ProjectWatcherInitialize,
+                    ));
+                    None
+                }
+            };
+        let mut roots = initial_roots;
+        let mut watched_roots = Vec::new();
+        let mut last_scan = projects::scan_project_roots(&roots);
+        let mut fallback_scan_at = Instant::now();
+        configure_project_watches(
+            watcher.as_mut(),
+            &mut watched_roots,
+            &roots,
+            diagnostics.as_ref(),
+        );
+
+        loop {
+            let mut roots_changed = false;
+            while let Ok(updated) = roots_rx.try_recv() {
+                roots = updated;
+                roots_changed = true;
+            }
+            if roots_changed {
+                configure_project_watches(
+                    watcher.as_mut(),
+                    &mut watched_roots,
+                    &roots,
+                    diagnostics.as_ref(),
+                );
+            }
+
+            let filesystem_changed = event_rx.recv_timeout(Duration::from_secs(1)).is_ok();
+            if filesystem_changed {
+                while event_rx.recv_timeout(Duration::from_millis(250)).is_ok() {}
+            }
+            let fallback_due = fallback_scan_at.elapsed() >= Duration::from_secs(10);
+            if !roots_changed && !filesystem_changed && !fallback_due {
+                continue;
+            }
+            fallback_scan_at = Instant::now();
+            let refreshed = projects::scan_project_roots(&roots);
+            if refreshed == last_scan {
+                continue;
+            }
+            last_scan = refreshed.clone();
+            *pending_project_refresh
+                .lock()
+                .unwrap_or_else(|error| error.into_inner()) = Some(refreshed);
+            if weak
+                .upgrade_in_event_loop(|ui| ui.invoke_apply_project_refresh())
+                .is_err()
+            {
+                diagnostics.operational_failure(OperationalDiagnostic::new(
+                    OperationalDiagnosticCode::WindowUiDispatch,
+                ));
+                return;
+            }
+        }
+    });
+    roots_tx
+}
+
+fn configure_project_watches(
+    watcher: Option<&mut notify::RecommendedWatcher>,
+    watched_roots: &mut Vec<PathBuf>,
+    roots: &[PathBuf],
+    telemetry: &dyn Telemetry,
+) {
+    let Some(watcher) = watcher else {
+        watched_roots.clear();
+        return;
+    };
+    for root in watched_roots.drain(..) {
+        let _ = watcher.unwatch(&root);
+    }
+    for root in roots {
+        if root.is_dir() {
+            if watcher.watch(root, RecursiveMode::NonRecursive).is_ok() {
+                watched_roots.push(root.clone());
+            } else {
+                telemetry.operational_failure(OperationalDiagnostic::new(
+                    OperationalDiagnosticCode::ProjectWatcherWatch,
+                ));
+            }
+        }
+    }
 }

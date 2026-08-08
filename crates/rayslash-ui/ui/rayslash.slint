@@ -9,6 +9,8 @@ component HeaderBar inherits HorizontalLayout {
     in property <bool> settings-open;
     in property <bool> editor-open;
     in property <bool> light;
+    in property <bool> app-update-available;
+    in property <bool> module-update-available;
     callback settings-requested();
 
     height: 36px;
@@ -53,6 +55,30 @@ component HeaderBar inherits HorizontalLayout {
             width: 34px;
             height: 34px;
             icon-color: root.light ? #2f2f2f : #d8d8d8;
+        }
+
+        if root.module-update-available: Rectangle {
+            x: 0px;
+            y: 0px;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            background: #e99a32;
+            border-width: 1px;
+            border-color: root.light ? #f3f3f3 : #181818;
+            Text { text: "!"; color: #ffffff; font-size: 9px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+        }
+
+        if root.app-update-available: Rectangle {
+            x: parent.width - 14px;
+            y: 0px;
+            width: 14px;
+            height: 14px;
+            border-radius: 7px;
+            background: #3c82e6;
+            border-width: 1px;
+            border-color: root.light ? #f3f3f3 : #181818;
+            Text { text: "!"; color: #ffffff; font-size: 9px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
         }
 
         settings-button-touch := TouchArea {
@@ -148,6 +174,7 @@ export component AppWindow inherits Window {
     in-out property <string> status-text: "";
     in-out property <string> result-tip-text: "";
     in-out property <bool> settings-open: false;
+    in-out property <string> settings-section: "general";
     in-out property <string> settings-folder-sources: "";
     in-out property <string> settings-aliases-text: "";
     in-out property <string> settings-web-searches-text: "";
@@ -182,6 +209,16 @@ export component AppWindow inherits Window {
     in-out property <string> settings-app-count: "0";
     in-out property <string> settings-icon-count: "0";
     in-out property <string> settings-ranking-entry-count: "0";
+    in-out property <string> settings-app-version: "";
+    in-out property <string> settings-latest-app-version: "Checking…";
+    in-out property <string> settings-installation-kind: "";
+    in-out property <string> settings-app-update-status: "Checking for updates…";
+    in-out property <string> settings-app-update-action: "Check again";
+    in-out property <bool> settings-app-update-available: false;
+    in-out property <bool> settings-app-update-busy: false;
+    in-out property <int> settings-module-update-count: 0;
+    in-out property <bool> settings-notify-app-updates: true;
+    in-out property <bool> settings-notify-module-updates: true;
     in-out property <bool> alternate-folder-opener-enabled: true;
     in property <image> alternate-folder-opener-icon;
     in property <bool> alternate-folder-opener-has-icon: false;
@@ -203,6 +240,8 @@ export component AppWindow inherits Window {
     callback apply-module-operations();
     callback apply-registry-refresh();
     callback apply-desktop-refresh();
+    callback apply-project-refresh();
+    callback apply-app-update-state();
     callback activate-selected-result(int, bool);
     callback reset-requested();
     callback search-keyword-trigger-requested(string) -> bool;
@@ -213,6 +252,9 @@ export component AppWindow inherits Window {
     callback settings-choose-alternate-opener-requested(string);
     callback settings-clear-ranking-requested();
     callback settings-copy-diagnostics-requested();
+    callback settings-check-app-update-requested();
+    callback settings-install-app-update-requested();
+    callback settings-update-preferences-requested(bool, bool);
     callback settings-alias-save-requested(int, string, string, string, string) -> bool;
     callback settings-alias-remove-requested(int) -> bool;
     callback settings-web-search-save-requested(int, string, string, string, bool) -> bool;
@@ -345,6 +387,8 @@ export component AppWindow inherits Window {
                         settings-open: root.settings-open;
                         editor-open: root.settings-web-search-editor-open || root.settings-alias-editor-open;
                         light: root.light-theme;
+                        app-update-available: root.settings-app-update-available && root.settings-notify-app-updates;
+                        module-update-available: root.settings-module-update-count > 0 && root.settings-notify-module-updates;
                         settings-requested => {
                             root.settings-requested();
                         }
@@ -411,6 +455,7 @@ export component AppWindow inherits Window {
 
                     settings-panel := SettingsPanel {
                         open <=> root.settings-open;
+                        settings-section <=> root.settings-section;
                         status-text <=> root.status-text;
                         alternate-opener-choices: root.alternate-opener-choices;
                         folder-sources <=> root.settings-folder-sources;
@@ -448,6 +493,16 @@ export component AppWindow inherits Window {
                         app-count: root.settings-app-count;
                         icon-count: root.settings-icon-count;
                         ranking-entry-count: root.settings-ranking-entry-count;
+                        app-version: root.settings-app-version;
+                        latest-app-version: root.settings-latest-app-version;
+                        installation-kind: root.settings-installation-kind;
+                        app-update-status: root.settings-app-update-status;
+                        app-update-action: root.settings-app-update-action;
+                        app-update-available: root.settings-app-update-available;
+                        app-update-busy: root.settings-app-update-busy;
+                        module-update-count: root.settings-module-update-count;
+                        notify-app-updates <=> root.settings-notify-app-updates;
+                        notify-module-updates <=> root.settings-notify-module-updates;
                         alternate-picker-open <=> root.settings-alternate-picker-open;
                         web-search-editor-open <=> root.settings-web-search-editor-open;
                         alias-editor-open <=> root.settings-alias-editor-open;
@@ -467,6 +522,9 @@ export component AppWindow inherits Window {
                         copy-diagnostics-requested => {
                             root.settings-copy-diagnostics-requested();
                         }
+                        check-app-update-requested => { root.settings-check-app-update-requested(); }
+                        install-app-update-requested => { root.settings-install-app-update-requested(); }
+                        update-preferences-requested(app, modules) => { root.settings-update-preferences-requested(app, modules); }
                         alias-save-requested(index, name, keyword, kind, target) => { return root.settings-alias-save-requested(index, name, keyword, kind, target); }
                         alias-remove-requested(index) => { return root.settings-alias-remove-requested(index); }
                         web-search-save-requested(index, name, keyword, url, enabled) => { return root.settings-web-search-save-requested(index, name, keyword, url, enabled); }

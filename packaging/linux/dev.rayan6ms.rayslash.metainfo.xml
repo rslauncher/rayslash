@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.5" date="2026-08-08">
+      <description>
+        <p>Add verified in-app updates, configurable update notifications, visible version information, and live discovery of new project folders.</p>
+      </description>
+    </release>
     <release version="0.2.4" date="2026-08-06">
       <description>
         <p>Add opt-in, privacy-conscious application-discovery diagnostics and keep keyboard input responsive after Ctrl+Enter folder activation.</p>

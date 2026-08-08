@@ -881,6 +881,7 @@ mod tests {
             },
             ranking: config::RankingConfig::default(),
             diagnostics: config::DiagnosticsConfig::default(),
+            updates: config::UpdatesConfig::default(),
         };
         let ranking_state = ranking::RankingState::default();
         let app_state = app_state::AppInstallState::default();
@@ -915,6 +916,7 @@ mod tests {
                 learn_from_usage: false,
             },
             diagnostics: config::DiagnosticsConfig::default(),
+            updates: config::UpdatesConfig::default(),
         };
         let app_state = app_state::AppInstallState::default();
         let mut ranking_state = ranking::RankingState::default();

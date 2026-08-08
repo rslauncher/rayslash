@@ -2,6 +2,7 @@
 pub enum CliCommand {
     Run,
     Toggle,
+    Version,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -19,6 +20,7 @@ pub fn parse_args(args: &[String]) -> Result<CliCommand, ParseArgsError> {
     match args {
         [] => Ok(CliCommand::Run),
         [arg] if arg == "toggle" => Ok(CliCommand::Toggle),
+        [arg] if matches!(arg.as_str(), "--version" | "-V" | "version") => Ok(CliCommand::Version),
         _ => Err(ParseArgsError {
             args: args.to_vec(),
         }),
@@ -26,7 +28,7 @@ pub fn parse_args(args: &[String]) -> Result<CliCommand, ParseArgsError> {
 }
 
 pub fn usage(program: &str) -> String {
-    format!("Usage: {program} [toggle]")
+    format!("Usage: {program} [toggle|--version]")
 }
 
 #[cfg(test)]
@@ -41,6 +43,13 @@ mod tests {
     #[test]
     fn toggle_arg_sends_toggle() {
         assert_eq!(parse_args(&["toggle".to_string()]), Ok(CliCommand::Toggle));
+    }
+
+    #[test]
+    fn version_args_print_the_build_version() {
+        for argument in ["--version", "-V", "version"] {
+            assert_eq!(parse_args(&[argument.to_owned()]), Ok(CliCommand::Version));
+        }
     }
 
     #[test]

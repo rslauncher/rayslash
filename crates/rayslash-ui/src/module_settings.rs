@@ -933,6 +933,12 @@ pub(crate) fn register_module_settings_callback(
                     *sort_order.borrow(),
                 );
             }
+            ui.set_settings_module_update_count(
+                module_model
+                    .iter()
+                    .filter(|module| module.update_available)
+                    .count() as i32,
+            );
             if module_state_changed {
                 let compatibility_config = {
                     let mut next_config = config_state.borrow().clone();
