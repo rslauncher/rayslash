@@ -170,6 +170,7 @@ export component SettingsPanel inherits FocusScope {
     callback check-app-update-requested();
     callback install-app-update-requested();
     callback update-preferences-requested(bool, bool);
+    callback open-project-url-requested();
     callback alias-save-requested(int, string, string, string, string) -> bool;
     callback alias-remove-requested(int) -> bool;
     callback web-search-save-requested(int, string, string, string, bool) -> bool;
@@ -228,6 +229,16 @@ export component SettingsPanel inherits FocusScope {
         modules-panel.reset-scroll();
         info-scroll.viewport-y = 0px;
         root.focus();
+    }
+
+    public function show-diagnostics-preview() {
+        root.settings-section = "general";
+        settings-scroll.viewport-y = -max(0px, settings-content.preferred-height - settings-scroll.height);
+    }
+
+    public function show-module-status-preview() {
+        root.settings-section = "info";
+        info-scroll.viewport-y = -185px;
     }
 
     public function cancel-web-search-editor() {
@@ -1075,7 +1086,7 @@ export component SettingsPanel inherits FocusScope {
             }
 
             Rectangle {
-                height: 276px;
+                height: 292px;
                 border-radius: 10px;
                 background: root.field-bg;
                 border-width: 1px;
@@ -1086,16 +1097,16 @@ export component SettingsPanel inherits FocusScope {
                     spacing: 8px;
 
                     HorizontalLayout {
-                        height: 48px;
-                        spacing: 10px;
+                        height: 54px;
+                        spacing: 12px;
 
                         VerticalLayout {
                             spacing: 3px;
-                            Text { text: "Send anonymous diagnostics"; color: root.text-main; font-size: 11px; font-weight: 700; }
+                            Text { text: "Send anonymous diagnostics"; color: root.text-main; font-size: 12px; font-weight: 700; }
                             Text {
                                 text: "Sends aggregate discovery outcomes, stable failure codes, and coarse Linux/error categories. Names, searches, commands, paths, and raw errors are never collected.";
                                 color: root.text-muted;
-                                font-size: 9px;
+                                font-size: 10px;
                                 wrap: word-wrap;
                             }
                         }
@@ -1113,21 +1124,21 @@ export component SettingsPanel inherits FocusScope {
                     }
 
                     Text {
-                        height: 32px;
+                        height: 34px;
                         text: root.diagnostics-summary;
                         color: root.text-soft;
-                        font-size: 9px;
+                        font-size: 10px;
                         wrap: word-wrap;
                         overflow: elide;
                     }
 
                     Rectangle {
-                        height: 34px;
+                        height: 36px;
                         border-radius: 7px;
                         background: copy-diagnostics.pressed ? root.field-bg-pressed : copy-diagnostics.has-hover ? root.field-bg-hover : transparent;
                         border-width: 1px;
                         border-color: root.field-border;
-                        Text { text: "Copy diagnostic report"; color: root.text-main; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        Text { text: "Copy diagnostic report"; color: root.text-main; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                         copy-diagnostics := TouchArea { mouse-cursor: pointer; clicked => { root.copy-diagnostics-requested(); } }
                     }
 
@@ -1137,16 +1148,16 @@ export component SettingsPanel inherits FocusScope {
                     }
 
                     HorizontalLayout {
-                        height: 38px;
+                        height: 42px;
                         spacing: 12px;
 
                         VerticalLayout {
-                            spacing: 3px;
+                            spacing: 4px;
 
                             Text {
                                 text: "Config location";
                                 color: root.text-main;
-                                font-size: 10px;
+                                font-size: 11px;
                                 font-weight: 700;
                             }
 
@@ -1164,12 +1175,12 @@ export component SettingsPanel inherits FocusScope {
                         }
 
                         VerticalLayout {
-                            spacing: 3px;
+                            spacing: 4px;
 
                             Text {
                                 text: "State location";
                                 color: root.text-main;
-                                font-size: 10px;
+                                font-size: 11px;
                                 font-weight: 700;
                             }
 
@@ -1188,33 +1199,33 @@ export component SettingsPanel inherits FocusScope {
                     }
 
                     HorizontalLayout {
-                        height: 39px;
+                        height: 42px;
                         spacing: 0px;
 
                         VerticalLayout {
-                            width: 78px;
-                            spacing: 1px;
-                            Text { text: "Folders"; color: root.text-muted; font-size: 9px; font-weight: 600; }
-                            Text { text: root.project-count; color: root.text-strong; font-size: 12px; font-weight: 700; }
+                            width: 88px;
+                            spacing: 2px;
+                            Text { text: "Folders"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                            Text { text: root.project-count; color: root.text-strong; font-size: 13px; font-weight: 700; }
                         }
 
                         VerticalLayout {
-                            width: 70px;
-                            spacing: 1px;
-                            Text { text: "Apps"; color: root.text-muted; font-size: 9px; font-weight: 600; }
-                            Text { text: root.app-count; color: root.text-strong; font-size: 12px; font-weight: 700; }
+                            width: 80px;
+                            spacing: 2px;
+                            Text { text: "Apps"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                            Text { text: root.app-count; color: root.text-strong; font-size: 13px; font-weight: 700; }
                         }
 
                         VerticalLayout {
-                            width: 86px;
-                            spacing: 1px;
-                            Text { text: "Icons"; color: root.text-muted; font-size: 9px; font-weight: 600; }
-                            Text { text: root.icon-count; color: root.text-strong; font-size: 12px; font-weight: 700; }
+                            width: 94px;
+                            spacing: 2px;
+                            Text { text: "Icons"; color: root.text-muted; font-size: 10px; font-weight: 600; }
+                            Text { text: root.icon-count; color: root.text-strong; font-size: 13px; font-weight: 700; }
                         }
 
                         VerticalLayout {
-                            spacing: 1px;
-                            Text { text: "Runtime socket"; color: root.text-muted; font-size: 9px; font-weight: 600; }
+                            spacing: 2px;
+                            Text { text: "Runtime socket"; color: root.text-muted; font-size: 10px; font-weight: 600; }
                             Text { text: root.socket-path; color: root.text-soft; font-size: 10px; overflow: elide; }
                         }
                     }
@@ -1244,39 +1255,38 @@ export component SettingsPanel inherits FocusScope {
             Text { text: "Application update"; color: root.text-main; font-size: 12px; font-weight: 700; }
 
             Rectangle {
-                height: 150px;
+                height: 126px;
                 border-radius: 10px;
                 background: root.field-bg;
                 border-width: 1px;
                 border-color: root.app-update-available ? #3c82e6 : root.field-border;
 
                 VerticalLayout {
-                    padding: 12px;
-                    spacing: 7px;
+                    padding: 10px;
+                    spacing: 6px;
 
                     HorizontalLayout {
-                        height: 42px;
+                        height: 38px;
                         spacing: 10px;
                         VerticalLayout {
                             spacing: 2px;
-                            Text { text: "Rayslash " + root.app-version; color: root.text-strong; font-size: 16px; font-weight: 800; }
+                            Text { text: "Rayslash " + root.app-version; color: root.text-strong; font-size: 15px; font-weight: 800; }
                             Text { text: root.installation-kind + " installation"; color: root.text-muted; font-size: 10px; }
                         }
                         Rectangle { horizontal-stretch: 1; background: transparent; }
                         Rectangle {
-                            width: 88px;
-                            height: 24px;
-                            border-radius: 12px;
+                            width: 94px;
+                            height: 26px;
+                            border-radius: 13px;
                             background: root.app-update-available ? #3c82e6 : root.light ? #e5e5e5 : #303030;
-                            Text { text: root.app-update-available ? "Update ready" : "Up to date"; color: root.app-update-available ? #ffffff : root.text-muted; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                            Text { text: root.app-update-available ? "Update ready" : "Up to date"; color: root.app-update-available ? #ffffff : root.text-muted; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                         }
                     }
 
-                    Text { text: "Latest release: " + root.latest-app-version; color: root.text-soft; font-size: 10px; }
-                    Text { text: root.app-update-status; color: root.text-muted; font-size: 10px; overflow: elide; }
+                    Text { height: 16px; text: root.app-update-status; color: root.text-muted; font-size: 11px; overflow: elide; vertical-alignment: center; }
 
                     Rectangle {
-                        height: 36px;
+                        height: 34px;
                         border-radius: 8px;
                         background: update-touch.pressed ? root.field-bg-pressed : update-touch.has-hover ? root.field-bg-hover : root.app-update-available ? #286fd1 : root.field-bg;
                         border-width: 1px;
@@ -1321,7 +1331,7 @@ export component SettingsPanel inherits FocusScope {
             }
 
             Rectangle {
-                height: 72px;
+                height: 78px;
                 border-radius: 10px;
                 background: root.field-bg;
                 border-width: 1px;
@@ -1330,18 +1340,18 @@ export component SettingsPanel inherits FocusScope {
                     padding: 10px;
                     spacing: 10px;
                     VerticalLayout {
-                        spacing: 4px;
-                        Text { text: root.module-update-count > 0 ? root.module-update-count + " module update" + (root.module-update-count == 1 ? "" : "s") + " available" : "Modules are up to date"; color: root.text-strong; font-size: 12px; font-weight: 700; }
-                        Text { text: "Module updates remain explicit and individually reviewed."; color: root.text-muted; font-size: 9px; }
+                        spacing: 5px;
+                        Text { text: root.module-update-count > 0 ? root.module-update-count + " module update" + (root.module-update-count == 1 ? "" : "s") + " available" : "Modules are up to date"; color: root.text-strong; font-size: 14px; font-weight: 700; }
+                        Text { text: "Module updates remain explicit and individually reviewed."; color: root.text-muted; font-size: 11px; }
                     }
                     Rectangle {
-                        width: 104px;
-                        height: 34px;
+                        width: 112px;
+                        height: 38px;
                         border-radius: 8px;
                         background: modules-touch.pressed ? root.field-bg-pressed : modules-touch.has-hover ? root.field-bg-hover : transparent;
                         border-width: 1px;
                         border-color: root.field-border;
-                        Text { text: "Open Modules"; color: root.text-main; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                        Text { text: "Open Modules"; color: root.text-main; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                         modules-touch := TouchArea { mouse-cursor: pointer; clicked => { root.settings-section = "modules"; modules-panel.reset-scroll(); modules-panel.focus-modules(); } }
                     }
                 }
@@ -1349,17 +1359,35 @@ export component SettingsPanel inherits FocusScope {
 
             Text { text: "About"; color: root.text-main; font-size: 12px; font-weight: 700; }
             Rectangle {
-                height: 92px;
+                height: 114px;
                 border-radius: 10px;
                 background: root.field-bg;
                 border-width: 1px;
                 border-color: root.field-border;
                 VerticalLayout {
                     padding: 10px;
-                    spacing: 5px;
-                    Text { text: "Rayslash " + root.app-version; color: root.text-strong; font-size: 13px; font-weight: 800; }
-                    Text { text: "Keyboard-first Linux application launcher"; color: root.text-muted; font-size: 10px; }
-                    Text { text: "Updates are downloaded from verified GitHub release assets and checked against SHA256SUMS before installation."; color: root.text-soft; font-size: 9px; wrap: word-wrap; }
+                    spacing: 4px;
+                    Text { height: 18px; text: "Rayslash " + root.app-version; color: root.text-strong; font-size: 14px; font-weight: 800; vertical-alignment: center; }
+                    Text { height: 14px; text: "Keyboard-first Linux application launcher"; color: root.text-muted; font-size: 11px; vertical-alignment: center; }
+                    Rectangle {
+                        width: 270px;
+                        height: 30px;
+                        horizontal-stretch: 0;
+                        border-radius: 7px;
+                        background: project-link.pressed ? root.field-bg-pressed : project-link.has-hover ? root.field-bg-hover : transparent;
+                        border-width: 1px;
+                        border-color: root.field-border;
+                        HorizontalLayout {
+                            padding-left: 10px;
+                            padding-right: 9px;
+                            spacing: 7px;
+                            Text { text: "github.com/rslauncher/rayslash"; color: project-link.has-hover ? root.light ? #235f9e : #87bdf1 : root.light ? #3476b9 : #70a8df; font-size: 11px; font-weight: 600; vertical-alignment: center; }
+                            Rectangle { horizontal-stretch: 1; background: transparent; }
+                            Path { width: 14px; height: 14px; viewbox-width: 24; viewbox-height: 24; commands: "M14 3 H21 V10 M10 14 L21 3 M21 14 V21 H3 V3 H10"; stroke: project-link.has-hover ? root.light ? #235f9e : #87bdf1 : root.light ? #3476b9 : #70a8df; stroke-width: 2px; fill: transparent; }
+                        }
+                        project-link := TouchArea { mouse-cursor: pointer; clicked => { root.open-project-url-requested(); } }
+                    }
+                    Text { height: 14px; text: "Release downloads are verified against SHA256SUMS."; color: root.text-soft; font-size: 10px; vertical-alignment: center; }
                 }
             }
 

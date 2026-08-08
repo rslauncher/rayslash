@@ -16,3 +16,4 @@ pub mod web_search;
 
 pub const APP_NAME: &str = "rayslash";
 pub const APP_ID: &str = "dev.rayan6ms.rayslash";
+pub const PROJECT_URL: &str = "https://github.com/rslauncher/rayslash";
