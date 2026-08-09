@@ -273,6 +273,11 @@ export component AppWindow inherits Window {
         search.focus();
     }
 
+    public function reset-modifier-state() {
+        root.control-held = false;
+        search.reset-modifier-state();
+    }
+
     public function focus-settings() {
         settings-panel.focus-settings();
     }
@@ -357,12 +362,6 @@ export component AppWindow inherits Window {
                     accept
                 } else if (event.text == Key.DownArrow) {
                     root.select-next();
-                    accept
-                } else if (event.text == Key.Return && event.modifiers.control) {
-                    root.activate-selected(true);
-                    accept
-                } else if (event.text == Key.Return) {
-                    root.activate-selected(false);
                     accept
                 } else {
                     reject

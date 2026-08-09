@@ -20,6 +20,10 @@ export component SearchBox inherits Rectangle {
     callback search-keyword-trigger-requested(string) -> bool;
     callback search-keyword-cleared();
 
+    public function reset-modifier-state() {
+        root.pending-alternate-activation = false;
+    }
+
     height: 62px;
     border-radius: 12px;
     background: root.light ? search-input.has-focus ? #ffffff : #f7f7f7 : search-input.has-focus ? #242424 : #202020;

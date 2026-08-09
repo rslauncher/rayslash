@@ -313,6 +313,9 @@ pub fn install_downloaded_update(
 }
 
 fn install_portable(downloaded: &Path, target: &Path) -> Result<(), UpdateError> {
+    if target.is_file() && sha256_file(downloaded)? == sha256_file(target)? {
+        return Ok(());
+    }
     let parent = target
         .parent()
         .ok_or(UpdateError::UpdateDirectoryUnavailable)?;
@@ -549,6 +552,14 @@ mod tests {
         assert_eq!(
             fs::metadata(&target).unwrap().permissions().mode() & 0o777,
             0o755
+        );
+
+        install_portable(&downloaded, &target).expect("repeat identical update");
+        assert_eq!(fs::read(&target).unwrap(), b"new build");
+        assert_eq!(
+            fs::read(directory.join(".rayslash.previous")).unwrap(),
+            b"old build",
+            "an identical retry must not overwrite the rollback build"
         );
         fs::remove_dir_all(directory).expect("remove update test directory");
     }

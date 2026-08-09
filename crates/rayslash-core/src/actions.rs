@@ -1,7 +1,8 @@
 use std::{
+    env,
     ffi::OsString,
     io,
-    path::Path,
+    path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
     sync::{Arc, Mutex, OnceLock, mpsc},
     thread,
@@ -473,11 +474,36 @@ fn command_builder_for_dir(command: &CommandSpec, dir: Option<&Path>) -> Command
         builder.args(&command.args);
         builder
     };
+    sanitize_external_command_environment(&mut builder, env::var_os("PATH"), env::var_os("APPDIR"));
     builder
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     builder
+}
+
+fn sanitize_external_command_environment(
+    builder: &mut Command,
+    inherited_path: Option<OsString>,
+    app_dir: Option<OsString>,
+) {
+    // AppImage runtime variables describe Rayslash's mounted image, not the
+    // application being launched. ELECTRON_RUN_AS_NODE is especially harmful:
+    // an Electron desktop entry such as VS Code starts as a Node process.
+    for variable in ["APPIMAGE", "APPDIR", "ARGV0", "OWD", "ELECTRON_RUN_AS_NODE"] {
+        builder.env_remove(variable);
+    }
+
+    let (Some(inherited_path), Some(app_dir)) = (inherited_path, app_dir) else {
+        return;
+    };
+    let app_dir = PathBuf::from(app_dir);
+    let clean_entries = env::split_paths(&inherited_path)
+        .filter(|entry| !entry.starts_with(&app_dir))
+        .collect::<Vec<_>>();
+    if let Ok(clean_path) = env::join_paths(clean_entries) {
+        builder.env("PATH", clean_path);
+    }
 }
 
 fn running_in_flatpak() -> bool {
@@ -698,6 +724,7 @@ fn tokenize_action_command(command: &str) -> Option<impl Iterator<Item = String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::time::{Duration, Instant};
 
     #[test]
@@ -736,6 +763,30 @@ mod tests {
 
         assert_eq!(command.args[0], OsString::from("--urgency=normal"));
         assert_eq!(command.args[1], OsString::from("--expire-time=10000"));
+    }
+
+    #[test]
+    fn external_commands_drop_launcher_runtime_environment() {
+        let mut command = Command::new("example-app");
+        sanitize_external_command_environment(
+            &mut command,
+            Some(OsString::from(
+                "/tmp/.mount_rayslash/usr/bin:/usr/local/bin:/usr/bin",
+            )),
+            Some(OsString::from("/tmp/.mount_rayslash")),
+        );
+
+        let environment = command
+            .get_envs()
+            .map(|(name, value)| (name.to_owned(), value.map(OsString::from)))
+            .collect::<HashMap<_, _>>();
+        for variable in ["APPIMAGE", "APPDIR", "ARGV0", "OWD", "ELECTRON_RUN_AS_NODE"] {
+            assert_eq!(environment.get(std::ffi::OsStr::new(variable)), Some(&None));
+        }
+        assert_eq!(
+            environment.get(std::ffi::OsStr::new("PATH")),
+            Some(&Some(OsString::from("/usr/local/bin:/usr/bin")))
+        );
     }
 
     #[cfg(target_os = "linux")]
