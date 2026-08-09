@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.8" date="2026-08-09">
+      <description>
+        <p>Fix AppImage update restarts, external Electron app launches, and Ctrl+Enter modifier handling.</p>
+      </description>
+    </release>
     <release version="0.2.7" date="2026-08-08">
       <description>
         <p>Tighten and align diagnostics, module status, and About layouts.</p>

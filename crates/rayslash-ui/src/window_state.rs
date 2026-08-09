@@ -27,7 +27,7 @@ pub(crate) fn handle_ipc_request(
 
 pub(crate) fn show_launcher(ui: &AppWindow, is_visible: &AtomicBool, telemetry: &dyn Telemetry) {
     ui.invoke_reset_requested();
-    ui.set_control_held(false);
+    ui.invoke_reset_modifier_state();
 
     match ui.show() {
         Ok(()) => {
@@ -44,7 +44,7 @@ pub(crate) fn show_launcher(ui: &AppWindow, is_visible: &AtomicBool, telemetry: 
 }
 
 pub(crate) fn hide_launcher(ui: &AppWindow, is_visible: &AtomicBool, telemetry: &dyn Telemetry) {
-    ui.set_control_held(false);
+    ui.invoke_reset_modifier_state();
 
     if let Err(error) = ui.hide() {
         telemetry.operational_failure(OperationalDiagnostic::new(

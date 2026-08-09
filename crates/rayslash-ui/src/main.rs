@@ -16,7 +16,7 @@ use std::{
     cell::{Cell, RefCell},
     env, io,
     path::PathBuf,
-    process::ExitCode,
+    process::{ExitCode, Stdio},
     rc::Rc,
     sync::{
         Arc, Mutex,
@@ -1313,11 +1313,28 @@ fn restart_after_update() -> io::Result<()> {
     if std::env::var_os("FLATPAK_ID").is_some() {
         std::process::Command::new("flatpak-spawn")
             .args(["--host", "flatpak", "run", rayslash_core::APP_ID])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .spawn()?;
     } else {
-        std::process::Command::new(std::env::current_exe()?).spawn()?;
+        let executable = restart_executable(
+            std::env::var_os("APPIMAGE").map(PathBuf::from),
+            std::env::current_exe()?,
+        );
+        std::process::Command::new(executable)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()?;
     }
     Ok(())
+}
+
+fn restart_executable(appimage: Option<PathBuf>, current_executable: PathBuf) -> PathBuf {
+    appimage
+        .filter(|path| !path.as_os_str().is_empty())
+        .unwrap_or(current_executable)
 }
 
 fn spawn_desktop_app_watcher(
@@ -1515,5 +1532,21 @@ mod watcher_tests {
         let event = notify::Event::new(notify::EventKind::Create(CreateKind::Folder));
 
         assert!(filesystem_event_requires_refresh(&event));
+    }
+
+    #[test]
+    fn appimage_restart_uses_stable_outer_executable() {
+        let mounted = PathBuf::from("/tmp/.mount_rayslash/usr/bin/rayslash");
+        let outer = PathBuf::from("/home/example/.local/bin/rayslash");
+
+        assert_eq!(
+            restart_executable(Some(outer.clone()), mounted.clone()),
+            outer
+        );
+        assert_eq!(restart_executable(None, mounted.clone()), mounted);
+        assert_eq!(
+            restart_executable(Some(PathBuf::new()), PathBuf::from("/usr/bin/rayslash")),
+            PathBuf::from("/usr/bin/rayslash")
+        );
     }
 }
