@@ -6,9 +6,9 @@ mod state;
 
 pub use descriptors::{
     ALIASES_MODULE_ID, CALCULATOR_MODULE_ID, CURRENCY_MODULE_ID, DescriptorValidationError,
-    ModuleDescriptor, ModuleSource, OFFICIAL_AUTHOR, TIME_MODULE_ID, TIMERS_MODULE_ID,
-    UNITS_MODULE_ID, WEB_SEARCH_MODULE_ID, official_module_descriptor, official_module_descriptors,
-    validate_descriptors,
+    ModuleDescriptor, ModuleSource, OFFICIAL_AUTHOR, TEXT_COUNTER_MODULE_ID, TIME_MODULE_ID,
+    TIMERS_MODULE_ID, UNITS_MODULE_ID, WEB_SEARCH_MODULE_ID, official_module_descriptor,
+    official_module_descriptors, validate_descriptors,
 };
 pub use package::{
     InstalledModule, InstalledModules, ModulePackageManifest, PackageError, PackageKind,

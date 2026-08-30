@@ -64,6 +64,26 @@ folder_sources = ["/tmp/alpha", "/tmp/beta"]
 }
 
 #[test]
+fn config_normalizes_duplicate_folder_sources() {
+    let dir = TempDir::new("rayslash-config-duplicate-sources-test");
+    let path = dir
+        .write(
+            "config.toml",
+            r#"
+folder_sources = ["/tmp/alpha", "/tmp/alpha", "/tmp/beta"]
+"#,
+        )
+        .expect("write config");
+
+    let config = config::load_config_from_path(&path).expect("load config");
+
+    assert_eq!(
+        config.folder_sources,
+        vec![PathBuf::from("/tmp/alpha"), PathBuf::from("/tmp/beta")]
+    );
+}
+
+#[test]
 fn legacy_project_roots_still_load_as_folder_sources() {
     let dir = TempDir::new("rayslash-config-legacy-roots-test");
     let path = dir

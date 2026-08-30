@@ -72,6 +72,7 @@ Start typing to search applications and configured folders. After installing the
 25 brl to usd
 time in Sao Paulo
 search rust slint
+count The quick brown fox jumps over the lazy dog
 timer 10min take a break
 ```
 
@@ -85,7 +86,7 @@ Settings can be changed from the launcher or by editing:
 ~/.config/rayslash/config.toml
 ```
 
-Folder sources, module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
+Multiple folder sources can be selected together in Settings → General or entered as a semicolon/newline-separated list. Each source contributes its immediate child folders to results. Module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
 
 Anonymous diagnostics are disabled by default and can be enabled or disabled at any time in
 Settings → Diagnostics. That section shows the latest local application scan plus aggregate

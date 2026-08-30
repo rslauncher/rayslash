@@ -268,6 +268,7 @@ fn result_icon(
     let module_kind = match &result.kind {
         search::SearchResultKind::Module { module_id, .. } => match module_id.as_str() {
             modules::CALCULATOR_MODULE_ID => "calculator",
+            modules::TEXT_COUNTER_MODULE_ID => "text-counter",
             modules::CURRENCY_MODULE_ID => "currency",
             modules::TIME_MODULE_ID => "time",
             modules::TIMERS_MODULE_ID => "timers",
@@ -322,7 +323,10 @@ fn result_icon(
 }
 
 fn uses_embedded_module_glyph(kind: &str) -> bool {
-    matches!(kind, "calculator" | "currency" | "time" | "timers")
+    matches!(
+        kind,
+        "calculator" | "text-counter" | "currency" | "time" | "timers"
+    )
 }
 
 fn fallback_icon(kind: &'static str, text: &'static str) -> RowIcon {

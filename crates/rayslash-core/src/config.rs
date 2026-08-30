@@ -1,5 +1,6 @@
 use std::{
     cmp::Reverse,
+    collections::HashSet,
     env, fmt, fs, io,
     io::Write,
     path::{Path, PathBuf},
@@ -426,10 +427,12 @@ fn default_folder_sources() -> Vec<PathBuf> {
 }
 
 fn normalize_folder_sources(sources: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut seen = HashSet::new();
     sources
         .into_iter()
         .map(expand_home)
         .map(absolute_path)
+        .filter(|path| seen.insert(path.clone()))
         .collect()
 }
 

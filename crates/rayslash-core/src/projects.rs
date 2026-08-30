@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs, io,
     path::{Path, PathBuf},
 };
@@ -10,8 +11,10 @@ pub struct Project {
 }
 
 pub fn scan_project_roots(roots: &[PathBuf]) -> Vec<Project> {
+    let mut seen_roots = HashSet::new();
     let mut projects = roots
         .iter()
+        .filter(|root| seen_roots.insert((*root).clone()))
         .flat_map(|root| scan_project_root(root).unwrap_or_default())
         .collect::<Vec<_>>();
 
