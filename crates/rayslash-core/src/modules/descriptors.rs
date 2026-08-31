@@ -4,6 +4,7 @@ pub const OFFICIAL_AUTHOR: &str = "rayslash";
 
 pub const ALIASES_MODULE_ID: &str = "rayslash.aliases";
 pub const CALCULATOR_MODULE_ID: &str = "rayslash.calculator";
+pub const TEXT_COUNTER_MODULE_ID: &str = "rayslash.text-counter";
 pub const CURRENCY_MODULE_ID: &str = "rayslash.currency";
 pub const TIME_MODULE_ID: &str = "rayslash.time";
 pub const TIMERS_MODULE_ID: &str = "rayslash.timers";
@@ -26,12 +27,21 @@ pub struct ModuleDescriptor {
     pub source: ModuleSource,
 }
 
-const OFFICIAL_MODULES: [ModuleDescriptor; 7] = [
+const OFFICIAL_MODULES: [ModuleDescriptor; 8] = [
     ModuleDescriptor {
         id: CALCULATOR_MODULE_ID,
         provider_id: CALCULATOR_MODULE_ID,
         name: "Calculator",
         description: "Calculate expressions and linear equations.",
+        author: OFFICIAL_AUTHOR,
+        version: env!("CARGO_PKG_VERSION"),
+        source: ModuleSource::BuiltIn,
+    },
+    ModuleDescriptor {
+        id: TEXT_COUNTER_MODULE_ID,
+        provider_id: TEXT_COUNTER_MODULE_ID,
+        name: "Text Counter",
+        description: "Count words, characters, lines, and bytes in text.",
         author: OFFICIAL_AUTHOR,
         version: env!("CARGO_PKG_VERSION"),
         source: ModuleSource::BuiltIn,

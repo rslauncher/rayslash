@@ -22,8 +22,8 @@ use crate::{
         refresh_desktop_apps_if_stale, refresh_result_view, refresh_settings_dependent_ui,
     },
     settings::{
-        SettingsConfigError, config_from_settings_fields, first_existing_folder_source,
-        parse_alias_kind, web_search_items,
+        SettingsConfigError, append_folder_sources_text, config_from_settings_fields,
+        first_existing_folder_source, parse_alias_kind, web_search_items,
     },
     telemetry::DiagnosticsTelemetry,
 };
@@ -523,12 +523,16 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 .or_else(dirs::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
             let selected = rfd::FileDialog::new()
-                .set_title("Choose folder source")
+                .set_title("Choose folder sources")
                 .set_directory(initial_dir)
-                .pick_folder();
+                .pick_folders();
 
-            if let (Some(ui), Some(folder)) = (weak.upgrade(), selected) {
-                ui.set_settings_folder_sources(search::display_path(&folder).into());
+            if let (Some(ui), Some(folders)) = (weak.upgrade(), selected) {
+                if folders.is_empty() {
+                    return;
+                }
+                let folder_sources = append_folder_sources_text(current_sources.as_str(), &folders);
+                ui.set_settings_folder_sources(folder_sources.into());
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
                 ui.invoke_settings_save_requested(

@@ -6,7 +6,7 @@ fn live_registry_refresh_verifies_and_caches() {
     let refresh = modules::refresh_registry().expect("refresh signed registry");
     assert_eq!(refresh.root.key_id, "registry-2026-01");
     assert!(!refresh.from_cache);
-    assert_eq!(refresh.index.modules.len(), 7);
+    assert_eq!(refresh.index.modules.len(), 8);
     assert!(refresh.revocations.revoked.is_empty());
 
     let cached = modules::load_cached_registry().expect("load verified cache");

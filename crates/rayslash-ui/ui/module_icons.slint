@@ -16,6 +16,17 @@ export component ModuleGlyph inherits Rectangle {
         fill: transparent;
     }
 
+    if root.kind == "text-counter": Path {
+        width: 100%;
+        height: 100%;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: "M5 6 H19 M5 12 H19 M5 18 H15";
+        stroke: root.icon-color;
+        stroke-width: 2px;
+        fill: transparent;
+    }
+
     if root.kind == "currency": Path {
         width: 100%;
         height: 100%;

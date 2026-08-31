@@ -182,6 +182,23 @@ pub(crate) fn first_existing_folder_source(text: &str) -> Option<PathBuf> {
         .find(|path| path.is_dir())
 }
 
+pub(crate) fn append_folder_sources_text(current: &str, selected: &[PathBuf]) -> String {
+    let mut sources = parse_folder_sources_text(current)
+        .into_iter()
+        .map(expand_home_for_ui)
+        .collect::<Vec<_>>();
+    for path in selected.iter().map(|path| expand_home_for_ui(path.clone())) {
+        if !sources.iter().any(|existing| existing == &path) {
+            sources.push(path);
+        }
+    }
+    sources
+        .iter()
+        .map(|path| search::display_path(path))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 pub(crate) fn parse_max_results(text: &str) -> Option<usize> {
     let max_results = text.trim().parse().ok()?;
     (max_results > 0).then_some(max_results)
@@ -414,6 +431,16 @@ mod tests {
                 PathBuf::from("/tmp/rayslash"),
                 PathBuf::from("/tmp/other")
             ]
+        );
+    }
+
+    #[test]
+    fn append_folder_sources_text_preserves_existing_and_deduplicates() {
+        let selected = vec![PathBuf::from("/tmp/beta"), PathBuf::from("/tmp/gamma")];
+
+        assert_eq!(
+            append_folder_sources_text("/tmp/alpha; /tmp/beta", &selected),
+            "/tmp/alpha; /tmp/beta; /tmp/gamma"
         );
     }
 

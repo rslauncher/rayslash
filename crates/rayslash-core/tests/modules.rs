@@ -9,8 +9,8 @@ use rayslash_core::{
         ALIASES_MODULE_ID, CALCULATOR_MODULE_ID, CURRENCY_MODULE_ID, DescriptorValidationError,
         InstalledModule, InstalledModules, LoadModulesConfigError, MODULES_CONFIG_VERSION,
         ModuleDescriptor, ModuleSource, ModulesConfig, ModulesConfigLoadOutcome, OFFICIAL_AUTHOR,
-        PackagePermissions, TIME_MODULE_ID, TIMERS_MODULE_ID, UNITS_MODULE_ID,
-        WEB_SEARCH_MODULE_ID, load_modules_config_from_path,
+        PackagePermissions, TEXT_COUNTER_MODULE_ID, TIME_MODULE_ID, TIMERS_MODULE_ID,
+        UNITS_MODULE_ID, WEB_SEARCH_MODULE_ID, load_modules_config_from_path,
         load_or_create_modules_config_from_path,
         load_or_create_modules_config_from_path_with_migration, modules_config_file,
         official_module_descriptors, save_modules_config_to_path, validate_descriptors,
@@ -27,12 +27,13 @@ fn official_descriptors_are_unique_virtual_modules() {
         .iter()
         .map(|descriptor| descriptor.id)
         .collect::<BTreeSet<_>>();
-    assert_eq!(ids.len(), 7);
+    assert_eq!(ids.len(), 8);
     assert_eq!(
         ids,
         BTreeSet::from([
             ALIASES_MODULE_ID,
             CALCULATOR_MODULE_ID,
+            TEXT_COUNTER_MODULE_ID,
             CURRENCY_MODULE_ID,
             TIME_MODULE_ID,
             TIMERS_MODULE_ID,

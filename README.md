@@ -26,7 +26,7 @@
 
 - Search and launch installed desktop applications
 - Find folders from configurable source directories
-- Install Calculator, Units, Currency, Time, Web Search, Timers, Aliases, and community modules only when wanted
+- Install Calculator, Text Counter, Units, Currency, Time, Web Search, Timers, Aliases, and community modules only when wanted
 - Verify a signed registry and every package digest before activation
 - Run executable modules without WASI in an automatically delivered sandbox host
 - Learn from app and folder selections using local ranking data
@@ -72,6 +72,7 @@ Start typing to search applications and configured folders. After installing the
 25 brl to usd
 time in Sao Paulo
 search rust slint
+count The quick brown fox jumps over the lazy dog
 timer 10min take a break
 ```
 
@@ -85,7 +86,7 @@ Settings can be changed from the launcher or by editing:
 ~/.config/rayslash/config.toml
 ```
 
-Folder sources, module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
+Multiple folder sources can be selected together in Settings → General or entered as a semicolon/newline-separated list. Each source contributes its immediate child folders to results. Module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
 
 Anonymous diagnostics are disabled by default and can be enabled or disabled at any time in
 Settings → Diagnostics. That section shows the latest local application scan plus aggregate

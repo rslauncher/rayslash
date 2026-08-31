@@ -262,6 +262,7 @@ export component AppWindow inherits Window {
     callback settings-web-search-remove-requested(int) -> bool;
     callback settings-module-toggle-requested(string, bool);
     callback settings-module-action-requested(string, string);
+    callback settings-modules-section-opened();
     pure callback settings-module-matches(string, string) -> bool;
     pure callback settings-visible-module-count(string, string, bool, bool, int) -> int;
     callback settings-module-sort-requested(string);
@@ -540,6 +541,7 @@ export component AppWindow inherits Window {
                         web-search-remove-requested(index) => { return root.settings-web-search-remove-requested(index); }
                         module-toggle-requested(id, enabled) => { root.settings-module-toggle-requested(id, enabled); }
                         module-action-requested(id, action) => { root.settings-module-action-requested(id, action); }
+                        modules-section-opened => { root.settings-modules-section-opened(); }
                         module-matches(haystack, query) => { return root.settings-module-matches(haystack, query); }
                         visible-module-count(tab, query, updates-only, saved-data-only, model-length) => { return root.settings-visible-module-count(tab, query, updates-only, saved-data-only, model-length); }
                         module-sort-requested(order) => { root.settings-module-sort-requested(order); }

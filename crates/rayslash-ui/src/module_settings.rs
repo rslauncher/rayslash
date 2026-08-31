@@ -692,6 +692,7 @@ fn latest_compatible_version(
 fn module_icon(module_id: &str) -> (&'static str, &'static str) {
     match module_id {
         modules::CALCULATOR_MODULE_ID => ("calculator", ""),
+        modules::TEXT_COUNTER_MODULE_ID => ("text", "C"),
         modules::UNITS_MODULE_ID => ("text", "U"),
         modules::CURRENCY_MODULE_ID => ("currency", ""),
         modules::TIME_MODULE_ID => ("time", ""),
@@ -705,6 +706,7 @@ fn module_icon(module_id: &str) -> (&'static str, &'static str) {
 fn module_category(module_id: &str) -> &'static str {
     match module_id {
         modules::CALCULATOR_MODULE_ID
+        | modules::TEXT_COUNTER_MODULE_ID
         | modules::UNITS_MODULE_ID
         | modules::CURRENCY_MODULE_ID
         | modules::TIME_MODULE_ID

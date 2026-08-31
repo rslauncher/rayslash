@@ -41,3 +41,15 @@ fn scan_project_roots_ignores_missing_roots() {
 
     assert!(projects.is_empty());
 }
+
+#[test]
+fn scan_project_roots_deduplicates_repeated_sources() {
+    let root = TempDir::new("rayslash-project-duplicate-roots");
+    root.create_dir_all("alpha").expect("create alpha");
+
+    let projects =
+        projects::scan_project_roots(&[root.path().to_path_buf(), root.path().to_path_buf()]);
+
+    assert_eq!(projects.len(), 1);
+    assert_eq!(projects[0].name, "alpha");
+}
