@@ -1,5 +1,5 @@
 Name:           rayslash
-Version:        0.2.9
+Version:        0.2.10
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.4
@@ -83,7 +83,7 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
-* Mon Aug 31 2026 RaySlash contributors - 0.2.9-1
+* Mon Aug 31 2026 RaySlash contributors - 0.2.10-1
 - Add multi-folder text counter sources and refresh the module catalog when opening Modules.
 
 * Sun Aug 09 2026 RaySlash contributors - 0.2.8-1
