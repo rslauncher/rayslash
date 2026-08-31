@@ -20,7 +20,7 @@ use std::{
     rc::Rc,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         mpsc,
     },
     thread,
@@ -95,6 +95,46 @@ struct LocalSearchJob {
 }
 
 type RemoteSearchResult = (u64, String, SearchResultSet, Instant);
+
+fn spawn_registry_refresh(
+    pending: &Arc<Mutex<Option<Result<modules::RegistryRefresh, String>>>>,
+    weak: &slint::Weak<AppWindow>,
+    diagnostics: &Arc<DiagnosticsTelemetry>,
+    in_flight: &Arc<AtomicBool>,
+    force: bool,
+) {
+    if in_flight.swap(true, Ordering::AcqRel) {
+        return;
+    }
+
+    let pending = pending.clone();
+    let weak = weak.clone();
+    let diagnostics = diagnostics.clone();
+    let in_flight = in_flight.clone();
+    thread::spawn(move || {
+        let refresh = if force {
+            modules::refresh_registry()
+        } else {
+            modules::refresh_registry_if_stale(Duration::from_secs(6 * 60 * 60))
+        };
+        if refresh.is_err() {
+            diagnostics.operational_failure(OperationalDiagnostic::new(
+                OperationalDiagnosticCode::ModuleRegistryRefresh,
+            ));
+        }
+        *pending.lock().unwrap_or_else(|error| error.into_inner()) =
+            Some(refresh.map_err(|error| error.to_string()));
+        in_flight.store(false, Ordering::Release);
+        if weak
+            .upgrade_in_event_loop(|ui| ui.invoke_apply_registry_refresh())
+            .is_err()
+        {
+            diagnostics.operational_failure(OperationalDiagnostic::new(
+                OperationalDiagnosticCode::WindowUiDispatch,
+            ));
+        }
+    });
+}
 
 fn main() -> ExitCode {
     let mut args = env::args();
@@ -559,6 +599,7 @@ fn run_gui(
     let pending_registry_refresh = Arc::new(Mutex::new(
         Option::<Result<modules::RegistryRefresh, String>>::None,
     ));
+    let registry_refresh_in_flight = Arc::new(AtomicBool::new(false));
     let pending_registry_refresh_for_ui = pending_registry_refresh.clone();
     ui.on_apply_registry_refresh({
         let weak = ui.as_weak();
@@ -604,28 +645,27 @@ fn run_gui(
             None => {}
         }
     });
-    thread::spawn({
-        let weak = ui.as_weak();
+    let ui_weak = ui.as_weak();
+    spawn_registry_refresh(
+        &pending_registry_refresh,
+        &ui_weak,
+        &diagnostics,
+        &registry_refresh_in_flight,
+        false,
+    );
+    ui.on_settings_modules_section_opened({
+        let pending_registry_refresh = pending_registry_refresh.clone();
+        let ui_weak = ui.as_weak();
         let diagnostics = diagnostics.clone();
+        let registry_refresh_in_flight = registry_refresh_in_flight.clone();
         move || {
-            let refresh = modules::refresh_registry_if_stale(Duration::from_secs(6 * 60 * 60));
-            if refresh.is_err() {
-                diagnostics.operational_failure(OperationalDiagnostic::new(
-                    OperationalDiagnosticCode::ModuleRegistryRefresh,
-                ));
-            }
-            *pending_registry_refresh
-                .lock()
-                .unwrap_or_else(|error| error.into_inner()) =
-                Some(refresh.map_err(|error| error.to_string()));
-            if weak
-                .upgrade_in_event_loop(|ui| ui.invoke_apply_registry_refresh())
-                .is_err()
-            {
-                diagnostics.operational_failure(OperationalDiagnostic::new(
-                    OperationalDiagnosticCode::WindowUiDispatch,
-                ));
-            }
+            spawn_registry_refresh(
+                &pending_registry_refresh,
+                &ui_weak,
+                &diagnostics,
+                &registry_refresh_in_flight,
+                true,
+            );
         }
     });
 

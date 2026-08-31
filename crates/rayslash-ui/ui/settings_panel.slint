@@ -177,6 +177,7 @@ export component SettingsPanel inherits FocusScope {
     callback web-search-remove-requested(int) -> bool;
     callback module-toggle-requested(string, bool);
     callback module-action-requested(string, string);
+    callback modules-section-opened();
     pure callback module-matches(string, string) -> bool;
     pure callback visible-module-count(string, string, bool, bool, int) -> int;
     callback module-sort-requested(string);
@@ -399,6 +400,7 @@ export component SettingsPanel inherits FocusScope {
                 root.settings-section = "modules";
                 modules-panel.reset-scroll();
                 modules-panel.focus-modules();
+                root.modules-section-opened();
             }
         }
     }
@@ -1365,7 +1367,7 @@ export component SettingsPanel inherits FocusScope {
                             border-width: 1px;
                             border-color: root.field-border;
                             Text { text: "Open Modules"; color: root.text-main; font-size: 11px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-                            modules-touch := TouchArea { mouse-cursor: pointer; clicked => { root.settings-section = "modules"; modules-panel.reset-scroll(); modules-panel.focus-modules(); } }
+                            modules-touch := TouchArea { mouse-cursor: pointer; clicked => { root.settings-section = "modules"; modules-panel.reset-scroll(); modules-panel.focus-modules(); root.modules-section-opened(); } }
                         }
                     }
                 }
