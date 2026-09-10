@@ -43,7 +43,8 @@ use rayslash_core::{
     ranking, web_search,
 };
 use result_items::{
-    IconImageCache, to_result_items, to_result_items_without_images, update_result_items_model,
+    IconImageCache, STARTUP_ICON_ROWS, hydrate_result_icon_rows, to_initial_result_items,
+    to_result_items, update_result_items_model,
 };
 use runtime_state::{
     ResultRefreshContext, ResultSelection, SearchResultSet, apply_desktop_apps,
@@ -411,7 +412,7 @@ fn run_gui(
 
     let icon_cache = Rc::new(RefCell::new(IconImageCache::new()));
     let stage_started = Instant::now();
-    let results_model = Rc::new(VecModel::from(to_result_items_without_images(
+    let results_model = Rc::new(VecModel::from(to_initial_result_items(
         &current_results.borrow(),
         &mut icon_cache.borrow_mut(),
     )));
@@ -1331,15 +1332,27 @@ fn run_gui(
     }
     profile_stage(profile, "startup show call", show_started);
     profile_stage(profile, "startup ready for event loop", startup_started);
-    Timer::single_shot(Duration::from_millis(500), {
-        let current_results = current_results.clone();
-        let results_model = results_model.clone();
-        let icon_cache = icon_cache.clone();
+    // The first screen already has its icons. Fill the offscreen rows in small
+    // batches, retaining all visible rows and their images throughout startup.
+    let remaining_icons = Rc::new(Timer::default());
+    remaining_icons.start(slint::TimerMode::Repeated, Duration::from_millis(16), {
+        let timer = Rc::downgrade(&remaining_icons);
+        let next_row = Cell::new(STARTUP_ICON_ROWS);
         move || {
-            results_model.set_vec(to_result_items(
+            let start = next_row.get();
+            hydrate_result_icon_rows(
+                &results_model,
                 &current_results.borrow(),
                 &mut icon_cache.borrow_mut(),
-            ));
+                start,
+                4,
+            );
+            next_row.set(start + 4);
+            if next_row.get() >= current_results.borrow().len()
+                && let Some(timer) = timer.upgrade()
+            {
+                timer.stop();
+            }
         }
     });
     slint::run_event_loop_until_quit()

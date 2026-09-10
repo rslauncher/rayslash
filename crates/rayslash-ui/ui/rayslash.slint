@@ -1,3 +1,4 @@
+import { Palette } from "std-widgets.slint";
 import { SearchBox, SettingsGearIcon } from "./components.slint";
 import { AliasItem, AppChoiceItem, ModuleItem, ResultItem, WebSearchItem } from "./models.slint";
 import { ResultList } from "./result_list.slint";
@@ -175,7 +176,7 @@ export component AppWindow inherits Window {
     in-out property <string> result-tip-text: "";
     in-out property <bool> settings-open: false;
     in-out property <string> settings-section: "general";
-    in-out property <string> settings-folder-sources: "";
+    in-out property <[string]> settings-folder-sources;
     in-out property <string> settings-aliases-text: "";
     in-out property <string> settings-web-searches-text: "";
     in property <[AliasItem]> settings-aliases;
@@ -233,6 +234,9 @@ export component AppWindow inherits Window {
     in-out property <bool> active-search-has-accent: false;
     in-out property <color> active-search-accent: #3a3a3a;
     private property <bool> light-theme: root.settings-theme == "light";
+    init => { Palette.color-scheme = root.light-theme ? ColorScheme.light : ColorScheme.dark; }
+    changed light-theme => { Palette.color-scheme = root.light-theme ? ColorScheme.light : ColorScheme.dark; }
+
 
     callback close-requested();
     callback query-changed(string);
@@ -248,7 +252,8 @@ export component AppWindow inherits Window {
     callback search-keyword-cleared();
     callback settings-requested();
     callback settings-cancel-requested();
-    callback settings-browse-folder-requested(string);
+    callback settings-browse-folder-requested();
+    callback settings-remove-folder-requested(int);
     callback settings-choose-alternate-opener-requested(string);
     callback settings-clear-ranking-requested();
     callback settings-copy-diagnostics-requested();
@@ -268,7 +273,7 @@ export component AppWindow inherits Window {
     callback settings-module-sort-requested(string);
     pure callback settings-feedback-kind(string) -> string;
     pure callback settings-feedback-duration-ms(string) -> int;
-    callback settings-save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
+    callback settings-save-requested([string], string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     public function focus-search() {
         search.focus();
@@ -467,7 +472,7 @@ export component AppWindow inherits Window {
                         settings-section <=> root.settings-section;
                         status-text <=> root.status-text;
                         alternate-opener-choices: root.alternate-opener-choices;
-                        folder-sources <=> root.settings-folder-sources;
+                        folder-sources: root.settings-folder-sources;
                         aliases-text <=> root.settings-aliases-text;
                         web-searches-text <=> root.settings-web-searches-text;
                         aliases: root.settings-aliases;
@@ -519,9 +524,10 @@ export component AppWindow inherits Window {
                         cancel-requested => {
                             root.settings-cancel-requested();
                         }
-                        browse-folder-requested(path) => {
-                            root.settings-browse-folder-requested(path);
+                        browse-folder-requested() => {
+                            root.settings-browse-folder-requested();
                         }
+                        remove-folder-requested(index) => { root.settings-remove-folder-requested(index); }
                         choose-alternate-opener-requested(command) => {
                             root.settings-choose-alternate-opener-requested(command);
                         }

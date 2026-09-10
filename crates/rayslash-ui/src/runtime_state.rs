@@ -436,7 +436,7 @@ pub(crate) fn apply_desktop_apps(
     let icon_count = app_icon_count(&discovered_apps);
     sync_app_install_state(app_install_state, &discovered_apps, telemetry);
 
-    icon_cache.borrow_mut().clear();
+    icon_cache.borrow_mut().invalidate_changed();
     if choices_model.row_count() > 0 {
         choices_model.set_vec(to_app_choice_items(
             &discovered_apps,

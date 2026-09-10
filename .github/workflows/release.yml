@@ -44,6 +44,24 @@ jobs:
       - name: Validate metadata
         run: packaging/validate-metadata.sh
 
+  # Test the exact release commit once, independently of package compilation.
+  test:
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-checks
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev
+      - name: Test release sources
+        run: cargo test --locked --workspace
+
   native:
     needs: prepare
     strategy:
@@ -67,6 +85,10 @@ jobs:
             gcc git libfontconfig1 libfontconfig1-dev make pkg-config
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-22.04-release-${{ matrix.architecture }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build release binary
         run: cargo build --release --locked -p rayslash
       - name: Fetch verified module host
@@ -114,6 +136,8 @@ jobs:
             architecture: aarch64
     runs-on: ${{ matrix.runner }}
     container: fedora:44
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/rpm
     steps:
       - name: Install packaging tools
         run: dnf install -y appstream cargo createrepo_c curl desktop-file-utils fontconfig-devel gcc git rpm-build rpmlint rust xz
@@ -122,6 +146,11 @@ jobs:
           fetch-depth: 0
       - name: Trust the container workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fedora-44-release-${{ matrix.architecture }}
+          workspaces: . -> target/rpm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Prepare and rebuild offline RPM
         run: |
           packaging/fedora/prepare-sources.sh "$RUNNER_TEMP/sources" "$GITHUB_SHA"
@@ -132,7 +161,8 @@ jobs:
             --define "_topdir $RUNNER_TEMP/rpmbuild" \
             "$RUNNER_TEMP/rpmbuild/SPECS/rayslash.spec"
           mkdir -p "$RUNNER_TEMP/rebuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-          CARGO_NET_OFFLINE=true rpmbuild --rebuild \
+          CARGO_NET_OFFLINE=true rpmbuild --rebuild --without rust_tests \
+            --define "rayslash_release_build 1" \
             --define "_topdir $RUNNER_TEMP/rebuild" \
             "$RUNNER_TEMP/rpmbuild/SRPMS/"*.src.rpm
       - name: Assemble the self-contained user-facing RPM
@@ -237,7 +267,7 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [prepare, native, rpm, flatpak]
+    needs: [prepare, test, native, rpm, flatpak]
     runs-on: ubuntu-latest
     permissions:
       contents: write

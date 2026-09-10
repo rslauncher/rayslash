@@ -86,7 +86,7 @@ Settings can be changed from the launcher or by editing:
 ~/.config/rayslash/config.toml
 ```
 
-Multiple folder sources can be selected together in Settings → General or entered as a semicolon/newline-separated list. Each source contributes its immediate child folders to results. Module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
+Use **+ Add folders** in Settings → General to select one or more folder sources. Each source appears on its own row; use its **×** button to remove it. Changes save automatically. Each source contributes its immediate child folders to results. Module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
 
 Anonymous diagnostics are disabled by default and can be enabled or disabled at any time in
 Settings → Diagnostics. That section shows the latest local application scan plus aggregate
@@ -118,6 +118,15 @@ cargo test --workspace
 cargo build --workspace
 packaging/validate-metadata.sh
 ```
+
+Rust CI caches dependencies separately for checks, Fedora RPMs, and each native
+release architecture. Main-branch CI warms the native release caches so later tags
+can reuse them. Release tests run once against the tagged sources, in parallel with
+packaging; publication requires those tests and every package validation to pass.
+The downloadable RPM opts out of Fedora's debug data and duplicate Rust tests,
+while ordinary RPM builds keep their existing defaults. Release optimization and
+thin LTO remain enabled. The first run after a toolchain or dependency change may
+still need a full build.
 
 ## License
 

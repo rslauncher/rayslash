@@ -22,8 +22,9 @@ use crate::{
         refresh_desktop_apps_if_stale, refresh_result_view, refresh_settings_dependent_ui,
     },
     settings::{
-        SettingsConfigError, append_folder_sources_text, config_from_settings_fields,
-        first_existing_folder_source, parse_alias_kind, web_search_items,
+        SettingsConfigError, append_folder_sources, config_from_settings_fields,
+        first_existing_folder_source, folder_sources_from_model, folder_sources_model,
+        parse_alias_kind, web_search_items,
     },
     telemetry::DiagnosticsTelemetry,
 };
@@ -164,7 +165,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         let icon_cache = icon_cache.clone();
         let socket_path = socket_path.clone();
         let diagnostics = diagnostics.clone();
-        move |folder_sources_text,
+        move |folder_sources,
               editor_command,
               apps_enabled,
               folders_enabled,
@@ -194,7 +195,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             }
 
             let mut config_to_save = match config_from_settings_fields(
-                folder_sources_text.as_str(),
+                &folder_sources_from_model(&folder_sources),
                 editor_command.as_str(),
                 apps_enabled,
                 folders_enabled,
@@ -517,9 +518,14 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
 
     ui.on_settings_browse_folder_requested({
         let weak = ui.as_weak();
-        move |current_sources| {
+        let config_state = config_state.clone();
+        move || {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let current_sources = folder_sources_from_model(&ui.get_settings_folder_sources());
             suppress_next_focus_hide.set(true);
-            let initial_dir = first_existing_folder_source(current_sources.as_str())
+            let initial_dir = first_existing_folder_source(&current_sources)
                 .or_else(dirs::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
             let selected = rfd::FileDialog::new()
@@ -531,33 +537,40 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 if folders.is_empty() {
                     return;
                 }
-                let folder_sources = append_folder_sources_text(current_sources.as_str(), &folders);
-                ui.set_settings_folder_sources(folder_sources.into());
+                let folder_sources = append_folder_sources(&current_sources, &folders);
+                ui.set_settings_folder_sources(folder_sources_model(&folder_sources));
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
-                ui.invoke_settings_save_requested(
-                    ui.get_settings_folder_sources(),
-                    ui.get_settings_alternate_folder_opener_command(),
-                    ui.get_settings_provider_apps(),
-                    ui.get_settings_provider_folders(),
-                    ui.get_settings_provider_calculator(),
-                    ui.get_settings_provider_aliases(),
-                    ui.get_settings_provider_web_search(),
-                    ui.get_settings_provider_unit_conversion(),
-                    ui.get_settings_provider_currency_conversion(),
-                    ui.get_settings_provider_time_lookup(),
-                    ui.get_settings_provider_utility_actions(),
-                    ui.get_settings_alternate_folder_opener_enabled(),
-                    ui.get_settings_ranking_learn_from_usage(),
-                    ui.get_settings_send_anonymous_diagnostics(),
-                    ui.get_settings_theme(),
-                    ui.get_settings_density(),
-                    ui.get_settings_max_results(),
-                    ui.get_settings_show_tooltips(),
-                    ui.get_settings_aliases_text(),
-                    ui.get_settings_web_searches_text(),
-                );
+                save_settings_from_ui(&ui);
+                // Restore the saved sources if validation or persistence failed.
+                ui.set_settings_folder_sources(folder_sources_model(
+                    &config_state.borrow().folder_sources,
+                ));
             }
+        }
+    });
+
+    ui.on_settings_remove_folder_requested({
+        let weak = ui.as_weak();
+        let config_state = config_state.clone();
+        move |index| {
+            let Some(ui) = weak.upgrade() else {
+                return;
+            };
+            let mut sources = folder_sources_from_model(&ui.get_settings_folder_sources());
+            let Ok(index) = usize::try_from(index) else {
+                return;
+            };
+            if index >= sources.len() {
+                return;
+            }
+            sources.remove(index);
+            ui.set_settings_folder_sources(folder_sources_model(&sources));
+            save_settings_from_ui(&ui);
+            // Restore the saved sources if validation or persistence failed.
+            ui.set_settings_folder_sources(folder_sources_model(
+                &config_state.borrow().folder_sources,
+            ));
         }
     });
 
@@ -840,6 +853,31 @@ fn feedback_kind(message: &str) -> &'static str {
     } else {
         "info"
     }
+}
+
+fn save_settings_from_ui(ui: &AppWindow) {
+    ui.invoke_settings_save_requested(
+        ui.get_settings_folder_sources(),
+        ui.get_settings_alternate_folder_opener_command(),
+        ui.get_settings_provider_apps(),
+        ui.get_settings_provider_folders(),
+        ui.get_settings_provider_calculator(),
+        ui.get_settings_provider_aliases(),
+        ui.get_settings_provider_web_search(),
+        ui.get_settings_provider_unit_conversion(),
+        ui.get_settings_provider_currency_conversion(),
+        ui.get_settings_provider_time_lookup(),
+        ui.get_settings_provider_utility_actions(),
+        ui.get_settings_alternate_folder_opener_enabled(),
+        ui.get_settings_ranking_learn_from_usage(),
+        ui.get_settings_send_anonymous_diagnostics(),
+        ui.get_settings_theme(),
+        ui.get_settings_density(),
+        ui.get_settings_max_results(),
+        ui.get_settings_show_tooltips(),
+        ui.get_settings_aliases_text(),
+        ui.get_settings_web_searches_text(),
+    );
 }
 
 #[cfg(test)]

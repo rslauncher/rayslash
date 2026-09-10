@@ -17,6 +17,21 @@ const MAX_DISK_ICON_ENTRIES: usize = 64;
 struct CachedImage {
     image: Option<Image>,
     last_used: u64,
+    stamp: Option<IconStamp>,
+}
+
+#[derive(PartialEq, Eq)]
+struct IconStamp {
+    len: u64,
+    modified: SystemTime,
+}
+
+fn icon_stamp(path: &Path) -> Option<IconStamp> {
+    let metadata = fs::metadata(path).ok()?;
+    Some(IconStamp {
+        len: metadata.len(),
+        modified: metadata.modified().ok()?,
+    })
 }
 
 #[derive(Default)]
@@ -33,6 +48,9 @@ impl IconImageCache {
     fn get(&mut self, path: &Path) -> Option<&Option<Image>> {
         self.clock = self.clock.wrapping_add(1);
         let entry = self.entries.get_mut(path)?;
+        if entry.stamp != icon_stamp(path) {
+            return None;
+        }
         entry.last_used = self.clock;
         Some(&entry.image)
     }
@@ -49,53 +67,105 @@ impl IconImageCache {
         {
             self.entries.remove(&oldest);
         }
+        let stamp = icon_stamp(&path);
         self.entries.insert(
             path,
             CachedImage {
                 image,
                 last_used: self.clock,
+                stamp,
             },
         );
     }
 
-    pub(crate) fn clear(&mut self) {
-        self.entries.clear();
+    pub(crate) fn invalidate_changed(&mut self) {
+        self.entries
+            .retain(|path, entry| entry.stamp == icon_stamp(path));
     }
 }
 
 pub(crate) fn update_result_items_model(model: &VecModel<ResultItem>, items: Vec<ResultItem>) {
-    if model.row_count() == items.len() {
-        for (index, item) in items.into_iter().enumerate() {
+    let shared_count = model.row_count().min(items.len());
+    for (index, item) in items[..shared_count].iter().enumerate() {
+        if !model
+            .row_data(index)
+            .is_some_and(|current| same_result_item(&current, item))
+        {
+            model.set_row_data(index, item.clone());
+        }
+    }
+    while model.row_count() > items.len() {
+        model.remove(model.row_count() - 1);
+    }
+    if items.len() > shared_count {
+        model.extend(items.into_iter().skip(shared_count));
+    }
+}
+
+pub(crate) fn hydrate_result_icon_rows(
+    model: &VecModel<ResultItem>,
+    results: &[search::SearchResult],
+    icon_cache: &mut IconImageCache,
+    start: usize,
+    count: usize,
+) {
+    let end = (start + count).min(results.len());
+    if start >= end {
+        return;
+    }
+    for (offset, item) in to_result_items(&results[start..end], icon_cache)
+        .into_iter()
+        .enumerate()
+    {
+        let index = start + offset;
+        if !model
+            .row_data(index)
+            .is_some_and(|current| same_result_item(&current, &item))
+        {
             model.set_row_data(index, item);
         }
-    } else {
-        model.set_vec(items);
     }
+}
+
+fn same_result_item(current: &ResultItem, next: &ResultItem) -> bool {
+    current.title == next.title
+        && current.flair == next.flair
+        && current.subtitle == next.subtitle
+        && current.subtitle_tooltip == next.subtitle_tooltip
+        && current.icon_kind == next.icon_kind
+        && current.icon_text == next.icon_text
+        && current.has_icon == next.has_icon
+        // Slint's empty Image does not compare equal to another empty Image.
+        && (!current.has_icon || current.icon == next.icon)
+}
+
+// Covers the initial window, including compact rows and a scroll buffer.
+pub(crate) const STARTUP_ICON_ROWS: usize = 8;
+
+pub(crate) fn to_initial_result_items(
+    results: &[search::SearchResult],
+    icon_cache: &mut IconImageCache,
+) -> Vec<ResultItem> {
+    to_result_items_with_image_limit(results, icon_cache, STARTUP_ICON_ROWS)
 }
 
 pub(crate) fn to_result_items(
     results: &[search::SearchResult],
     icon_cache: &mut IconImageCache,
 ) -> Vec<ResultItem> {
-    to_result_items_with_images(results, icon_cache, true)
+    to_result_items_with_image_limit(results, icon_cache, usize::MAX)
 }
 
-pub(crate) fn to_result_items_without_images(
+fn to_result_items_with_image_limit(
     results: &[search::SearchResult],
     icon_cache: &mut IconImageCache,
-) -> Vec<ResultItem> {
-    to_result_items_with_images(results, icon_cache, false)
-}
-
-fn to_result_items_with_images(
-    results: &[search::SearchResult],
-    icon_cache: &mut IconImageCache,
-    load_images: bool,
+    image_limit: usize,
 ) -> Vec<ResultItem> {
     results
         .iter()
-        .map(|result| {
-            let icon = result_icon(result, icon_cache, load_images);
+        .enumerate()
+        .map(|(index, result)| {
+            let icon = result_icon(result, icon_cache, index < image_limit);
 
             ResultItem {
                 title: result.title.clone().into(),
@@ -170,14 +240,21 @@ fn load_extensionless_icon_image(path: &Path) -> Option<Image> {
 }
 
 fn cached_extensionless_icon_path(path: &Path) -> Option<PathBuf> {
-    let bytes = fs::read(path).ok()?;
-    let extension = image_extension_from_bytes(&bytes)?;
     let cache_dir = dirs::cache_dir()
         .unwrap_or_else(std::env::temp_dir)
         .join("rayslash/icons");
 
+    let key = icon_cache_key(path);
+    for extension in ["png", "jpg", "svg"] {
+        let cached = cache_dir.join(format!("{key}.{extension}"));
+        if cached.is_file() {
+            return Some(cached);
+        }
+    }
+    let bytes = fs::read(path).ok()?;
+    let extension = image_extension_from_bytes(&bytes)?;
     fs::create_dir_all(&cache_dir).ok()?;
-    let cache_path = cache_dir.join(format!("{}.{extension}", icon_cache_key(path)));
+    let cache_path = cache_dir.join(format!("{key}.{extension}"));
 
     if !cache_path.is_file() {
         fs::write(&cache_path, bytes).ok()?;
@@ -263,7 +340,7 @@ struct RowIcon {
 fn result_icon(
     result: &search::SearchResult,
     icon_cache: &mut IconImageCache,
-    load_images: bool,
+    load_image: bool,
 ) -> RowIcon {
     let module_kind = match &result.kind {
         search::SearchResultKind::Module { module_id, .. } => match module_id.as_str() {
@@ -284,7 +361,7 @@ fn result_icon(
         } => {
             if uses_embedded_module_glyph(module_kind) {
                 fallback_icon(module_kind, "")
-            } else if load_images
+            } else if load_image
                 && let Some(image) = if module_kind == "web-search" {
                     load_favicon_image(path, icon_cache)
                 } else {
@@ -305,7 +382,7 @@ fn result_icon(
             fallback_icon_owned(module_kind, label.clone())
         }
         search::SearchResultIcon::App { path: Some(path) } => {
-            if load_images && let Some(image) = load_icon_image(path, icon_cache) {
+            if load_image && let Some(image) = load_icon_image(path, icon_cache) {
                 RowIcon {
                     image,
                     has_image: true,
@@ -345,6 +422,148 @@ fn fallback_icon_owned(kind: &'static str, text: String) -> RowIcon {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refreshing_results_notifies_only_changed_rows() {
+        use slint::private_unstable_api::re_exports::{
+            ModelChangeListener, ModelChangeListenerContainer,
+        };
+        use std::{
+            cell::{Cell, RefCell},
+            pin::Pin,
+        };
+
+        #[derive(Default)]
+        struct Changes {
+            rows: RefCell<Vec<usize>>,
+            resets: Cell<usize>,
+            added: Cell<usize>,
+            removed: Cell<usize>,
+        }
+        impl ModelChangeListener for Changes {
+            fn row_changed(self: Pin<&Self>, row: usize) {
+                self.rows.borrow_mut().push(row);
+            }
+            fn row_added(self: Pin<&Self>, _: usize, count: usize) {
+                assert!(count > 0);
+                self.added.set(self.added.get() + count);
+            }
+            fn row_removed(self: Pin<&Self>, _: usize, count: usize) {
+                self.removed.set(self.removed.get() + count);
+            }
+            fn reset(self: Pin<&Self>) {
+                self.resets.set(self.resets.get() + 1);
+            }
+        }
+        let image = Image::from_rgba8(SharedPixelBuffer::new(1, 1));
+        let first = ResultItem {
+            title: "Alpha".into(),
+            icon: image,
+            has_icon: true,
+            ..Default::default()
+        };
+        let second = ResultItem {
+            title: "Beta".into(),
+            ..Default::default()
+        };
+        let model = VecModel::from(vec![first.clone(), second.clone()]);
+        let changes = Box::pin(ModelChangeListenerContainer::<Changes>::default());
+        model
+            .model_tracker()
+            .attach_peer(changes.as_ref().model_peer());
+
+        update_result_items_model(&model, vec![first.clone(), second.clone()]);
+        assert!(changes.rows.borrow().is_empty());
+        assert_eq!(changes.resets.get(), 0);
+
+        let changed = ResultItem {
+            flair: "New".into(),
+            ..second
+        };
+        update_result_items_model(&model, vec![first.clone(), changed.clone()]);
+        assert_eq!(*changes.rows.borrow(), vec![1]);
+        assert_eq!(model.row_data(0), Some(first.clone()));
+        assert_eq!(model.row_data(1).unwrap().flair, "New");
+        assert_eq!(changes.resets.get(), 0);
+
+        update_result_items_model(&model, vec![first.clone(), changed, ResultItem::default()]);
+        assert_eq!(changes.added.get(), 1);
+        assert_eq!(*changes.rows.borrow(), vec![1]);
+        update_result_items_model(&model, vec![first]);
+        assert_eq!(changes.removed.get(), 2);
+        assert_eq!(*changes.rows.borrow(), vec![1]);
+        update_result_items_model(&model, vec![]);
+        assert_eq!(model.row_count(), 0);
+        assert_eq!(changes.removed.get(), 3);
+        assert_eq!(changes.resets.get(), 0);
+    }
+
+    #[test]
+    fn icon_cache_retains_unchanged_images_and_retries_changed_or_missing_files() {
+        let directory = std::env::temp_dir().join(format!(
+            "rayslash-icon-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let unchanged = directory.join("unchanged.png");
+        let changed = directory.join("changed.png");
+        let missing = directory.join("missing.png");
+        fs::write(&unchanged, b"unchanged").unwrap();
+        fs::write(&changed, b"old").unwrap();
+        let image = Image::from_rgba8(SharedPixelBuffer::new(1, 1));
+        let mut cache = IconImageCache::new();
+        cache.insert(unchanged.clone(), Some(image.clone()));
+        cache.insert(changed.clone(), None);
+        cache.insert(missing.clone(), None);
+        assert_eq!(cache.get(&unchanged), Some(&Some(image.clone())));
+        assert_eq!(cache.get(&changed), Some(&None));
+        assert_eq!(cache.get(&missing), Some(&None));
+
+        fs::write(&changed, b"updated image").unwrap();
+        fs::write(&missing, b"new image").unwrap();
+        assert!(cache.get(&changed).is_none());
+        assert!(cache.get(&missing).is_none());
+        cache.invalidate_changed();
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.get(&unchanged), Some(&Some(image)));
+
+        fs::remove_file(&unchanged).unwrap();
+        cache.invalidate_changed();
+        assert!(cache.entries.is_empty());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn initial_app_rows_include_the_cached_icon() {
+        let path = PathBuf::from("/test/app.png");
+        let image = Image::from_rgba8(SharedPixelBuffer::new(1, 1));
+        let mut cache = IconImageCache::new();
+        cache.insert(path.clone(), Some(image.clone()));
+        let result = search::SearchResult {
+            title: "App".into(),
+            flair: String::new(),
+            subtitle: "Application".into(),
+            icon: search::SearchResultIcon::App { path: Some(path) },
+            kind: search::SearchResultKind::Placeholder,
+        };
+        let results = vec![result; STARTUP_ICON_ROWS + 1];
+        let rows = to_initial_result_items(&results, &mut cache);
+        assert!(rows[0].has_icon);
+        assert_eq!(rows[0].icon, image.clone());
+        assert!(rows[STARTUP_ICON_ROWS - 1].has_icon);
+        assert!(!rows[STARTUP_ICON_ROWS].has_icon);
+        let model = VecModel::from(rows);
+        hydrate_result_icon_rows(&model, &results, &mut cache, STARTUP_ICON_ROWS, 4);
+        assert!(model.row_data(STARTUP_ICON_ROWS).unwrap().has_icon);
+        assert_eq!(model.row_data(0).unwrap().icon, image);
+        // A query can shrink the list before the next hydration batch.
+        hydrate_result_icon_rows(&model, &[], &mut cache, STARTUP_ICON_ROWS, 4);
+        assert_eq!(model.row_count(), results.len());
+    }
 
     #[test]
     fn image_extension_from_bytes_detects_supported_extensionless_icons() {
