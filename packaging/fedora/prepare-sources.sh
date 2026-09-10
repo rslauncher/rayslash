@@ -13,7 +13,7 @@ for command in cargo curl git sha256sum tar xz; do
     fi
 done
 
-root_dir="$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)"
+root_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)"
 output_dir="$1"
 git_ref="${2:-HEAD}"
 name=rayslash
@@ -25,9 +25,8 @@ if [ -z "$version" ]; then
 fi
 
 commit="$(git -C "$root_dir" rev-parse --verify "${git_ref}^{commit}")"
-source_date_epoch="$(git -C "$root_dir" show -s --format=%ct "$commit")"
 mkdir -p "$output_dir"
-output_dir="$(CDPATH= cd -- "$output_dir" && pwd)"
+output_dir="$(CDPATH='' cd -- "$output_dir" && pwd)"
 source_archive="$output_dir/$name-$version.tar.gz"
 vendor_archive="$output_dir/$name-$version-vendor.tar.xz"
 temporary_dir="$(mktemp -d)"
@@ -54,13 +53,16 @@ cargo vendor \
     "$temporary_dir/vendor" \
     >/dev/null
 
+# Registry sources are immutable and directories include each crate's version.
+# A fixed timestamp keeps identical dependencies reusable across release bumps;
+# Cargo fingerprints and vendored checksums still detect dependency changes.
 LC_ALL=C tar \
     --create \
     --xz \
     --file "$vendor_archive" \
     --directory "$temporary_dir" \
     --sort=name \
-    --mtime="@$source_date_epoch" \
+    --mtime="@0" \
     --owner=0 \
     --group=0 \
     --numeric-owner \

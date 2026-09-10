@@ -1,5 +1,14 @@
+# Local/distribution RPM builds still run Rust tests by default. CI runs them in
+# a separate job and disables only this part of %%check, keeping package checks.
+%bcond_without rust_tests
+# Direct-download releases use the Cargo release profile's stripped binaries.
+# Keep Fedora's normal debug packaging when this opt-in macro is absent.
+%if 0%{?rayslash_release_build}
+%global debug_package %{nil}
+%endif
+
 Name:           rayslash
-Version:        0.2.10
+Version:        0.2.11
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.4
@@ -45,10 +54,15 @@ tar --extract --xz --file %{SOURCE3}
 %endif
 
 %build
+%if 0%{?rayslash_release_build}
+# Fedora injects debuginfo=2 and strip=none through RUSTFLAGS, overriding Cargo.
+# Keep its hardening/linker flags while avoiding unused debug data in downloads.
+export RUSTFLAGS="${RUSTFLAGS:-} -Cdebuginfo=0 -Cstrip=symbols"
+%endif
 cargo build --release --frozen --jobs 2 -p rayslash
 
 %install
-install -Dm0755 target/release/rayslash %{buildroot}%{_bindir}/rayslash
+install -Dm0755 "${CARGO_TARGET_DIR:-target}/release/rayslash" %{buildroot}%{_bindir}/rayslash
 install -Dm0755 \
   rayslash-module-host-v%{module_host_version}-%{module_host_target}/rayslash-module-host \
   %{buildroot}%{_libexecdir}/rayslash/rayslash-module-host
@@ -60,6 +74,7 @@ install -Dm0644 icons/rayslash-icon.svg %{buildroot}%{_datadir}/icons/hicolor/sc
 install -Dm0644 packaging/linux/dev.rayan6ms.rayslash.metainfo.xml %{buildroot}%{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %check
+%if %{with rust_tests}
 # The packaged thin-LTO graph is no longer needed after %%install. Remove it
 # before compiling test harnesses so the two graphs cannot exhaust CI storage.
 cargo clean --release
@@ -68,6 +83,7 @@ CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16 \
 CARGO_PROFILE_RELEASE_STRIP=true \
 RUSTFLAGS="-Cdebuginfo=0" \
   cargo test --release --frozen --jobs 2 --workspace
+%endif
 desktop-file-validate packaging/linux/dev.rayan6ms.rayslash.desktop
 appstreamcli validate --no-net packaging/linux/dev.rayan6ms.rayslash.metainfo.xml
 test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-host
@@ -83,6 +99,9 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Thu Sep 10 2026 RaySlash contributors - 0.2.11-1
+- Improve folder source management, startup icon stability, and CI build performance.
+
 * Mon Aug 31 2026 RaySlash contributors - 0.2.10-1
 - Add multi-folder text counter sources and refresh the module catalog when opening Modules.
 

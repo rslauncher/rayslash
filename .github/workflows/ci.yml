@@ -20,6 +20,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux-checks
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux metadata tools
         run: |
           sudo apt-get update
@@ -27,11 +31,11 @@ jobs:
       - name: Format
         run: cargo fmt --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
       - name: Build
-        run: cargo build --workspace
+        run: cargo build --locked --workspace
       - name: Validate packaging metadata
         run: packaging/validate-metadata.sh
 
@@ -46,6 +50,8 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container: fedora:44
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target/rpm
     steps:
       - name: Install packaging tools
         run: dnf install -y appstream cargo createrepo_c curl desktop-file-utils fontconfig-devel gcc git rpm-build rpmlint rust xz
@@ -54,6 +60,11 @@ jobs:
           fetch-depth: 0
       - name: Trust the container workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: fedora-44-release-${{ matrix.architecture }}
+          workspaces: . -> target/rpm
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Prepare source and vendor archives
         run: packaging/fedora/prepare-sources.sh "$RUNNER_TEMP/sources" "$GITHUB_SHA"
       - name: Build source RPM
@@ -69,10 +80,9 @@ jobs:
           CARGO_NET_OFFLINE: "true"
         run: |
           mkdir -p "$RUNNER_TEMP/rebuild"/{BUILD,BUILDROOT,RPMS,SOURCES,SPECS,SRPMS}
-          # The Linux job owns the complete Rust test suite. This matrix verifies
-          # offline compilation and the installed RPM surface without rebuilding
-          # every release-mode test harness a second time.
-          rpmbuild --rebuild --nocheck \
+          # The Linux job owns Rust tests; RPM metadata and installed-file checks still run.
+          rpmbuild --rebuild --without rust_tests \
+            --define "rayslash_release_build 1" \
             --define "_topdir $RUNNER_TEMP/rebuild" \
             "$RUNNER_TEMP/rpmbuild/SRPMS/"*.src.rpm
       - name: Assemble the self-contained RPM for validation
@@ -87,8 +97,8 @@ jobs:
       - name: Validate the self-contained Fedora package
         run: |
           cd fedora-package-set
-          rpm -Kv *.rpm
-          rpmlint *.rpm
+          rpm -Kv ./*.rpm
+          rpmlint ./*.rpm
           app_rpm=$(find . -maxdepth 1 -type f -name 'rayslash-*.rpm' -print -quit)
           test -n "$app_rpm"
           rpm -qpl "$app_rpm" | grep -Fx /usr/libexec/rayslash/rayslash-module-host
@@ -116,3 +126,33 @@ jobs:
             exit 1
           fi
           test "$(find . -maxdepth 1 -type f -name '*.rpm' | wc -l)" -eq 1
+
+  # Default-branch caches are visible to release tags; caches saved only on a tag
+  # cannot warm the next release. Build these in parallel with the RPM checks.
+  native-release-cache:
+    if: github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x86_64
+            runner: ubuntu-22.04
+          - architecture: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container: ubuntu:22.04
+    env:
+      RAYSLASH_SENTRY_DSN: ${{ vars.RAYSLASH_SENTRY_DSN }}
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            ca-certificates curl gcc git libfontconfig1-dev make pkg-config
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ubuntu-22.04-release-${{ matrix.architecture }}
+      - name: Warm release dependencies
+        run: cargo build --release --locked -p rayslash

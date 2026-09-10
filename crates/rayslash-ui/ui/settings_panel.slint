@@ -1,3 +1,4 @@
+import { Button } from "std-widgets.slint";
 import { SettingToggle } from "./components.slint";
 import { AliasItem, AppChoiceItem, ModuleItem, WebSearchItem } from "./models.slint";
 import { ModulesPanel } from "./modules_panel.slint";
@@ -114,7 +115,7 @@ export component SettingsPanel inherits FocusScope {
     in-out property <string> status-text;
     in property <[AppChoiceItem]> alternate-opener-choices;
     in property <bool> light;
-    in-out property <string> folder-sources;
+    in property <[string]> folder-sources;
     in-out property <string> aliases-text;
     in-out property <string> web-searches-text;
     in property <[AliasItem]> aliases;
@@ -163,7 +164,8 @@ export component SettingsPanel inherits FocusScope {
     in-out property <bool> alias-editor-open;
 
     callback cancel-requested();
-    callback browse-folder-requested(string);
+    callback browse-folder-requested();
+    callback remove-folder-requested(int);
     callback choose-alternate-opener-requested(string);
     callback clear-ranking-requested();
     callback copy-diagnostics-requested();
@@ -183,7 +185,7 @@ export component SettingsPanel inherits FocusScope {
     callback module-sort-requested(string);
     pure callback feedback-kind(string) -> string;
     pure callback feedback-duration-ms(string) -> int;
-    callback save-requested(string, string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
+    callback save-requested([string], string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     in-out property <string> settings-section: "general";
     private property <int> web-search-editor-index: -1;
@@ -290,7 +292,7 @@ export component SettingsPanel inherits FocusScope {
 
     function save-settings() {
         root.save-requested(
-            settings-sources-input.text,
+            root.folder-sources,
             settings-editor-input.text,
             root.provider-apps,
             root.provider-folders,
@@ -316,7 +318,7 @@ export component SettingsPanel inherits FocusScope {
     preferred-height: root.open ? 320px : 0px;
     visible: root.open;
     vertical-stretch: root.open ? 1 : 0;
-    forward-focus: settings-sources-input;
+    forward-focus: add-folders-button;
 
     changed open => {
         if (root.open) {
@@ -418,95 +420,66 @@ export component SettingsPanel inherits FocusScope {
             width: settings-scroll.width;
             spacing: 9px;
 
-            Text {
-                text: "Folder sources";
-                color: root.text-main;
-                font-size: 12px;
-                font-weight: 700;
+            HorizontalLayout {
+                height: 34px;
+                alignment: space-between;
+                Text {
+                    text: "Folder sources";
+                    color: root.text-main;
+                    font-size: 12px;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+                add-folders-button := Button {
+                    text: "+ Add folders";
+                    accessible-label: "Add folder sources";
+                    clicked => { root.browse-folder-requested(); }
+                }
             }
 
-            HorizontalLayout {
+            Text {
+                text: root.folder-sources.length == 0
+                    ? "Add a folder to start searching its immediate subfolders."
+                    : "Search the immediate subfolders of each source.";
+                color: root.text-muted;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+
+            for source[index] in root.folder-sources: Rectangle {
                 height: 42px;
-                spacing: 8px;
-
-                Rectangle {
-                    horizontal-stretch: 1;
-                    border-radius: 8px;
-                    background: root.field-bg;
-                    border-width: 1px;
-                    border-color: settings-sources-input.has-focus ? root.field-border-focus : root.field-border;
-
-                    settings-sources-input := TextInput {
-                        x: 12px;
-                        y: 0px;
-                        width: parent.width - 24px;
-                        height: parent.height;
-                        text: root.folder-sources;
+                border-radius: 8px;
+                background: root.field-bg;
+                border-width: 1px;
+                border-color: root.field-border;
+                HorizontalLayout {
+                    padding-left: 12px;
+                    padding-right: 6px;
+                    spacing: 10px;
+                    TextInput {
+                        text: source;
+                        read-only: true;
+                        accessible-label: "Folder source " + (index + 1);
                         color: root.text-strong;
                         selection-background-color: root.light ? #303030 : #d4d4d4;
                         selection-foreground-color: root.light ? #ffffff : #181818;
                         font-size: 13px;
                         single-line: true;
                         vertical-alignment: center;
-
-                        key-pressed(event) => {
-                            if (event.text == Key.Return) {
-                                root.save-settings();
-                                accept
-                            } else if (event.text == Key.Escape) {
-                                root.cancel-requested();
-                                accept
-                            } else {
-                                reject
-                            }
-                        }
-
-                        changed has-focus => {
-                            if (!self.has-focus) {
-                                root.save-settings();
-                            }
+                        horizontal-stretch: 1;
+                        min-width: 0px;
+                    }
+                    VerticalLayout {
+                        alignment: center;
+                        Button {
+                            text: "×";
+                            accessible-label: "Remove " + source + " from folder sources";
+                            width: 30px;
+                            height: 30px;
+                            clicked => { root.remove-folder-requested(index); }
                         }
                     }
                 }
-
-                Rectangle {
-                    width: 42px;
-                    border-radius: 8px;
-                    background: browse-touch.pressed ? root.field-bg-pressed : browse-touch.has-hover ? root.field-bg-hover : root.field-bg;
-                    border-width: 1px;
-                    border-color: root.field-border;
-
-                    Rectangle {
-                        x: 9px;
-                        y: 18px;
-                        width: 24px;
-                        height: 14px;
-                        border-radius: 3px;
-                        background: root.icon-fill;
-                    }
-
-                    Rectangle {
-                        x: 10px;
-                        y: 13px;
-                        width: 12px;
-                        height: 7px;
-                        border-radius: 2px;
-                        background: root.icon-fill;
-                    }
-
-                    browse-touch := TouchArea {
-                        mouse-cursor: pointer;
-                        clicked => {
-                            root.browse-folder-requested(settings-sources-input.text);
-                        }
-                    }
-                }
-            }
-
-            Text {
-                text: "Immediate child folders become results; choose multiple folders or separate sources with semicolons";
-                color: root.text-muted;
-                font-size: 11px;
             }
 
             Text {

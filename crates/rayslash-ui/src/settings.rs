@@ -6,7 +6,7 @@ use std::{
 use rayslash_core::{config, search};
 
 use crate::{AliasItem, AppWindow, WebSearchItem};
-use slint::{Image, VecModel};
+use slint::{Image, Model, ModelRc, SharedString, VecModel};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsConfigError {
@@ -27,7 +27,7 @@ pub(crate) fn set_settings_properties(
     icon_count: usize,
     ranking_entry_count: usize,
 ) {
-    ui.set_settings_folder_sources(folder_sources_text(&config.folder_sources).into());
+    ui.set_settings_folder_sources(folder_sources_model(&config.folder_sources));
     ui.set_settings_aliases_text(aliases_text(&config.aliases).into());
     ui.set_settings_web_searches_text(web_searches_text(&config.web_searches).into());
     ui.set_settings_aliases(Rc::new(VecModel::from(alias_items(&config.aliases))).into());
@@ -100,7 +100,7 @@ pub(crate) fn web_search_items(searches: &[config::WebSearchConfig]) -> Vec<WebS
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn config_from_settings_fields(
-    folder_sources_text: &str,
+    folder_sources: &[PathBuf],
     alternate_folder_opener_command: &str,
     apps_enabled: bool,
     folders_enabled: bool,
@@ -135,7 +135,7 @@ pub(crate) fn config_from_settings_fields(
         .map_err(SettingsConfigError::InvalidWebSearches)?;
 
     Ok(config::Config {
-        folder_sources: parse_folder_sources_text(folder_sources_text),
+        folder_sources: folder_sources.to_vec(),
         aliases,
         web_searches,
         providers: config::ProviderConfig {
@@ -167,36 +167,43 @@ pub(crate) fn config_from_settings_fields(
     })
 }
 
-pub(crate) fn parse_folder_sources_text(text: &str) -> Vec<PathBuf> {
-    text.split([';', '\n'])
-        .map(str::trim)
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
+pub(crate) fn folder_sources_model(sources: &[PathBuf]) -> ModelRc<SharedString> {
+    Rc::new(VecModel::from(
+        sources
+            .iter()
+            .map(|path| search::display_path(path).into())
+            .collect::<Vec<_>>(),
+    ))
+    .into()
+}
+
+pub(crate) fn folder_sources_from_model(model: &ModelRc<SharedString>) -> Vec<PathBuf> {
+    model
+        .iter()
+        .map(|path| PathBuf::from(path.as_str()))
         .collect()
 }
 
-pub(crate) fn first_existing_folder_source(text: &str) -> Option<PathBuf> {
-    parse_folder_sources_text(text)
-        .into_iter()
+pub(crate) fn first_existing_folder_source(sources: &[PathBuf]) -> Option<PathBuf> {
+    sources
+        .iter()
+        .cloned()
         .map(expand_home_for_ui)
         .find(|path| path.is_dir())
 }
 
-pub(crate) fn append_folder_sources_text(current: &str, selected: &[PathBuf]) -> String {
-    let mut sources = parse_folder_sources_text(current)
-        .into_iter()
+pub(crate) fn append_folder_sources(current: &[PathBuf], selected: &[PathBuf]) -> Vec<PathBuf> {
+    let mut sources = current
+        .iter()
+        .cloned()
         .map(expand_home_for_ui)
         .collect::<Vec<_>>();
-    for path in selected.iter().map(|path| expand_home_for_ui(path.clone())) {
-        if !sources.iter().any(|existing| existing == &path) {
+    for path in selected.iter().cloned().map(expand_home_for_ui) {
+        if !sources.contains(&path) {
             sources.push(path);
         }
     }
     sources
-        .iter()
-        .map(|path| search::display_path(path))
-        .collect::<Vec<_>>()
-        .join("; ")
 }
 
 pub(crate) fn parse_max_results(text: &str) -> Option<usize> {
@@ -333,14 +340,6 @@ fn parse_enabled_flag(text: &str) -> Option<bool> {
     }
 }
 
-fn folder_sources_text(sources: &[PathBuf]) -> String {
-    sources
-        .iter()
-        .map(|path| search::display_path(path))
-        .collect::<Vec<_>>()
-        .join("; ")
-}
-
 fn aliases_text(aliases: &[config::AliasConfig]) -> String {
     aliases
         .iter()
@@ -414,34 +413,45 @@ mod tests {
     use super::*;
 
     #[test]
-    fn folder_sources_text_uses_semicolon_separated_paths() {
-        let sources = vec![PathBuf::from("/tmp/alpha"), PathBuf::from("/tmp/beta")];
-
-        assert_eq!(folder_sources_text(&sources), "/tmp/alpha; /tmp/beta");
+    fn folder_sources_model_preserves_path_boundaries() {
+        let sources = vec![
+            PathBuf::from("/tmp/alpha; beta"),
+            PathBuf::from("/tmp/line\nbreak"),
+        ];
+        assert_eq!(
+            folder_sources_from_model(&folder_sources_model(&sources)),
+            sources
+        );
+        assert!(folder_sources_from_model(&folder_sources_model(&[])).is_empty());
     }
 
     #[test]
-    fn parse_folder_sources_text_accepts_semicolons_and_newlines() {
-        let roots = parse_folder_sources_text(" ~/Documents ; /tmp/rayslash\n/tmp/other ");
-
+    fn append_folder_sources_preserves_existing_and_deduplicates() {
+        let current = vec![PathBuf::from("/tmp/alpha"), PathBuf::from("/tmp/beta")];
+        let selected = vec![
+            PathBuf::from("/tmp/beta"),
+            PathBuf::from("/tmp/gamma"),
+            PathBuf::from("/tmp/gamma"),
+        ];
         assert_eq!(
-            roots,
+            append_folder_sources(&current, &selected),
             vec![
-                PathBuf::from("~/Documents"),
-                PathBuf::from("/tmp/rayslash"),
-                PathBuf::from("/tmp/other")
+                PathBuf::from("/tmp/alpha"),
+                PathBuf::from("/tmp/beta"),
+                PathBuf::from("/tmp/gamma")
             ]
         );
+        assert_eq!(append_folder_sources(&current, &[]), current);
     }
 
     #[test]
-    fn append_folder_sources_text_preserves_existing_and_deduplicates() {
-        let selected = vec![PathBuf::from("/tmp/beta"), PathBuf::from("/tmp/gamma")];
-
-        assert_eq!(
-            append_folder_sources_text("/tmp/alpha; /tmp/beta", &selected),
-            "/tmp/alpha; /tmp/beta; /tmp/gamma"
-        );
+    fn append_folder_sources_deduplicates_home_abbreviations() {
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(
+                append_folder_sources(&[PathBuf::from("~/Documents")], &[home.join("Documents")]),
+                vec![home.join("Documents")]
+            );
+        }
     }
 
     #[test]
@@ -466,7 +476,7 @@ mod tests {
     #[test]
     fn config_from_settings_fields_builds_config() {
         let config = config_from_settings_fields(
-            "~/Documents; /tmp/rayslash",
+            &[PathBuf::from("~/Documents"), PathBuf::from("/tmp/rayslash")],
             " code --reuse-window ",
             true,
             false,
@@ -526,7 +536,7 @@ mod tests {
     fn config_from_settings_fields_validates_user_editable_fields() {
         assert_eq!(
             config_from_settings_fields(
-                "",
+                &[],
                 " ",
                 true,
                 true,
@@ -551,7 +561,7 @@ mod tests {
         );
         assert_eq!(
             config_from_settings_fields(
-                "",
+                &[],
                 "code",
                 true,
                 true,
