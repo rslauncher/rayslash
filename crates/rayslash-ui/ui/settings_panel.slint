@@ -1,7 +1,50 @@
-import { Button } from "std-widgets.slint";
 import { SettingToggle } from "./components.slint";
 import { AliasItem, AppChoiceItem, ModuleItem, WebSearchItem } from "./models.slint";
 import { ModulesPanel } from "./modules_panel.slint";
+
+component SettingsAction inherits Rectangle {
+    in property <string> label;
+    in property <bool> light;
+    in property <bool> round;
+    in property <bool> destructive;
+    out property <bool> has-focus: action-focus.has-focus;
+    callback clicked();
+
+    height: 34px;
+    border-radius: root.round ? self.height / 2 : 8px;
+    background: root.destructive ? action-touch.pressed ? #8e2929 : action-touch.has-hover ? #b33c3c : #a33131
+        : action-touch.pressed ? root.light ? #e6e6e6 : #333333
+        : action-touch.has-hover ? root.light ? #f0f0f0 : #292929
+        : root.round ? transparent : root.light ? #ffffff : #202020;
+    border-width: 1px;
+    border-color: root.has-focus ? root.light ? #747474 : #aaaaaa : transparent;
+    forward-focus: action-focus;
+    accessible-role: button;
+    accessible-label: root.label;
+    accessible-action-default => { root.clicked(); }
+
+    public function focus-action() { action-focus.focus(); }
+
+    Text {
+        text: root.label;
+        color: root.destructive ? #ffffff : root.round ? root.light ? #666666 : #9a9a9a : root.light ? #2d2d2d : #d8d8d8;
+        font-size: root.round ? 20px : 12px;
+        font-weight: root.round ? 400 : 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        accessible-role: none;
+    }
+    action-touch := TouchArea { mouse-cursor: pointer; clicked => { root.clicked(); } }
+    action-focus := FocusScope {
+        width: 0px;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.clicked();
+                accept
+            } else { reject }
+        }
+    }
+}
 
 component SegmentButton inherits Rectangle {
     in property <string> label;
@@ -198,6 +241,9 @@ export component SettingsPanel inherits FocusScope {
     private property <string> alias-editor-keyword: "";
     private property <string> alias-editor-kind: "url";
     private property <string> alias-editor-target: "";
+    private property <int> folder-removal-index: -1;
+    private property <string> folder-removal-path: "";
+    out property <bool> folder-removal-open: root.folder-removal-index >= 0;
     private property <string> notice-kind: root.feedback-kind(root.status-text);
 
     status-dismiss := Timer {
@@ -252,6 +298,26 @@ export component SettingsPanel inherits FocusScope {
     public function cancel-alias-editor() {
         root.alias-editor-open = false;
         root.alias-editor-index = -1;
+    }
+
+    function request-folder-removal(index: int, path: string) {
+        root.folder-removal-index = index;
+        root.folder-removal-path = path;
+        remove-cancel.focus-action();
+    }
+
+    public function cancel-folder-removal() {
+        root.folder-removal-index = -1;
+        root.folder-removal-path = "";
+        if (root.open) { root.focus(); }
+    }
+
+    function confirm-folder-removal() {
+        if (root.folder-removal-index >= 0 && root.folder-removal-index < root.folder-sources.length
+            && root.folder-sources[root.folder-removal-index] == root.folder-removal-path) {
+            root.remove-folder-requested(root.folder-removal-index);
+        }
+        root.cancel-folder-removal();
     }
 
     function add-alias() {
@@ -318,7 +384,6 @@ export component SettingsPanel inherits FocusScope {
     preferred-height: root.open ? 320px : 0px;
     visible: root.open;
     vertical-stretch: root.open ? 1 : 0;
-    forward-focus: add-folders-button;
 
     changed open => {
         if (root.open) {
@@ -330,6 +395,7 @@ export component SettingsPanel inherits FocusScope {
             settings-scroll.viewport-y = 0px;
             modules-panel.reset-scroll();
         } else {
+            root.cancel-folder-removal();
             root.cancel-alias-editor();
             root.cancel-web-search-editor();
         }
@@ -337,7 +403,9 @@ export component SettingsPanel inherits FocusScope {
 
     key-pressed(event) => {
         if (event.text == Key.Escape) {
-            if (root.alias-editor-open) {
+            if (root.folder-removal-index >= 0) {
+                root.cancel-folder-removal();
+            } else if (root.alias-editor-open) {
                 root.cancel-alias-editor();
             } else if (root.web-search-editor-open) {
                 root.cancel-web-search-editor();
@@ -420,21 +488,18 @@ export component SettingsPanel inherits FocusScope {
             width: settings-scroll.width;
             spacing: 9px;
 
-            HorizontalLayout {
-                height: 34px;
-                alignment: space-between;
-                Text {
-                    text: "Folder sources";
-                    color: root.text-main;
-                    font-size: 12px;
-                    font-weight: 700;
-                    vertical-alignment: center;
-                }
-                add-folders-button := Button {
-                    text: "+ Add folders";
-                    accessible-label: "Add folder sources";
-                    clicked => { root.browse-folder-requested(); }
-                }
+            Text {
+                text: "Folder sources";
+                color: root.text-main;
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            SettingsAction {
+                label: "+  Add folders";
+                accessible-label: "Add folder sources";
+                light: root.light;
+                clicked => { root.browse-folder-requested(); }
             }
 
             Text {
@@ -471,12 +536,14 @@ export component SettingsPanel inherits FocusScope {
                     }
                     VerticalLayout {
                         alignment: center;
-                        Button {
-                            text: "×";
-                            accessible-label: "Remove " + source + " from folder sources";
+                        SettingsAction {
                             width: 30px;
                             height: 30px;
-                            clicked => { root.remove-folder-requested(index); }
+                            round: true;
+                            label: "×";
+                            accessible-label: "Remove " + source + " from folder sources";
+                            light: root.light;
+                            clicked => { root.request-folder-removal(index, source); }
                         }
                     }
                 }
@@ -667,9 +734,10 @@ export component SettingsPanel inherits FocusScope {
                     font-weight: 700;
                 }
 
-                Rectangle { height: 34px; border-radius: 8px; background: alias-add.pressed ? root.field-bg-pressed : alias-add.has-hover ? root.field-bg-hover : root.field-bg;
-                    Text { text: "+  Add alias"; color: root.text-main; font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
-                    alias-add := TouchArea { mouse-cursor: pointer; clicked => { root.add-alias(); } }
+                SettingsAction {
+                    label: "+  Add alias";
+                    light: root.light;
+                    clicked => { root.add-alias(); }
                 }
 
                 for alias[index] in root.aliases: Rectangle {
@@ -1250,6 +1318,12 @@ export component SettingsPanel inherits FocusScope {
                     HorizontalLayout {
                         height: 38px;
                         spacing: 10px;
+                        Image {
+                            width: 34px;
+                            height: 34px;
+                            source: @image-url("../../../icons/rayslash.svg");
+                            image-fit: contain;
+                        }
                         VerticalLayout {
                             spacing: 2px;
                             Text { text: "Rayslash " + root.app-version; color: root.text-strong; font-size: 15px; font-weight: 800; }
@@ -1636,7 +1710,80 @@ export component SettingsPanel inherits FocusScope {
         }
     }
 
-    if root.status-text != "" && !root.alias-editor-open && !root.web-search-editor-open: Rectangle {
+    Rectangle {
+        x: 0px; y: 0px; width: 100%; height: 100%; z: 300;
+        visible: root.folder-removal-open;
+        background: root.light ? #00000030 : #00000088;
+
+        // Catch clicks outside the card without applying changes.
+        TouchArea { }
+
+        confirmation-focus := FocusScope {
+            key-pressed(event) => {
+                if (event.text == Key.Tab) {
+                    if (remove-cancel.has-focus) { remove-confirm.focus-action(); }
+                    else { remove-cancel.focus-action(); }
+                    accept
+                } else if (event.text == Key.Escape) {
+                    root.cancel-folder-removal();
+                    accept
+                } else { reject }
+            }
+
+            Rectangle {
+                x: (parent.width - self.width) / 2;
+                y: max(0px, (parent.height - self.height) / 2);
+                width: min(parent.width - 28px, 430px);
+                height: 216px;
+                border-radius: 12px;
+                background: root.field-bg;
+                border-width: 1px;
+                border-color: root.field-border-focus;
+
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 12px;
+                    Text { text: "Remove folder source?"; color: root.text-strong; font-size: 17px; font-weight: 700; }
+                    TextInput {
+                        text: root.folder-removal-path;
+                        read-only: true;
+                        single-line: true;
+                        accessible-label: "Folder to remove";
+                        color: root.text-main;
+                        font-size: 12px;
+                        selection-background-color: root.light ? #303030 : #d4d4d4;
+                        selection-foreground-color: root.light ? #ffffff : #181818;
+                    }
+                    Text {
+                        text: "Its subfolders will stop appearing in search. The folder and its files will stay on disk.";
+                        color: root.text-muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                    HorizontalLayout {
+                        height: 34px;
+                        spacing: 8px;
+                        Rectangle { horizontal-stretch: 1; background: transparent; }
+                        remove-cancel := SettingsAction {
+                            width: 86px;
+                            label: "Cancel";
+                            light: root.light;
+                            clicked => { root.cancel-folder-removal(); }
+                        }
+                        remove-confirm := SettingsAction {
+                            width: 86px;
+                            label: "Remove";
+                            light: root.light;
+                            destructive: true;
+                            clicked => { root.confirm-folder-removal(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.status-text != "" && !root.alias-editor-open && !root.web-search-editor-open && !root.folder-removal-open: Rectangle {
         x: max(0px, (parent.width - self.width) / 2);
         y: parent.height - 50px;
         width: min(parent.width, 560px);

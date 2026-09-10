@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.12" date="2026-09-10">
+      <description>
+        <p>Match folder controls to aliases, confirm folder source removal in the app, and show the new Rayslash artwork in the header and Info tab.</p>
+      </description>
+    </release>
     <release version="0.2.11" date="2026-09-10">
       <description>
         <p>Make folder sources easier to add and remove, reduce icon flicker during startup, and speed up CI and release builds with caching.</p>
