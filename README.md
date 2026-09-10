@@ -86,7 +86,7 @@ Settings can be changed from the launcher or by editing:
 ~/.config/rayslash/config.toml
 ```
 
-Use **+ Add folders** in Settings → General to select one or more folder sources. Each source appears on its own row; use its **×** button to remove it. Changes save automatically. Each source contributes its immediate child folders to results. Module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
+Use **+ Add folders** in Settings → General to select one or more folder sources. Each source appears on its own row; use its **×** button and confirm in the app to remove it from search. The folder and its files stay on disk. Changes save automatically. Each source contributes its immediate child folders to results. Module-owned alias/web-search settings, appearance, and ranking behavior are configurable. Module configuration is stored separately in `~/.config/rayslash/modules.toml`; packages, state, and caches follow the XDG base directory conventions.
 
 Anonymous diagnostics are disabled by default and can be enabled or disabled at any time in
 Settings → Diagnostics. That section shows the latest local application scan plus aggregate

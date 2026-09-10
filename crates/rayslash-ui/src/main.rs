@@ -733,7 +733,9 @@ fn run_gui(
             }
             if matches!(&event, winit::event::WindowEvent::Focused(false)) {
                 if weak.upgrade().is_some_and(|ui| {
-                    ui.get_settings_web_search_editor_open() || ui.get_settings_alias_editor_open()
+                    ui.get_settings_web_search_editor_open()
+                        || ui.get_settings_alias_editor_open()
+                        || ui.get_settings_folder_removal_open()
                 }) {
                     return EventResult::Propagate;
                 }

@@ -30,7 +30,7 @@ component HeaderBar inherits HorizontalLayout {
                 y: (parent.height - self.height) / 2 + 2px;
                 width: 28px;
                 height: 28px;
-                source: @image-url("../../../icons/rayslash-icon.svg");
+                source: @image-url("../../../icons/rayslash.svg");
                 image-fit: contain;
             }
         }
@@ -229,6 +229,7 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-alternate-picker-open: false;
     in-out property <bool> settings-web-search-editor-open: false;
     in-out property <bool> settings-alias-editor-open: false;
+    out property <bool> settings-folder-removal-open: settings-panel.folder-removal-open;
     in-out property <string> active-search-keyword: "";
     in-out property <string> active-search-name: "";
     in-out property <bool> active-search-has-accent: false;
@@ -347,7 +348,9 @@ export component AppWindow inherits Window {
             key-pressed(event) => {
                 root.control-held = event.modifiers.control;
                 if (event.text == Key.Escape) {
-                    if (root.settings-alias-editor-open) {
+                    if (root.settings-folder-removal-open) {
+                        settings-panel.cancel-folder-removal();
+                    } else if (root.settings-alias-editor-open) {
                         settings-panel.cancel-alias-editor();
                     } else if (root.settings-web-search-editor-open) {
                         settings-panel.cancel-web-search-editor();
@@ -357,6 +360,8 @@ export component AppWindow inherits Window {
                         root.close-requested();
                     }
                     accept
+                } else if (root.settings-open) {
+                    reject
                 } else if (event.text == Key.Tab && event.modifiers.shift) {
                     root.select-previous();
                     accept
@@ -399,7 +404,7 @@ export component AppWindow inherits Window {
 
                     HeaderBar {
                         settings-open: root.settings-open;
-                        editor-open: root.settings-web-search-editor-open || root.settings-alias-editor-open;
+                        editor-open: root.settings-web-search-editor-open || root.settings-alias-editor-open || root.settings-folder-removal-open;
                         light: root.light-theme;
                         app-update-available: root.settings-app-update-available && root.settings-notify-app-updates;
                         module-update-available: root.settings-module-update-count > 0 && root.settings-notify-module-updates;
