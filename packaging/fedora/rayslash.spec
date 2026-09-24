@@ -8,7 +8,7 @@
 %endif
 
 Name:           rayslash
-Version:        0.2.12
+Version:        0.2.13
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.4
@@ -99,6 +99,9 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Thu Sep 24 2026 RaySlash contributors - 0.2.13-1
+- Keep folder picking responsive, expand human number input, and add cancellable scheduled tasks.
+
 * Thu Sep 10 2026 RaySlash contributors - 0.2.12-1
 - Refine folder controls, confirm source removal, and display the new app artwork.
 

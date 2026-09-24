@@ -27,7 +27,9 @@ use std::{
     time::{Duration, Instant},
 };
 
-use activation::{ActivationCallbackContext, register_activation_callback};
+use activation::{
+    ActivationCallbackContext, refresh_scheduled_tasks, register_activation_callback,
+};
 use app_updates::{AppUpdateContext, register_app_updates};
 use module_settings::{
     ModuleSettingsCallbackContext, installed_modules_load_diagnostic, load_runtime_modules,
@@ -1076,6 +1078,16 @@ fn run_gui(
             telemetry: diagnostics.clone(),
         },
     );
+    refresh_scheduled_tasks(&ui);
+    let scheduled_tasks_timer = Timer::default();
+    scheduled_tasks_timer.start(slint::TimerMode::Repeated, Duration::from_secs(1), {
+        let weak = ui.as_weak();
+        move || {
+            if let Some(ui) = weak.upgrade() {
+                refresh_scheduled_tasks(&ui);
+            }
+        }
+    });
 
     register_settings_callbacks(
         &ui,

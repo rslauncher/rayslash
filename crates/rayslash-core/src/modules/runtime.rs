@@ -170,11 +170,14 @@ pub fn query_installed_modules(
             .into_iter()
             .map(|candidate| {
                 scope.spawn(move || {
+                    let calculator_query = (candidate.module_id == super::CALCULATOR_MODULE_ID)
+                        .then(|| expand_human_number_literals(query))
+                        .filter(|expanded| expanded != query);
                     let response = query_wasm_module(
                         &candidate.module_id,
                         &candidate.install_path,
                         &candidate.manifest,
-                        query,
+                        calculator_query.as_deref().unwrap_or(query),
                         max_results,
                         &candidate.settings_json,
                     );
@@ -374,6 +377,97 @@ fn calculation_hint(query: &str) -> bool {
         || ["sqrt(", "sin(", "cos("]
             .iter()
             .any(|prefix| query.to_ascii_lowercase().contains(prefix))
+        || (contains_human_number_literal(query)
+            && !query
+                .split_whitespace()
+                .any(|word| word.eq_ignore_ascii_case("to") || word.eq_ignore_ascii_case("in")))
+}
+
+fn magnitude_multiplier(word: &str) -> Option<u128> {
+    let word = word.to_ascii_lowercase();
+    match word.trim_end_matches('s') {
+        "thousand" => Some(1_000),
+        "million" => Some(1_000_000),
+        "billion" => Some(1_000_000_000),
+        "trillion" => Some(1_000_000_000_000),
+        _ => None,
+    }
+}
+
+fn compact_magnitude(value: &str) -> Option<String> {
+    let suffix = value.chars().last()?.to_ascii_lowercase();
+    let multiplier = match suffix {
+        'k' => 1_000_f64,
+        'm' => 1_000_000_f64,
+        'b' => 1_000_000_000_f64,
+        't' => 1_000_000_000_000_f64,
+        _ => return None,
+    };
+    let number = value[..value.len() - suffix.len_utf8()]
+        .replace(',', "")
+        .parse::<f64>()
+        .ok()?;
+    let result = number * multiplier;
+    result.is_finite().then(|| {
+        if result.fract() == 0.0 {
+            result
+                .to_string()
+                .split('.')
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        } else {
+            result.to_string()
+        }
+    })
+}
+
+fn word_number(value: &str) -> Option<f64> {
+    value.replace(',', "").parse::<f64>().ok()
+}
+
+fn contains_human_number_literal(query: &str) -> bool {
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    words.iter().any(|word| compact_magnitude(word).is_some())
+        || words
+            .windows(2)
+            .any(|pair| word_number(pair[0]).is_some() && magnitude_multiplier(pair[1]).is_some())
+}
+
+fn expand_human_number_literals(query: &str) -> String {
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let mut expanded = Vec::with_capacity(words.len());
+    let mut index = 0;
+    while index < words.len() {
+        if let Some(value) = compact_magnitude(words[index]) {
+            expanded.push(value);
+            index += 1;
+            continue;
+        }
+        if index + 1 < words.len()
+            && let (Some(number), Some(multiplier)) = (
+                word_number(words[index]),
+                magnitude_multiplier(words[index + 1]),
+            )
+        {
+            let result = number * multiplier as f64;
+            expanded.push(if result.fract() == 0.0 {
+                result
+                    .to_string()
+                    .split('.')
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned()
+            } else {
+                result.to_string()
+            });
+            index += 2;
+            continue;
+        }
+        expanded.push(words[index].to_owned());
+        index += 1;
+    }
+    expanded.join(" ")
 }
 
 fn conversion_hint(query: &str) -> bool {
@@ -1161,6 +1255,16 @@ mod routing_tests {
     #[test]
     fn official_module_routing_recognizes_supported_query_shapes() {
         assert!(calculation_hint("999 * 42"));
+        assert!(calculation_hint("100 million"));
+        assert!(calculation_hint("10 thousand + 4"));
+        assert!(calculation_hint("100k"));
+        assert!(!calculation_hint("100m to ft"));
+        assert_eq!(
+            expand_human_number_literals("100 million + 4"),
+            "100000000 + 4"
+        );
+        assert_eq!(expand_human_number_literals("10 thousand"), "10000");
+        assert_eq!(expand_human_number_literals("100k"), "100000");
         assert!(conversion_hint("10 km to mi"));
         assert!(conversion_hint("10f to c"));
         assert!(conversion_hint("-40fahrenheit to celsius"));

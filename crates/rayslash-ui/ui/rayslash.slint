@@ -12,7 +12,9 @@ component HeaderBar inherits HorizontalLayout {
     in property <bool> light;
     in property <bool> app-update-available;
     in property <bool> module-update-available;
+    in property <int> scheduled-task-count;
     callback settings-requested();
+    callback scheduled-tasks-requested();
 
     height: 36px;
     alignment: space-between;
@@ -44,49 +46,60 @@ component HeaderBar inherits HorizontalLayout {
         }
     }
 
-    Rectangle {
-        width: 34px;
+    HorizontalLayout {
+        width: root.scheduled-task-count > 0 ? 74px : 34px;
         height: 34px;
-        background: transparent;
-        opacity: settings-button-touch.pressed ? 1 : settings-button-touch.has-hover || root.settings-open ? 1 : 0.72;
+        spacing: 6px;
 
-        animate opacity { duration: 90ms; }
-
-        SettingsGearIcon {
+        Rectangle {
             width: 34px;
             height: 34px;
-            icon-color: root.light ? #2f2f2f : #d8d8d8;
+            visible: root.scheduled-task-count > 0;
+            background: transparent;
+            opacity: task-button-touch.pressed ? 1 : task-button-touch.has-hover ? 1 : 0.72;
+            Path {
+                x: 7px; y: 7px; width: 20px; height: 20px;
+                viewbox-width: 24; viewbox-height: 24;
+                commands: "M12 8 V12 L15 14 M7 3 L4 6 M17 3 L20 6 M12 21 A9 9 0 1 0 12 3 A9 9 0 0 0 12 21";
+                stroke: root.light ? #2f2f2f : #d8d8d8;
+                stroke-width: 1.8px;
+                fill: transparent;
+            }
+            if root.scheduled-task-count > 0: Rectangle {
+                x: 20px; y: 1px; width: 15px; height: 15px;
+                border-radius: 7.5px;
+                background: #3c82e6;
+                border-width: 1px;
+                border-color: root.light ? #f3f3f3 : #181818;
+                Text { text: root.scheduled-task-count > 9 ? "9+" : root.scheduled-task-count; color: #ffffff; font-size: 8px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+            }
+            task-button-touch := TouchArea {
+                enabled: !root.editor-open;
+                mouse-cursor: pointer;
+                clicked => { root.scheduled-tasks-requested(); }
+            }
         }
 
-        if root.module-update-available: Rectangle {
-            x: parent.width - 13px;
-            y: parent.height - 13px;
-            width: 13px;
-            height: 13px;
-            border-radius: 6.5px;
-            background: #e99a32;
-            border-width: 1px;
-            border-color: root.light ? #f3f3f3 : #181818;
-            Text { text: "!"; color: #ffffff; font-size: 9px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
-        }
-
-        if root.app-update-available: Rectangle {
-            x: parent.width - 13px;
-            y: 0px;
-            width: 13px;
-            height: 13px;
-            border-radius: 6.5px;
-            background: #3c82e6;
-            border-width: 1px;
-            border-color: root.light ? #f3f3f3 : #181818;
-            Text { text: "!"; color: #ffffff; font-size: 9px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
-        }
-
-        settings-button-touch := TouchArea {
-            enabled: !root.editor-open;
-            mouse-cursor: pointer;
-            clicked => {
-                root.settings-requested();
+        Rectangle {
+            width: 34px;
+            height: 34px;
+            background: transparent;
+            opacity: settings-button-touch.pressed ? 1 : settings-button-touch.has-hover || root.settings-open ? 1 : 0.72;
+            SettingsGearIcon { width: 34px; height: 34px; icon-color: root.light ? #2f2f2f : #d8d8d8; }
+            if root.module-update-available: Rectangle {
+                x: parent.width - 13px; y: parent.height - 13px; width: 13px; height: 13px; border-radius: 6.5px;
+                background: #e99a32; border-width: 1px; border-color: root.light ? #f3f3f3 : #181818;
+                Text { text: "!"; color: #ffffff; font-size: 9px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+            }
+            if root.app-update-available: Rectangle {
+                x: parent.width - 13px; y: 0px; width: 13px; height: 13px; border-radius: 6.5px;
+                background: #3c82e6; border-width: 1px; border-color: root.light ? #f3f3f3 : #181818;
+                Text { text: "!"; color: #ffffff; font-size: 9px; font-weight: 800; horizontal-alignment: center; vertical-alignment: center; }
+            }
+            settings-button-touch := TouchArea {
+                enabled: !root.editor-open;
+                mouse-cursor: pointer;
+                clicked => { root.settings-requested(); }
             }
         }
     }
@@ -230,6 +243,9 @@ export component AppWindow inherits Window {
     in-out property <bool> settings-web-search-editor-open: false;
     in-out property <bool> settings-alias-editor-open: false;
     out property <bool> settings-folder-removal-open: settings-panel.folder-removal-open;
+    in property <[string]> scheduled-task-labels;
+    in property <[int]> scheduled-task-ids;
+    in-out property <bool> scheduled-tasks-open: false;
     in-out property <string> active-search-keyword: "";
     in-out property <string> active-search-name: "";
     in-out property <bool> active-search-has-accent: false;
@@ -255,6 +271,8 @@ export component AppWindow inherits Window {
     callback settings-cancel-requested();
     callback settings-browse-folder-requested();
     callback settings-remove-folder-requested(int);
+    callback scheduled-tasks-requested();
+    callback cancel-scheduled-task(int);
     callback settings-choose-alternate-opener-requested(string);
     callback settings-clear-ranking-requested();
     callback settings-copy-diagnostics-requested();
@@ -350,6 +368,8 @@ export component AppWindow inherits Window {
                 if (event.text == Key.Escape) {
                     if (root.settings-folder-removal-open) {
                         settings-panel.cancel-folder-removal();
+                    } else if (root.scheduled-tasks-open) {
+                        root.scheduled-tasks-open = false;
                     } else if (root.settings-alias-editor-open) {
                         settings-panel.cancel-alias-editor();
                     } else if (root.settings-web-search-editor-open) {
@@ -404,12 +424,16 @@ export component AppWindow inherits Window {
 
                     HeaderBar {
                         settings-open: root.settings-open;
-                        editor-open: root.settings-web-search-editor-open || root.settings-alias-editor-open || root.settings-folder-removal-open;
+                        editor-open: root.settings-web-search-editor-open || root.settings-alias-editor-open || root.settings-folder-removal-open || root.scheduled-tasks-open;
                         light: root.light-theme;
+                        scheduled-task-count: root.scheduled-task-labels.length;
                         app-update-available: root.settings-app-update-available && root.settings-notify-app-updates;
                         module-update-available: root.settings-module-update-count > 0 && root.settings-notify-module-updates;
                         settings-requested => {
                             root.settings-requested();
+                        }
+                        scheduled-tasks-requested => {
+                            root.scheduled-tasks-open = !root.scheduled-tasks-open;
                         }
                     }
 
@@ -604,6 +628,66 @@ export component AppWindow inherits Window {
 
                         activate-result(index, use-alternate-opener) => {
                             root.activate-selected-result(index, use-alternate-opener);
+                        }
+                    }
+                }
+            }
+
+            if root.scheduled-tasks-open && root.scheduled-task-labels.length > 0: Rectangle {
+                x: parent.width - 278px;
+                y: 52px;
+                width: 256px;
+                height: min(260px, 56px + root.scheduled-task-labels.length * 58px);
+                z: 500;
+                border-radius: 12px;
+                background: root.light-theme ? #ffffff : #222222;
+                border-width: 1px;
+                border-color: root.light-theme ? #c9c9c9 : #484848;
+
+                TouchArea {
+                    x: -1000px; y: -1000px; width: 3000px; height: 3000px;
+                    clicked => { root.scheduled-tasks-open = false; }
+                }
+
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    Text {
+                        text: "Scheduled tasks";
+                        color: root.light-theme ? #202020 : #eeeeee;
+                        font-size: 13px;
+                        font-weight: 800;
+                    }
+                    for label[index] in root.scheduled-task-labels: Rectangle {
+                        height: 48px;
+                        border-radius: 8px;
+                        background: task-row-touch.has-hover ? root.light-theme ? #f0f0f0 : #303030 : transparent;
+                        task-row-touch := TouchArea { mouse-cursor: pointer; }
+                        HorizontalLayout {
+                            padding-left: 8px;
+                            spacing: 8px;
+                            Text {
+                                text: label;
+                                color: root.light-theme ? #333333 : #d8d8d8;
+                                font-size: 11px;
+                                horizontal-stretch: 1;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                            Rectangle {
+                                width: 60px;
+                                height: 28px;
+                                border-radius: 7px;
+                                background: cancel-task-touch.pressed ? #8e2929 : cancel-task-touch.has-hover ? #b33c3c : #a33131;
+                                Text { text: "Cancel"; color: #ffffff; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                                cancel-task-touch := TouchArea {
+                                    mouse-cursor: pointer;
+                                    clicked => {
+                                        root.cancel-scheduled-task(root.scheduled-task-ids[index]);
+                                        root.scheduled-tasks-open = false;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
