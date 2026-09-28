@@ -1,10 +1,15 @@
 use std::{
+    collections::BTreeMap,
     env,
     ffi::OsString,
     io,
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
-    sync::{Arc, Mutex, OnceLock, mpsc},
+    sync::{
+        Arc, Mutex, OnceLock,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        mpsc,
+    },
     thread,
     time::{Duration, Instant},
 };
@@ -26,6 +31,46 @@ pub enum LaunchOutcome {
     Spawned(Child),
     Completed,
     FocusedExisting,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScheduledTask {
+    pub id: u64,
+    pub label: String,
+    pub due_at: std::time::SystemTime,
+}
+
+struct ScheduledTaskEntry {
+    task: ScheduledTask,
+    cancelled: Arc<AtomicBool>,
+}
+
+static NEXT_SCHEDULED_TASK_ID: AtomicU64 = AtomicU64::new(1);
+static SCHEDULED_TASKS: OnceLock<Mutex<BTreeMap<u64, ScheduledTaskEntry>>> = OnceLock::new();
+
+fn scheduled_tasks_store() -> &'static Mutex<BTreeMap<u64, ScheduledTaskEntry>> {
+    SCHEDULED_TASKS.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+pub fn scheduled_tasks() -> Vec<ScheduledTask> {
+    scheduled_tasks_store()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .values()
+        .map(|entry| entry.task.clone())
+        .collect()
+}
+
+pub fn cancel_scheduled_task(id: u64) -> bool {
+    let Some(entry) = scheduled_tasks_store()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .remove(&id)
+    else {
+        return false;
+    };
+    entry.cancelled.store(true, Ordering::Release);
+    true
 }
 
 struct ReapRequest {
@@ -258,7 +303,14 @@ pub fn run_module_action_with_telemetry(
         | ModuleAction::ScheduleCommand { delay, .. } => Duration::from_secs(*delay),
         _ => Duration::ZERO,
     };
-    schedule_command(command, delay, telemetry)
+    let label = match action {
+        ModuleAction::ScheduleNotification { title, body, .. } => {
+            format!("{title}: {body}")
+        }
+        ModuleAction::ScheduleCommand { .. } => command_display(&command),
+        _ => String::new(),
+    };
+    schedule_command(command, delay, telemetry, label)
 }
 
 fn notification_command(title: &str, body: &str) -> CommandSpec {
@@ -316,12 +368,41 @@ fn schedule_command(
     command: CommandSpec,
     delay: Duration,
     telemetry: Option<Arc<dyn Telemetry>>,
+    label: String,
 ) -> io::Result<()> {
     if delay.is_zero() {
         spawn_and_reap(command)
     } else {
+        let id = NEXT_SCHEDULED_TASK_ID.fetch_add(1, Ordering::Relaxed);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let due_at = std::time::SystemTime::now()
+            .checked_add(delay)
+            .unwrap_or_else(std::time::SystemTime::now);
+        scheduled_tasks_store()
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .insert(
+                id,
+                ScheduledTaskEntry {
+                    task: ScheduledTask { id, label, due_at },
+                    cancelled: cancelled.clone(),
+                },
+            );
         thread::spawn(move || {
-            thread::sleep(delay);
+            let deadline = Instant::now() + delay;
+            loop {
+                if cancelled.load(Ordering::Acquire) {
+                    return;
+                }
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                thread::sleep(remaining.min(Duration::from_millis(250)));
+            }
+            if cancelled.load(Ordering::Acquire) {
+                return;
+            }
             if let Err(error) = spawn_and_reap(command) {
                 if let Some(telemetry) = telemetry {
                     telemetry.operational_failure(OperationalDiagnostic::from_io(
@@ -331,6 +412,10 @@ fn schedule_command(
                 }
                 eprintln!("failed to run scheduled rayslash action: {error}");
             }
+            scheduled_tasks_store()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .remove(&id);
         });
         Ok(())
     }
@@ -763,6 +848,28 @@ mod tests {
 
         assert_eq!(command.args[0], OsString::from("--urgency=normal"));
         assert_eq!(command.args[1], OsString::from("--expire-time=10000"));
+    }
+
+    #[test]
+    fn scheduled_commands_can_be_cancelled_before_they_run() {
+        let before = scheduled_tasks().len();
+        schedule_command(
+            CommandSpec {
+                program: OsString::from("true"),
+                args: Vec::new(),
+            },
+            Duration::from_secs(2),
+            None,
+            "test task".into(),
+        )
+        .expect("schedule command");
+        let task = scheduled_tasks()
+            .into_iter()
+            .find(|task| task.label == "test task")
+            .expect("scheduled task");
+        assert_eq!(scheduled_tasks().len(), before + 1);
+        assert!(cancel_scheduled_task(task.id));
+        assert!(!scheduled_tasks().iter().any(|item| item.id == task.id));
     }
 
     #[test]

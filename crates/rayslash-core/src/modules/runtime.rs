@@ -170,11 +170,14 @@ pub fn query_installed_modules(
             .into_iter()
             .map(|candidate| {
                 scope.spawn(move || {
+                    let calculator_query = (candidate.module_id == super::CALCULATOR_MODULE_ID)
+                        .then(|| normalize_calculator_query(query))
+                        .filter(|expanded| expanded != query);
                     let response = query_wasm_module(
                         &candidate.module_id,
                         &candidate.install_path,
                         &candidate.manifest,
-                        query,
+                        calculator_query.as_deref().unwrap_or(query),
                         max_results,
                         &candidate.settings_json,
                     );
@@ -371,9 +374,182 @@ fn calculation_hint(query: &str) -> bool {
         && query
             .chars()
             .any(|ch| matches!(ch, '+' | '-' | '*' | '/' | '^' | '=' | '(' | ')' | '.')))
+        || percentage_expression(&expand_human_number_literals(query)).is_some()
+        || has_numeric_multiplication(query)
         || ["sqrt(", "sin(", "cos("]
             .iter()
             .any(|prefix| query.to_ascii_lowercase().contains(prefix))
+        || (contains_human_number_literal(query)
+            && !query
+                .split_whitespace()
+                .any(|word| word.eq_ignore_ascii_case("to") || word.eq_ignore_ascii_case("in")))
+}
+
+fn magnitude_multiplier(word: &str) -> Option<u128> {
+    let word = word.to_ascii_lowercase();
+    match word.trim_end_matches('s') {
+        "thousand" => Some(1_000),
+        "million" => Some(1_000_000),
+        "billion" => Some(1_000_000_000),
+        "trillion" => Some(1_000_000_000_000),
+        _ => None,
+    }
+}
+
+fn compact_magnitude(value: &str) -> Option<String> {
+    let suffix = value.chars().last()?.to_ascii_lowercase();
+    let multiplier = match suffix {
+        'k' => 1_000_f64,
+        'm' => 1_000_000_f64,
+        'b' => 1_000_000_000_f64,
+        't' => 1_000_000_000_000_f64,
+        _ => return None,
+    };
+    let number = value[..value.len() - suffix.len_utf8()]
+        .replace(',', "")
+        .parse::<f64>()
+        .ok()?;
+    let result = number * multiplier;
+    result.is_finite().then(|| {
+        if result.fract() == 0.0 {
+            result
+                .to_string()
+                .split('.')
+                .next()
+                .unwrap_or_default()
+                .to_owned()
+        } else {
+            result.to_string()
+        }
+    })
+}
+
+fn word_number(value: &str) -> Option<f64> {
+    value.replace(',', "").parse::<f64>().ok()
+}
+
+fn contains_human_number_literal(query: &str) -> bool {
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    words.iter().any(|word| compact_magnitude(word).is_some())
+        || words
+            .windows(2)
+            .any(|pair| word_number(pair[0]).is_some() && magnitude_multiplier(pair[1]).is_some())
+}
+
+fn expand_human_number_literals(query: &str) -> String {
+    let words = query.split_whitespace().collect::<Vec<_>>();
+    let mut expanded = Vec::with_capacity(words.len());
+    let mut index = 0;
+    while index < words.len() {
+        if let Some(value) = compact_magnitude(words[index]) {
+            expanded.push(value);
+            index += 1;
+            continue;
+        }
+        if index + 1 < words.len()
+            && let (Some(number), Some(multiplier)) = (
+                word_number(words[index]),
+                magnitude_multiplier(words[index + 1]),
+            )
+        {
+            let result = number * multiplier as f64;
+            expanded.push(if result.fract() == 0.0 {
+                result
+                    .to_string()
+                    .split('.')
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned()
+            } else {
+                result.to_string()
+            });
+            index += 2;
+            continue;
+        }
+        expanded.push(words[index].to_owned());
+        index += 1;
+    }
+    expanded.join(" ")
+}
+
+fn normalize_calculator_query(query: &str) -> String {
+    let expanded = expand_human_number_literals(query);
+    if let Some(percentage) = percentage_expression(&expanded) {
+        return percentage;
+    }
+    replace_numeric_multiplication(&expanded)
+}
+
+fn percentage_expression(query: &str) -> Option<String> {
+    let percent_index = query.find('%')?;
+    if query[percent_index + 1..].contains('%') {
+        return None;
+    }
+    let left = query[..percent_index].trim();
+    let right = query[percent_index + 1..].trim();
+    let right_words = right.split_whitespace().collect::<Vec<_>>();
+    let right = if right_words
+        .first()
+        .is_some_and(|word| word.eq_ignore_ascii_case("of"))
+    {
+        right_words[1..].join(" ")
+    } else {
+        right.to_owned()
+    };
+    if left.is_empty()
+        || right.is_empty()
+        || left.replace(',', "").parse::<f64>().is_err()
+        || right.replace(',', "").parse::<f64>().is_err()
+    {
+        return None;
+    }
+    Some(format!("{left} / 100 * {right}"))
+}
+
+fn has_numeric_multiplication(query: &str) -> bool {
+    let characters = query.chars().collect::<Vec<_>>();
+    characters.iter().enumerate().any(|(index, character)| {
+        if !character.eq_ignore_ascii_case(&'x') {
+            return false;
+        }
+        let previous = characters[..index]
+            .iter()
+            .rev()
+            .find(|character| !character.is_ascii_whitespace());
+        let next = characters[index + 1..]
+            .iter()
+            .find(|character| !character.is_ascii_whitespace());
+        previous.is_some_and(|character| character.is_ascii_digit() || *character == '.')
+            && next.is_some_and(|character| character.is_ascii_digit() || *character == '.')
+    })
+}
+
+fn replace_numeric_multiplication(query: &str) -> String {
+    if !has_numeric_multiplication(query) {
+        return query.to_owned();
+    }
+    let characters = query.chars().collect::<Vec<_>>();
+    characters
+        .iter()
+        .enumerate()
+        .map(|(index, character)| {
+            if character.eq_ignore_ascii_case(&'x') {
+                let previous = characters[..index]
+                    .iter()
+                    .rev()
+                    .find(|character| !character.is_ascii_whitespace());
+                let next = characters[index + 1..]
+                    .iter()
+                    .find(|character| !character.is_ascii_whitespace());
+                if previous.is_some_and(|character| character.is_ascii_digit() || *character == '.')
+                    && next.is_some_and(|character| character.is_ascii_digit() || *character == '.')
+                {
+                    return '*';
+                }
+            }
+            *character
+        })
+        .collect()
 }
 
 fn conversion_hint(query: &str) -> bool {
@@ -1161,6 +1337,27 @@ mod routing_tests {
     #[test]
     fn official_module_routing_recognizes_supported_query_shapes() {
         assert!(calculation_hint("999 * 42"));
+        assert!(calculation_hint("100 million"));
+        assert!(calculation_hint("10 thousand + 4"));
+        assert!(calculation_hint("100k"));
+        assert!(calculation_hint("10x10"));
+        assert!(calculation_hint("10 x 10"));
+        assert!(calculation_hint("10% 50"));
+        assert!(calculation_hint("10% of 50"));
+        assert!(calculation_hint("2x+4=10"));
+        assert!(!calculation_hint("100m to ft"));
+        assert_eq!(
+            expand_human_number_literals("100 million + 4"),
+            "100000000 + 4"
+        );
+        assert_eq!(expand_human_number_literals("10 thousand"), "10000");
+        assert_eq!(expand_human_number_literals("100k"), "100000");
+        assert_eq!(normalize_calculator_query("10x10"), "10*10");
+        assert_eq!(normalize_calculator_query("10 x 10"), "10 * 10");
+        assert_eq!(normalize_calculator_query("10% 50"), "10 / 100 * 50");
+        assert_eq!(normalize_calculator_query("10% of 50"), "10 / 100 * 50");
+        assert_eq!(normalize_calculator_query("10 thousand x 4"), "10000 * 4");
+        assert_eq!(normalize_calculator_query("2x+4=10"), "2x+4=10");
         assert!(conversion_hint("10 km to mi"));
         assert!(conversion_hint("10f to c"));
         assert!(conversion_hint("-40fahrenheit to celsius"));

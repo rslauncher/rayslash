@@ -524,28 +524,34 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 return;
             };
             let current_sources = folder_sources_from_model(&ui.get_settings_folder_sources());
+            let saved_sources = config_state.borrow().folder_sources.clone();
             suppress_next_focus_hide.set(true);
             let initial_dir = first_existing_folder_source(&current_sources)
                 .or_else(dirs::home_dir)
                 .unwrap_or_else(|| PathBuf::from("/"));
-            let selected = rfd::FileDialog::new()
+            let dialog = rfd::AsyncFileDialog::new()
                 .set_title("Choose folder sources")
-                .set_directory(initial_dir)
-                .pick_folders();
-
-            if let (Some(ui), Some(folders)) = (weak.upgrade(), selected) {
-                if folders.is_empty() {
+                .set_directory(initial_dir);
+            let weak = weak.clone();
+            if let Err(error) = slint::spawn_local(async move {
+                let selected = dialog
+                    .pick_folders()
+                    .await
+                    .map(|folders| folders.into_iter().map(PathBuf::from).collect::<Vec<_>>());
+                let Some(folders) = selected.filter(|folders| !folders.is_empty()) else {
                     return;
-                }
-                let folder_sources = append_folder_sources(&current_sources, &folders);
-                ui.set_settings_folder_sources(folder_sources_model(&folder_sources));
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
-                ui.set_settings_open(true);
-                save_settings_from_ui(&ui);
-                // Restore the saved sources if validation or persistence failed.
-                ui.set_settings_folder_sources(folder_sources_model(
-                    &config_state.borrow().folder_sources,
-                ));
+                };
+                let _ = weak.upgrade_in_event_loop(move |ui| {
+                    let folder_sources = append_folder_sources(&current_sources, &folders);
+                    ui.set_settings_folder_sources(folder_sources_model(&folder_sources));
+                    ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+                    ui.set_settings_open(true);
+                    save_settings_from_ui(&ui);
+                    // Restore the saved sources if validation or persistence failed.
+                    ui.set_settings_folder_sources(folder_sources_model(&saved_sources));
+                });
+            }) {
+                eprintln!("failed to open folder picker: {error}");
             }
         }
     });

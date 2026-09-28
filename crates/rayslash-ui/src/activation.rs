@@ -12,6 +12,7 @@ use rayslash_core::{
     ranking, search,
 };
 use slint::ComponentHandle;
+use slint::{SharedString, VecModel};
 
 use crate::{AppWindow, persistence, window_state::hide_launcher};
 
@@ -37,6 +38,18 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
         is_visible,
         telemetry,
     } = context;
+
+    {
+        let weak = ui.as_weak();
+        ui.on_cancel_scheduled_task(move |id| {
+            if actions::cancel_scheduled_task(id as u64)
+                && let Some(ui) = weak.upgrade()
+            {
+                refresh_scheduled_tasks(&ui);
+                ui.set_status_text("Scheduled task cancelled.".into());
+            }
+        });
+    }
 
     ui.on_activate_selected_result({
         let weak = ui.as_weak();
@@ -182,6 +195,7 @@ fn activate_module(
         _ => match actions::run_module_action_with_telemetry(&action, Some(telemetry.clone())) {
             Ok(()) => {
                 if let Some(ui) = weak.upgrade() {
+                    refresh_scheduled_tasks(&ui);
                     ui.set_status_text(format!("Activated {}", result.title).into());
                     hide_launcher(&ui, is_visible.as_ref(), telemetry.as_ref());
                 }
@@ -197,6 +211,35 @@ fn activate_module(
                 }
             }
         },
+    }
+}
+
+pub(crate) fn refresh_scheduled_tasks(ui: &AppWindow) {
+    let mut tasks = actions::scheduled_tasks();
+    tasks.sort_by_key(|task| task.due_at);
+    let now = std::time::SystemTime::now();
+    let labels = tasks
+        .iter()
+        .map(|task| {
+            let remaining = task.due_at.duration_since(now).unwrap_or_default();
+            format!("{} · in {}", task.label, format_duration(remaining)).into()
+        })
+        .collect::<Vec<SharedString>>();
+    let ids = tasks.iter().map(|task| task.id as i32).collect::<Vec<_>>();
+    ui.set_scheduled_task_labels(Rc::new(VecModel::from(labels)).into());
+    ui.set_scheduled_task_ids(Rc::new(VecModel::from(ids)).into());
+}
+
+fn format_duration(duration: std::time::Duration) -> String {
+    let seconds = duration.as_secs();
+    if seconds < 60 {
+        format!("{seconds}s")
+    } else if seconds < 3_600 {
+        format!("{}m", seconds / 60)
+    } else if seconds < 86_400 {
+        format!("{}h {}m", seconds / 3_600, (seconds % 3_600) / 60)
+    } else {
+        format!("{}d {}h", seconds / 86_400, (seconds % 86_400) / 3_600)
     }
 }
 

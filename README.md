@@ -68,6 +68,9 @@ Start typing to search applications and configured folders. After installing the
 
 ```text
 2 * (3 + 4)
+100 million
+10 thousand + 4
+100k * 2
 10 km to mi
 25 brl to usd
 time in Sao Paulo
@@ -76,7 +79,7 @@ count The quick brown fox jumps over the lazy dog
 timer 10min take a break
 ```
 
-Use the arrow keys or `Tab` to select a result, `Enter` to open it, `Ctrl+Enter` to use the alternate folder opener, and `Escape` to hide the launcher.
+Use the arrow keys or `Tab` to select a result, `Enter` to open it, `Ctrl+Enter` to use the alternate folder opener, and `Escape` to hide the launcher. Calculator input accepts forms such as `100 million`, `10 thousand`, and `100k`. When a timed task is scheduled, the clock button in the header opens a menu where it can be cancelled.
 
 ## Configuration
 
