@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.14" date="2026-09-29">
+      <description>
+        <p>Keep the settings control inside the window and preserve newly selected folder sources after adding them.</p>
+      </description>
+    </release>
     <release version="0.2.13" date="2026-09-24">
       <description>
         <p>Keep folder picking responsive, accept human number notation in calculations, and add a menu for cancelling scheduled tasks.</p>
