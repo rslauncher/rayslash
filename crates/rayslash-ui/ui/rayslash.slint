@@ -51,10 +51,9 @@ component HeaderBar inherits HorizontalLayout {
         height: 34px;
         spacing: 6px;
 
-        Rectangle {
+        if root.scheduled-task-count > 0: Rectangle {
             width: 34px;
             height: 34px;
-            visible: root.scheduled-task-count > 0;
             background: transparent;
             opacity: task-button-touch.pressed ? 1 : task-button-touch.has-hover ? 1 : 0.72;
             Path {
@@ -65,7 +64,7 @@ component HeaderBar inherits HorizontalLayout {
                 stroke-width: 1.8px;
                 fill: transparent;
             }
-            if root.scheduled-task-count > 0: Rectangle {
+            Rectangle {
                 x: 20px; y: 1px; width: 15px; height: 15px;
                 border-radius: 7.5px;
                 background: #3c82e6;
