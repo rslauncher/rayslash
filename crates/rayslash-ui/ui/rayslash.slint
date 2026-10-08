@@ -232,6 +232,9 @@ export component AppWindow inherits Window {
     in-out property <int> settings-module-update-count: 0;
     in-out property <bool> settings-notify-app-updates: true;
     in-out property <bool> settings-notify-module-updates: true;
+    in-out property <bool> settings-start-at-login: false;
+    in-out property <bool> settings-startup-busy: false;
+    in-out property <string> settings-startup-error: "";
     in-out property <bool> alternate-folder-opener-enabled: true;
     in property <image> alternate-folder-opener-icon;
     in property <bool> alternate-folder-opener-has-icon: false;
@@ -278,6 +281,8 @@ export component AppWindow inherits Window {
     callback settings-check-app-update-requested();
     callback settings-install-app-update-requested();
     callback settings-update-preferences-requested(bool, bool);
+    callback settings-start-at-login-requested(bool);
+    callback settings-startup-refresh-requested();
     callback settings-open-project-url-requested();
     callback settings-alias-save-requested(int, string, string, string, string) -> bool;
     callback settings-alias-remove-requested(int) -> bool;
@@ -545,6 +550,9 @@ export component AppWindow inherits Window {
                         module-update-count: root.settings-module-update-count;
                         notify-app-updates <=> root.settings-notify-app-updates;
                         notify-module-updates <=> root.settings-notify-module-updates;
+                        start-at-login <=> root.settings-start-at-login;
+                        startup-busy: root.settings-startup-busy;
+                        startup-error: root.settings-startup-error;
                         alternate-picker-open <=> root.settings-alternate-picker-open;
                         web-search-editor-open <=> root.settings-web-search-editor-open;
                         alias-editor-open <=> root.settings-alias-editor-open;
@@ -568,6 +576,7 @@ export component AppWindow inherits Window {
                         check-app-update-requested => { root.settings-check-app-update-requested(); }
                         install-app-update-requested => { root.settings-install-app-update-requested(); }
                         update-preferences-requested(app, modules) => { root.settings-update-preferences-requested(app, modules); }
+                        start-at-login-requested(enabled) => { root.settings-start-at-login-requested(enabled); }
                         open-project-url-requested => { root.settings-open-project-url-requested(); }
                         alias-save-requested(index, name, keyword, kind, target) => { return root.settings-alias-save-requested(index, name, keyword, kind, target); }
                         alias-remove-requested(index) => { return root.settings-alias-remove-requested(index); }

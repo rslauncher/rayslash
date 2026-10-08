@@ -17,6 +17,7 @@ pub(crate) fn handle_ipc_request(
     telemetry: &dyn Telemetry,
 ) {
     match request {
+        ipc::IpcRequest::EnsureRunning => {}
         ipc::IpcRequest::Show => show_launcher(ui, is_visible, telemetry),
         ipc::IpcRequest::Toggle if is_visible.load(Ordering::SeqCst) => {
             hide_launcher(ui, is_visible, telemetry);
@@ -33,6 +34,9 @@ pub(crate) fn show_launcher(ui: &AppWindow, is_visible: &AtomicBool, telemetry: 
         Ok(()) => {
             is_visible.store(true, Ordering::SeqCst);
             ui.invoke_focus_search();
+            // A window prepared while hidden may already have consumed its
+            // creation-time redraw. Request the first visible frame explicitly.
+            ui.window().request_redraw();
         }
         Err(error) => {
             telemetry.operational_failure(OperationalDiagnostic::new(

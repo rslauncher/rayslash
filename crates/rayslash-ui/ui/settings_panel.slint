@@ -202,6 +202,9 @@ export component SettingsPanel inherits FocusScope {
     in property <int> module-update-count;
     in-out property <bool> notify-app-updates;
     in-out property <bool> notify-module-updates;
+    in-out property <bool> start-at-login;
+    in property <bool> startup-busy;
+    in property <string> startup-error;
     in-out property <bool> alternate-picker-open;
     in-out property <bool> web-search-editor-open;
     in-out property <bool> alias-editor-open;
@@ -215,6 +218,7 @@ export component SettingsPanel inherits FocusScope {
     callback check-app-update-requested();
     callback install-app-update-requested();
     callback update-preferences-requested(bool, bool);
+    callback start-at-login-requested(bool);
     callback open-project-url-requested();
     callback alias-save-requested(int, string, string, string, string) -> bool;
     callback alias-remove-requested(int) -> bool;
@@ -487,6 +491,31 @@ export component SettingsPanel inherits FocusScope {
         settings-content := VerticalLayout {
             width: settings-scroll.width;
             spacing: 9px;
+
+            Text {
+                text: "Startup";
+                color: root.text-main;
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            SettingToggle {
+                label: "Start at login";
+                description: root.startup-busy ? "Updating login startup…" : "Prepare Rayslash in the background so your first shortcut opens faster.";
+                light: root.light;
+                tooltips-enabled: root.show-tooltips;
+                checked <=> root.start-at-login;
+                enabled: !root.startup-busy;
+                toggled => { root.start-at-login-requested(self.checked); }
+            }
+
+            if root.startup-error != "": Text {
+                text: root.startup-error;
+                color: root.text-muted;
+                font-size: 11px;
+                wrap: word-wrap;
+                accessible-role: text;
+            }
 
             Text {
                 text: "Folder sources";

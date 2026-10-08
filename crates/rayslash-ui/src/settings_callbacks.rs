@@ -122,6 +122,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 ui.set_settings_diagnostics_summary(diagnostics.local_summary().into());
                 ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
+                ui.invoke_settings_startup_refresh_requested();
                 ui.invoke_focus_settings();
             }
         }

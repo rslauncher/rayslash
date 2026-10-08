@@ -9,6 +9,7 @@ mod result_items;
 mod runtime_state;
 mod settings;
 mod settings_callbacks;
+mod startup_settings;
 mod telemetry;
 mod window_state;
 
@@ -157,6 +158,7 @@ fn main() -> ExitCode {
     let request = match command {
         cli::CliCommand::Run => ipc::IpcRequest::Show,
         cli::CliCommand::Toggle => ipc::IpcRequest::Toggle,
+        cli::CliCommand::Background => ipc::IpcRequest::EnsureRunning,
         cli::CliCommand::Version => {
             println!("rayslash {}", env!("CARGO_PKG_VERSION"));
             return ExitCode::SUCCESS;
@@ -205,7 +207,12 @@ fn run_resident(socket_path: std::path::PathBuf, request: ipc::IpcRequest) -> Re
     };
 
     let restart_requested = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let result = run_gui(listener, socket_path.clone(), restart_requested.clone());
+    let result = run_gui(
+        listener,
+        socket_path.clone(),
+        restart_requested.clone(),
+        request,
+    );
     if let Err(error) = std::fs::remove_file(&socket_path)
         && error.kind() != io::ErrorKind::NotFound
     {
@@ -227,6 +234,7 @@ fn run_gui(
     listener: std::os::unix::net::UnixListener,
     socket_path: PathBuf,
     restart_requested: Arc<std::sync::atomic::AtomicBool>,
+    initial_request: ipc::IpcRequest,
 ) -> Result<(), slint::PlatformError> {
     let profile = profile_enabled();
     let startup_started = Instant::now();
@@ -240,7 +248,8 @@ fn run_gui(
     let ui = AppWindow::new()?;
     profile_stage(profile, "ui construct", stage_started);
 
-    let is_visible = visible_flag(true);
+    let initially_visible = initial_request.initially_visible();
+    let is_visible = visible_flag(false);
     let suppress_next_focus_hide = Rc::new(Cell::new(false));
 
     let stage_started = Instant::now();
@@ -704,16 +713,28 @@ fn run_gui(
     }
     ui.invoke_focus_search();
 
+    let pending_show_redraw = Arc::new(Mutex::new(None::<Instant>));
+    let pending_show_frame = Arc::new(Mutex::new(None::<Instant>));
     if profile && std::env::var_os("RAYSLASH_PROFILE_FRAME").is_some_and(|value| value != "0") {
         let first_frame_rendered = Rc::new(Cell::new(false));
         let marker = first_frame_rendered.clone();
+        let pending_show_frame = pending_show_frame.clone();
         if let Err(error) = ui.window().set_rendering_notifier(move |state, _| {
-            if matches!(state, slint::RenderingState::AfterRendering) && !marker.replace(true) {
-                profile_stage(
-                    true,
-                    "startup first frame rendered/submitted",
-                    startup_started,
-                );
+            if matches!(state, slint::RenderingState::AfterRendering) {
+                if !marker.replace(true) && initially_visible {
+                    profile_stage(
+                        true,
+                        "startup first frame rendered/submitted",
+                        startup_started,
+                    );
+                }
+                if let Some(started) = pending_show_frame
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .take()
+                {
+                    profile_stage(true, "IPC show to first frame rendered/submitted", started);
+                }
             }
         }) {
             eprintln!("[rayslash profile] frame-render telemetry unavailable: {error}");
@@ -727,13 +748,26 @@ fn run_gui(
         let suppress_next_focus_hide = suppress_next_focus_hide.clone();
         let first_redraw_profiled = first_redraw_profiled.clone();
         let diagnostics = diagnostics.clone();
+        let pending_show_redraw = pending_show_redraw.clone();
         move |_, event| {
             if matches!(&event, winit::event::WindowEvent::RedrawRequested)
-                && !first_redraw_profiled.replace(true)
+                && is_visible.load(Ordering::Acquire)
             {
-                profile_stage(profile, "startup first redraw requested", startup_started);
+                if !first_redraw_profiled.replace(true) && initially_visible {
+                    profile_stage(profile, "startup first redraw requested", startup_started);
+                }
+                if profile
+                    && let Some(started) = pending_show_redraw
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .take()
+                {
+                    profile_stage(true, "IPC show to first redraw requested", started);
+                }
             }
-            if matches!(&event, winit::event::WindowEvent::Focused(false)) {
+            if matches!(&event, winit::event::WindowEvent::Focused(false))
+                && is_visible.load(Ordering::Acquire)
+            {
                 if weak.upgrade().is_some_and(|ui| {
                     ui.get_settings_web_search_editor_open()
                         || ui.get_settings_alias_editor_open()
@@ -1264,6 +1298,8 @@ fn run_gui(
         },
     );
 
+    startup_settings::register_callbacks(&ui);
+
     let weak = ui.as_weak();
     let ipc_visibility = is_visible.clone();
     let ipc_diagnostics = diagnostics.clone();
@@ -1271,7 +1307,23 @@ fn run_gui(
         let request_started = Instant::now();
         let ipc_visibility = ipc_visibility.clone();
         let diagnostics = ipc_diagnostics.clone();
+        let pending_show_redraw = pending_show_redraw.clone();
+        let pending_show_frame = pending_show_frame.clone();
         if let Err(error) = weak.upgrade_in_event_loop(move |ui| {
+            if profile {
+                let showing = match request {
+                    ipc::IpcRequest::Show => true,
+                    ipc::IpcRequest::Toggle => !ipc_visibility.load(Ordering::Acquire),
+                    ipc::IpcRequest::EnsureRunning => false,
+                };
+                let started = showing.then_some(request_started);
+                *pending_show_redraw
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = started;
+                *pending_show_frame
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner()) = started;
+            }
             handle_ipc_request(&ui, ipc_visibility.as_ref(), request, diagnostics.as_ref());
             profile_stage(
                 profile,
@@ -1288,11 +1340,32 @@ fn run_gui(
 
     profile_stage(profile, "startup callbacks and IPC ready", startup_started);
     let show_started = Instant::now();
-    if let Err(error) = ui.show() {
-        diagnostics.operational_failure(OperationalDiagnostic::new(
-            OperationalDiagnosticCode::WindowShow,
-        ));
-        return Err(error);
+    if initially_visible {
+        if let Err(error) = ui.show() {
+            diagnostics.operational_failure(OperationalDiagnostic::new(
+                OperationalDiagnosticCode::WindowShow,
+            ));
+            return Err(error);
+        }
+        is_visible.store(true, Ordering::Release);
+    } else {
+        // Slint creates the native window and graphics context when the event
+        // loop starts, but does not render or map this hidden component.
+        let weak = ui.as_weak();
+        let visibility = is_visible.clone();
+        slint::spawn_local(async move {
+            if let Some(ui) = weak.upgrade() {
+                let native_window = ui.window().winit_window().await;
+                if native_window.is_ok() && !visibility.load(Ordering::Acquire) {
+                    profile_stage(
+                        profile,
+                        "startup hidden native window ready",
+                        startup_started,
+                    );
+                }
+            }
+        })
+        .map_err(|error| slint::PlatformError::from(error.to_string()))?;
     }
     #[cfg(debug_assertions)]
     if let Some(snapshot_path) = std::env::var_os("RAYSLASH_PREVIEW_SNAPSHOT") {
