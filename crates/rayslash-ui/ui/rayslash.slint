@@ -1,3 +1,4 @@
+import { NotificationToast } from "./notification_toast.slint";
 import { Palette } from "std-widgets.slint";
 import { SearchBox, SettingsGearIcon } from "./components.slint";
 import { AliasItem, AppChoiceItem, ModuleItem, ResultItem, WebSearchItem } from "./models.slint";
@@ -122,23 +123,13 @@ component HintText inherits Text {
 }
 
 component LauncherHint inherits Rectangle {
-    in property <string> status-text;
     in property <bool> alternate-folder-opener-enabled;
     in property <bool> light;
 
     height: 16px;
     background: transparent;
 
-    if root.status-text != "": Text {
-        height: 16px;
-        text: root.status-text;
-        color: root.light ? #555555 : #b8b8b8;
-        font-size: 11px;
-        overflow: elide;
-        vertical-alignment: center;
-    }
-
-    if root.status-text == "": HorizontalLayout {
+    HorizontalLayout {
         height: 16px;
         spacing: 4px;
 
@@ -184,7 +175,32 @@ export component AppWindow inherits Window {
     in property <int> result-count;
     in-out property <int> selected-index: -1;
     in-out property <string> query-text: "";
-    in-out property <string> status-text: "";
+    in-out property <string> notification-text: "";
+    in-out property <bool> launcher-visible: false;
+    in-out property <bool> search-busy: false;
+    private property <bool> notification-visible: root.launcher-visible
+        && !root.settings-alias-editor-open && !root.settings-web-search-editor-open
+        && !root.settings-folder-removal-open;
+
+    public function show-notification(message: string) {
+        root.notification-text = message;
+        notification-dismiss.running = message != "" && root.notification-visible;
+        notification-dismiss.restart();
+    }
+
+    notification-dismiss := Timer {
+        interval: root.notification-duration-ms(root.notification-text) * 1ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.notification-text = "";
+        }
+    }
+
+    changed notification-visible => {
+        notification-dismiss.running = root.notification-text != "" && root.notification-visible;
+        if notification-dismiss.running { notification-dismiss.restart(); }
+    }
     in-out property <string> result-tip-text: "";
     in-out property <bool> settings-open: false;
     in-out property <string> settings-section: "general";
@@ -294,8 +310,8 @@ export component AppWindow inherits Window {
     pure callback settings-module-matches(string, string) -> bool;
     pure callback settings-visible-module-count(string, string, bool, bool, int) -> int;
     callback settings-module-sort-requested(string);
-    pure callback settings-feedback-kind(string) -> string;
-    pure callback settings-feedback-duration-ms(string) -> int;
+    pure callback notification-kind(string) -> string;
+    pure callback notification-duration-ms(string) -> int;
     callback settings-save-requested([string], string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     public function focus-search() {
@@ -356,6 +372,13 @@ export component AppWindow inherits Window {
     no-frame: true;
     resize-border-width: 0px;
     background: transparent;
+
+    // Apply the preferred bounds before hidden native initialization, which
+    // otherwise starts at the minimum size until the first show().
+    public function prepare-background-window() {
+        root.width = root.preferred-width;
+        root.height = root.preferred-height;
+    }
 
     Rectangle {
         width: 100%;
@@ -451,6 +474,7 @@ export component AppWindow inherits Window {
                         visible: !root.settings-open;
                         light: root.light-theme;
                         query-text <=> root.query-text;
+                        busy: root.search-busy;
                         active-search-keyword: root.active-search-keyword;
                         active-search-name: root.active-search-name;
                         active-search-has-accent: root.active-search-has-accent;
@@ -490,7 +514,6 @@ export component AppWindow inherits Window {
                     LauncherHint {
                         height: root.settings-open ? 0px : 16px;
                         visible: !root.settings-open;
-                        status-text: root.status-text;
                         alternate-folder-opener-enabled: root.alternate-folder-opener-enabled;
                         light: root.light-theme;
                     }
@@ -503,7 +526,6 @@ export component AppWindow inherits Window {
                     settings-panel := SettingsPanel {
                         open <=> root.settings-open;
                         settings-section <=> root.settings-section;
-                        status-text <=> root.status-text;
                         alternate-opener-choices: root.alternate-opener-choices;
                         folder-sources: root.settings-folder-sources;
                         aliases-text <=> root.settings-aliases-text;
@@ -588,8 +610,6 @@ export component AppWindow inherits Window {
                         module-matches(haystack, query) => { return root.settings-module-matches(haystack, query); }
                         visible-module-count(tab, query, updates-only, saved-data-only, model-length) => { return root.settings-visible-module-count(tab, query, updates-only, saved-data-only, model-length); }
                         module-sort-requested(order) => { root.settings-module-sort-requested(order); }
-                        feedback-kind(message) => { return root.settings-feedback-kind(message); }
-                        feedback-duration-ms(message) => { return root.settings-feedback-duration-ms(message); }
                         save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, provider-utility-actions, alternate-opener-enabled, ranking-learn-from-usage, send-anonymous-diagnostics, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {
                             root.settings-save-requested(
                                 folder-sources,
@@ -639,6 +659,16 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+            }
+
+            if root.notification-text != "" && root.notification-visible: NotificationToast {
+                x: max(22px, (parent.width - self.width) / 2);
+                y: parent.height - self.height - 18px;
+                width: min(parent.width - 44px, 560px);
+                message: root.notification-text;
+                kind: root.notification-kind(root.notification-text);
+                light: root.light-theme;
+                dismissed => { root.show-notification(""); }
             }
 
             if root.scheduled-tasks-open && root.scheduled-task-labels.length > 0: Rectangle {

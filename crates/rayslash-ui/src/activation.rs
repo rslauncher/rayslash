@@ -46,7 +46,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                 && let Some(ui) = weak.upgrade()
             {
                 refresh_scheduled_tasks(&ui);
-                ui.set_status_text("Scheduled task cancelled.".into());
+                ui.invoke_show_notification("Scheduled task cancelled.".into());
             }
         });
     }
@@ -59,7 +59,7 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                 .and_then(|index| current_results.borrow().get(index).cloned());
             let Some(result) = result else {
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text("No result selected.".into());
+                    ui.invoke_show_notification("No result selected.".into());
                 }
                 return;
             };
@@ -67,7 +67,9 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
             match result.provider_action() {
                 ProviderAction::None => {
                     if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text(format!("Preview only: {}", result.title).into());
+                        ui.invoke_show_notification(
+                            format!("Preview only: {}", result.title).into(),
+                        );
                     }
                 }
                 ProviderAction::Dismiss => {
@@ -168,7 +170,6 @@ fn activate_module(
         search::ModuleAction::CopyText(text) => match copy_to_clipboard(text) {
             Ok(()) => {
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text(format!("Copied result: {text}").into());
                     hide_launcher(&ui, is_visible.as_ref(), telemetry.as_ref());
                 }
             }
@@ -178,25 +179,24 @@ fn activate_module(
                 ));
                 eprintln!("failed to copy module result: {error}");
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text("Could not copy module result.".into());
+                    ui.invoke_show_notification("Could not copy module result.".into());
                 }
             }
         },
         search::ModuleAction::ShowMessage(message) => {
             if let Some(ui) = weak.upgrade() {
-                ui.set_status_text(message.clone().into());
+                ui.invoke_show_notification(message.clone().into());
             }
         }
         search::ModuleAction::None => {
             if let Some(ui) = weak.upgrade() {
-                ui.set_status_text(format!("Preview only: {}", result.title).into());
+                ui.invoke_show_notification(format!("Preview only: {}", result.title).into());
             }
         }
         _ => match actions::run_module_action_with_telemetry(&action, Some(telemetry.clone())) {
             Ok(()) => {
                 if let Some(ui) = weak.upgrade() {
                     refresh_scheduled_tasks(&ui);
-                    ui.set_status_text(format!("Activated {}", result.title).into());
                     hide_launcher(&ui, is_visible.as_ref(), telemetry.as_ref());
                 }
             }
@@ -207,7 +207,9 @@ fn activate_module(
                 ));
                 eprintln!("failed to activate module result {}: {error}", result.title);
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text(format!("Could not activate {}", result.title).into());
+                    ui.invoke_show_notification(
+                        format!("Could not activate {}", result.title).into(),
+                    );
                 }
             }
         },
@@ -271,7 +273,6 @@ fn finish_launch(
                     ui.get_query_text().as_str(),
                     state.telemetry.clone(),
                 );
-                ui.set_status_text(format!("Opening {}", result.title).into());
                 hide_launcher(&ui, state.visible.as_ref(), state.telemetry.as_ref());
             }
         }
@@ -281,7 +282,7 @@ fn finish_launch(
                 .operational_failure(OperationalDiagnostic::from_io(failure_code, &error));
             eprintln!("failed to activate {}: {error}", result.title);
             if let Some(ui) = weak.upgrade() {
-                ui.set_status_text(format!("Could not open {}", result.title).into());
+                ui.invoke_show_notification(format!("Could not open {}", result.title).into());
             }
         }
     }

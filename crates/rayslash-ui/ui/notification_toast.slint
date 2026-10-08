@@ -1,0 +1,99 @@
+export component NotificationToast inherits Rectangle {
+    in property <string> message;
+    in property <string> kind;
+    in property <bool> light;
+    callback dismissed();
+    accessible-role: text;
+    accessible-label: root.message;
+    accessible-live-region: polite;
+    height: max(42px, min(88px, message-measure.preferred-height + 20px));
+    border-radius: 9px;
+    background: root.light ? #242424 : #101010;
+    border-width: 1px;
+    border-color: root.kind == "success"
+        ? root.light ? #2f8051 : #376c4d
+        : root.kind == "error"
+        ? root.light ? #a94747 : #7a3b3b
+        : root.kind == "warning"
+        ? root.light ? #a7662e : #795331
+        : root.light ? #111111 : #4a4a4a;
+    z: 400;
+
+    // Consume pointer events so a notification cannot activate a result
+    // underneath it when its text is clicked.
+    TouchArea {}
+
+    message-measure := Text {
+        width: max(0px, root.width - 78px);
+        height: 0px;
+        text: root.message;
+        font-size: 10px;
+        font-weight: 600;
+        wrap: word-wrap;
+        visible: false;
+    }
+
+    Rectangle {
+        width: 3px;
+        height: parent.height - 12px;
+        x: 0px;
+        y: 6px;
+        border-radius: 2px;
+        background: root.kind == "success"
+            ? #51b873
+            : root.kind == "error"
+            ? #df6b6b
+            : root.kind == "warning"
+            ? #e59a5f
+            : root.light ? #bcbcbc : #858585;
+    }
+
+    Rectangle {
+        x: 12px; y: 11px; width: 20px; height: 20px;
+        border-radius: 10px;
+        background: root.kind == "success"
+            ? #51b873
+            : root.kind == "error"
+            ? #df6b6b
+            : root.kind == "warning"
+            ? #e59a5f
+            : root.light ? #e9e9e9 : #d5d5d5;
+
+        if root.kind == "success": Path {
+            x: 5px; y: 6px; width: 10px; height: 8px;
+            viewbox-width: 12; viewbox-height: 10;
+            commands: "M1 5 L4.5 8.5 L11 1.5";
+            stroke: #ffffff;
+            stroke-width: 2px;
+            fill: transparent;
+        }
+
+        if root.kind != "success": Text {
+            width: 100%; height: 100%;
+            text: root.kind == "info" ? "i" : "!";
+            color: root.kind == "info" ? #242424 : #ffffff;
+            font-size: 11px;
+            font-weight: 800;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+        }
+    }
+
+    Text {
+        x: 42px; width: parent.width - 78px; height: 100%;
+        text: root.message;
+        color: #eeeeee;
+        font-size: 10px;
+        font-weight: 600;
+        wrap: word-wrap;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    Text { x: parent.width - 34px; width: 24px; height: 100%; text: "×"; color: notice-close.has-hover ? #ffffff : #aaaaaa; font-size: 20px; horizontal-alignment: center; vertical-alignment: center;
+        accessible-role: button;
+        accessible-label: "Dismiss notification";
+        accessible-action-default => { root.dismissed(); }
+        notice-close := TouchArea { mouse-cursor: pointer; clicked => { root.dismissed(); } }
+    }
+}

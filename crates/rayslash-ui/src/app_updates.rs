@@ -17,7 +17,7 @@ use rayslash_core::{
 };
 use slint::ComponentHandle;
 
-use crate::{AppWindow, settings_callbacks::set_ephemeral_status};
+use crate::{AppWindow, notifications::show_notification};
 
 enum UpdateEvent {
     Checked(AppRelease),
@@ -87,7 +87,7 @@ pub(crate) fn register_app_updates(ui: &AppWindow, context: AppUpdateContext) {
                     *latest.lock().unwrap_or_else(|error| error.into_inner()) =
                         Some(release.clone());
                     if available && config_state.borrow().updates.notify_app_updates {
-                        set_ephemeral_status(
+                        show_notification(
                             &ui,
                             &format!("Rayslash {} is available.", release.version),
                         );
@@ -112,7 +112,7 @@ pub(crate) fn register_app_updates(ui: &AppWindow, context: AppUpdateContext) {
                     ui.set_settings_app_update_available(true);
                     ui.set_settings_app_update_action("Try update again".into());
                     ui.set_settings_app_update_status(message.clone().into());
-                    set_ephemeral_status(&ui, &message);
+                    show_notification(&ui, &message);
                 }
             }
         }

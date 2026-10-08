@@ -1,5 +1,6 @@
 export component SearchBox inherits Rectangle {
     in-out property <string> query-text;
+    in property <bool> busy: false;
     in property <bool> light;
     in property <string> active-search-keyword;
     in property <string> active-search-name;
@@ -80,10 +81,22 @@ export component SearchBox inherits Rectangle {
         }
     }
 
+    if root.busy: Text {
+        x: parent.width - 92px;
+        width: 74px;
+        height: parent.height;
+        text: "Searching…";
+        font-size: 11px;
+        color: root.light ? #6b6b6b : #9a9a9a;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+        accessible-live-region: polite;
+    }
+
     search-input := TextInput {
         x: root.search-input-x;
         y: 0px;
-        width: parent.width - root.search-input-x - 18px;
+        width: parent.width - root.search-input-x - (root.busy ? 100px : 18px);
         height: parent.height;
         vertical-alignment: center;
         color: root.light ? #1f1f1f : #f2f2f2;

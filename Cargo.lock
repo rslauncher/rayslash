@@ -4264,6 +4264,7 @@ version = "0.2.14"
 dependencies = [
  "arboard",
  "dirs",
+ "glow",
  "image",
  "notify",
  "nucleo-matcher",

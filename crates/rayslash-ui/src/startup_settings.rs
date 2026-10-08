@@ -1,7 +1,7 @@
 use rayslash_core::autostart;
 use slint::ComponentHandle;
 
-use crate::{AppWindow, settings_callbacks::set_ephemeral_status};
+use crate::{AppWindow, notifications::show_notification};
 
 pub(crate) fn register_callbacks(ui: &AppWindow) {
     ui.on_settings_startup_refresh_requested({
@@ -48,7 +48,7 @@ fn update(ui: &AppWindow, requested: Option<bool>) {
                         } else {
                             "Start at login disabled."
                         };
-                        set_ephemeral_status(&ui, message);
+                        show_notification(&ui, message);
                     }
                 }
                 Err(error) => {
@@ -59,7 +59,7 @@ fn update(ui: &AppWindow, requested: Option<bool>) {
                     );
                     ui.set_settings_startup_error(message.clone().into());
                     if requested.is_some() {
-                        ui.set_status_text(message.into());
+                        ui.invoke_show_notification(message.into());
                     }
                 }
             }

@@ -885,7 +885,7 @@ pub(crate) fn register_module_settings_callback(
                                     ..Default::default()
                                 },
                             );
-                            ui.set_status_text(details.into());
+                            ui.invoke_show_notification(details.into());
                         } else {
                             *module_state.borrow_mut() = config;
                             module_state_changed = true;
@@ -906,7 +906,7 @@ pub(crate) fn register_module_settings_callback(
                                     ..Default::default()
                                 },
                             );
-                            ui.set_status_text(message.into());
+                            ui.invoke_show_notification(message.into());
                         }
                     }
                     Err(error) => {
@@ -924,7 +924,7 @@ pub(crate) fn register_module_settings_callback(
                                 ..Default::default()
                             },
                         );
-                        ui.set_status_text(details.into());
+                        ui.invoke_show_notification(details.into());
                     }
                 }
                 refresh_module_items_with_operations(
@@ -1060,7 +1060,7 @@ pub(crate) fn register_module_settings_callback(
                 return;
             };
             if module_writes_blocked {
-                ui.set_status_text(
+                ui.invoke_show_notification(
                     "Module state is read-only until the configuration error is fixed.".into(),
                 );
                 return;
@@ -1104,12 +1104,12 @@ pub(crate) fn register_module_settings_callback(
                             diagnostics.operational_failure(OperationalDiagnostic::new(
                                 OperationalDiagnosticCode::ModuleActionLaunch,
                             ));
-                            ui.set_status_text(
+                            ui.invoke_show_notification(
                                 format!("Could not open module link: {error}").into(),
                             );
                         }
                     }
-                    None => ui.set_status_text("Module links are unavailable offline.".into()),
+                    None => ui.invoke_show_notification("Module links are unavailable offline.".into()),
                 }
                 return;
             }
@@ -1173,7 +1173,7 @@ pub(crate) fn register_module_settings_callback(
                             &operations.borrow(),
                             *sort_order.borrow(),
                         );
-                        ui.set_status_text(details.into());
+                        ui.invoke_show_notification(details.into());
                         return;
                     };
                     let Some(version) = latest_compatible_version(module) else {
@@ -1194,7 +1194,7 @@ pub(crate) fn register_module_settings_callback(
                             &operations.borrow(),
                             *sort_order.borrow(),
                         );
-                        ui.set_status_text(details.into());
+                        ui.invoke_show_notification(details.into());
                         return;
                     };
                     if action.as_str() == "Review update" {
@@ -1228,7 +1228,7 @@ pub(crate) fn register_module_settings_callback(
                                 &operations.borrow(),
                                 *sort_order.borrow(),
                             );
-                            ui.set_status_text(details.into());
+                            ui.invoke_show_notification(details.into());
                             return;
                         }
                     } else {
@@ -1251,7 +1251,7 @@ pub(crate) fn register_module_settings_callback(
                         &operations.borrow(),
                         *sort_order.borrow(),
                     );
-                    ui.set_status_text(format!("{} {}…", action, module.name).into());
+                    ui.invoke_show_notification(format!("{} {}…", action, module.name).into());
                     let module = module.clone();
                     let version = version.clone();
                     let module_id = module_id.to_owned();
@@ -1300,7 +1300,7 @@ pub(crate) fn register_module_settings_callback(
                     });
                 }
                 _ => {
-                    ui.set_status_text(format!("Unknown module action: {action}").into());
+                    ui.invoke_show_notification(format!("Unknown module action: {action}").into());
                 }
             }
         }
@@ -1317,7 +1317,7 @@ pub(crate) fn register_module_settings_callback(
 
             if module_writes_blocked {
                 refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow(), *sort_order.borrow());
-                ui.set_status_text(
+                ui.invoke_show_notification(
                     "Could not save module settings: fix config.toml or modules.toml and restart rayslash."
                         .into(),
                 );
@@ -1340,7 +1340,7 @@ pub(crate) fn register_module_settings_callback(
                 Ok(changed) => changed,
                 Err(error) => {
                     refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow(), *sort_order.borrow());
-                    ui.set_status_text(format!("Could not update module: {error}").into());
+                    ui.invoke_show_notification(format!("Could not update module: {error}").into());
                     return;
                 }
             };
@@ -1352,7 +1352,7 @@ pub(crate) fn register_module_settings_callback(
                 diagnostics.operational_failure(save_modules_diagnostic(&error));
                 eprintln!("{error}");
                 refresh_module_items(&module_model, &module_state.borrow(), &module_catalog.borrow(), *sort_order.borrow());
-                ui.set_status_text(format!("Could not save module setting: {error}").into());
+                ui.invoke_show_notification(format!("Could not save module setting: {error}").into());
                 return;
             }
 
@@ -1440,7 +1440,7 @@ pub(crate) fn register_module_settings_callback(
 
             let state_label = if enabled { "enabled" } else { "disabled" };
             if compatibility_error.is_some() {
-                ui.set_status_text(
+                ui.invoke_show_notification(
                     format!(
                         "{} {state_label}; config.toml compatibility mirror failed.",
                         module_name
@@ -1448,7 +1448,7 @@ pub(crate) fn register_module_settings_callback(
                     .into(),
                 );
             } else {
-                ui.set_status_text(format!("{module_name} {state_label}.").into());
+                ui.invoke_show_notification(format!("{module_name} {state_label}.").into());
             }
         }
     });

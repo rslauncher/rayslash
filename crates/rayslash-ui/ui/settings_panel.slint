@@ -155,7 +155,6 @@ component EngineField inherits Rectangle {
 
 export component SettingsPanel inherits FocusScope {
     in-out property <bool> open;
-    in-out property <string> status-text;
     in property <[AppChoiceItem]> alternate-opener-choices;
     in property <bool> light;
     in property <[string]> folder-sources;
@@ -230,8 +229,6 @@ export component SettingsPanel inherits FocusScope {
     pure callback module-matches(string, string) -> bool;
     pure callback visible-module-count(string, string, bool, bool, int) -> int;
     callback module-sort-requested(string);
-    pure callback feedback-kind(string) -> string;
-    pure callback feedback-duration-ms(string) -> int;
     callback save-requested([string], string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     in-out property <string> settings-section: "general";
@@ -248,24 +245,6 @@ export component SettingsPanel inherits FocusScope {
     private property <int> folder-removal-index: -1;
     private property <string> folder-removal-path: "";
     out property <bool> folder-removal-open: root.folder-removal-index >= 0;
-    private property <string> notice-kind: root.feedback-kind(root.status-text);
-
-    status-dismiss := Timer {
-        interval: root.feedback-duration-ms(root.status-text) * 1ms;
-        running: false;
-        triggered => {
-            self.running = false;
-            root.status-text = "";
-        }
-    }
-
-    changed status-text => {
-        status-dismiss.running = false;
-        if (root.status-text != "" && root.open) {
-            status-dismiss.running = true;
-        }
-    }
-
     private property <color> text-strong: root.light ? #1f1f1f : #f2f2f2;
     private property <color> text-main: root.light ? #2d2d2d : #d8d8d8;
     private property <color> text-muted: root.light ? #666666 : #9a9a9a;
@@ -391,10 +370,6 @@ export component SettingsPanel inherits FocusScope {
 
     changed open => {
         if (root.open) {
-            if (root.status-text != "") {
-                status-dismiss.running = false;
-                status-dismiss.running = true;
-            }
             root.settings-section = "general";
             settings-scroll.viewport-y = 0px;
             modules-panel.reset-scroll();
@@ -1812,81 +1787,5 @@ export component SettingsPanel inherits FocusScope {
         }
     }
 
-    if root.status-text != "" && !root.alias-editor-open && !root.web-search-editor-open && !root.folder-removal-open: Rectangle {
-        x: max(0px, (parent.width - self.width) / 2);
-        y: parent.height - 50px;
-        width: min(parent.width, 560px);
-        height: 42px;
-        border-radius: 9px;
-        background: root.light ? #242424 : #101010;
-        border-width: 1px;
-        border-color: root.notice-kind == "success"
-            ? root.light ? #2f8051 : #376c4d
-            : root.notice-kind == "error"
-            ? root.light ? #a94747 : #7a3b3b
-            : root.notice-kind == "warning"
-            ? root.light ? #a7662e : #795331
-            : root.light ? #111111 : #4a4a4a;
-        z: 400;
 
-        Rectangle {
-            width: 3px;
-            height: parent.height - 12px;
-            x: 0px;
-            y: 6px;
-            border-radius: 2px;
-            background: root.notice-kind == "success"
-                ? #51b873
-                : root.notice-kind == "error"
-                ? #df6b6b
-                : root.notice-kind == "warning"
-                ? #e59a5f
-                : root.light ? #bcbcbc : #858585;
-        }
-
-        Rectangle {
-            x: 12px; y: 11px; width: 20px; height: 20px;
-            border-radius: 10px;
-            background: root.notice-kind == "success"
-                ? #51b873
-                : root.notice-kind == "error"
-                ? #df6b6b
-                : root.notice-kind == "warning"
-                ? #e59a5f
-                : root.light ? #e9e9e9 : #d5d5d5;
-
-            if root.notice-kind == "success": Path {
-                x: 5px; y: 6px; width: 10px; height: 8px;
-                viewbox-width: 12; viewbox-height: 10;
-                commands: "M1 5 L4.5 8.5 L11 1.5";
-                stroke: #ffffff;
-                stroke-width: 2px;
-                fill: transparent;
-            }
-
-            if root.notice-kind != "success": Text {
-                width: 100%; height: 100%;
-                text: root.notice-kind == "info" ? "i" : "!";
-                color: root.notice-kind == "info" ? #242424 : #ffffff;
-                font-size: 11px;
-                font-weight: 800;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-        }
-
-        Text {
-            x: 42px; width: parent.width - 78px; height: 100%;
-            text: root.status-text;
-            color: #eeeeee;
-            font-size: 10px;
-            font-weight: 600;
-            vertical-alignment: center;
-            overflow: elide;
-        }
-
-        Text { x: parent.width - 34px; width: 24px; height: 100%; text: "×"; color: notice-close.has-hover ? #ffffff : #aaaaaa; font-size: 20px; horizontal-alignment: center; vertical-alignment: center;
-            notice-close := TouchArea { mouse-cursor: pointer; clicked => { root.status-text = ""; } }
-        }
-    }
 }

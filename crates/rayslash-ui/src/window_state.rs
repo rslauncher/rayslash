@@ -33,6 +33,7 @@ pub(crate) fn show_launcher(ui: &AppWindow, is_visible: &AtomicBool, telemetry: 
     match ui.show() {
         Ok(()) => {
             is_visible.store(true, Ordering::SeqCst);
+            ui.set_launcher_visible(true);
             ui.invoke_focus_search();
             // A window prepared while hidden may already have consumed its
             // creation-time redraw. Request the first visible frame explicitly.
@@ -57,6 +58,7 @@ pub(crate) fn hide_launcher(ui: &AppWindow, is_visible: &AtomicBool, telemetry: 
         eprintln!("failed to hide rayslash window: {error}");
     } else {
         is_visible.store(false, Ordering::SeqCst);
+        ui.set_launcher_visible(false);
     }
 }
 

@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 arboard.workspace = true
 dirs.workspace = true
+glow.workspace = true
 image.workspace = true
 nucleo-matcher.workspace = true
 notify.workspace = true

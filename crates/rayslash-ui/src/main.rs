@@ -3,8 +3,10 @@ mod app_updates;
 mod cli;
 mod ipc;
 mod module_settings;
+mod notifications;
 mod opener_visual;
 mod persistence;
+mod renderer;
 mod result_items;
 mod runtime_state;
 mod settings;
@@ -36,6 +38,7 @@ use module_settings::{
     ModuleSettingsCallbackContext, installed_modules_load_diagnostic, load_runtime_modules,
     module_items, register_module_settings_callback, save_modules_diagnostic,
 };
+use notifications::show_notification;
 use notify::{RecursiveMode, Watcher};
 use opener_visual::accent_color_for_icon;
 use rayslash_core::{
@@ -56,9 +59,7 @@ use runtime_state::{
     query_execution_hint_with_config, refresh_result_view, refresh_settings_dependent_ui,
     search_result_set, should_preserve_pending_module_results, sync_app_install_state,
 };
-use settings_callbacks::{
-    SettingsCallbackContext, register_settings_callbacks, set_ephemeral_status,
-};
+use settings_callbacks::{SettingsCallbackContext, register_settings_callbacks};
 use slint::{
     ComponentHandle, Model, Timer, VecModel,
     winit_030::{EventResult, WinitWindowAccessor, winit},
@@ -70,7 +71,6 @@ use window_state::{
 
 slint::include_modules!();
 
-pub(crate) const DEFAULT_STATUS_TEXT: &str = "";
 const DESKTOP_APP_REFRESH_INTERVAL: Duration = Duration::from_secs(10);
 const BACKGROUND_LOCAL_SEARCH_THRESHOLD: usize = 100_000;
 
@@ -246,6 +246,7 @@ fn run_gui(
 
     let stage_started = Instant::now();
     let ui = AppWindow::new()?;
+    notifications::register(&ui);
     profile_stage(profile, "ui construct", stage_started);
 
     let initially_visible = initial_request.initially_visible();
@@ -475,9 +476,7 @@ fn run_gui(
             if previous_count != count {
                 ui.invoke_reset_result_scroll();
             }
-            if matches!(ui.get_status_text().as_str(), "Looking up…" | "Searching…") {
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
-            }
+            ui.set_search_busy(false);
             profile_stage(
                 profile,
                 &format!("remote query {query:?} end to end"),
@@ -602,7 +601,7 @@ fn run_gui(
         ui.set_settings_module_update_count(3);
     }
     if module_migration_pending {
-        ui.set_status_text(
+        ui.invoke_show_notification(
             "Optional providers were migrated without downloading code. Open Settings → Modules and choose Restore for each module you want."
                 .into(),
         );
@@ -634,7 +633,7 @@ fn run_gui(
                     if updates > previous_updates
                         && config_state.borrow().updates.notify_module_updates
                     {
-                        set_ephemeral_status(
+                        show_notification(
                             &ui,
                             &format!(
                                 "{updates} module update{} available.",
@@ -651,7 +650,9 @@ fn run_gui(
             }
             Some(Err(error)) => {
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text(format!("Could not refresh module catalog: {error}").into());
+                    ui.invoke_show_notification(
+                        format!("Could not refresh module catalog: {error}").into(),
+                    );
                 }
             }
             None => {}
@@ -715,29 +716,56 @@ fn run_gui(
 
     let pending_show_redraw = Arc::new(Mutex::new(None::<Instant>));
     let pending_show_frame = Arc::new(Mutex::new(None::<Instant>));
-    if profile && std::env::var_os("RAYSLASH_PROFILE_FRAME").is_some_and(|value| value != "0") {
+    let profile_frames =
+        profile && std::env::var_os("RAYSLASH_PROFILE_FRAME").is_some_and(|value| value != "0");
+    #[cfg(debug_assertions)]
+    let pending_preview_snapshot = Rc::new(RefCell::new(None::<std::ffi::OsString>));
+    #[cfg(debug_assertions)]
+    let rendering_notifier_available;
+    {
         let first_frame_rendered = Rc::new(Cell::new(false));
         let marker = first_frame_rendered.clone();
         let pending_show_frame = pending_show_frame.clone();
-        if let Err(error) = ui.window().set_rendering_notifier(move |state, _| {
+        #[cfg(debug_assertions)]
+        let pending_snapshot = pending_preview_snapshot.clone();
+        #[cfg(debug_assertions)]
+        let weak = ui.as_weak();
+        let notifier = ui.window().set_rendering_notifier(move |state, api| {
+            if matches!(state, slint::RenderingState::RenderingSetup) {
+                renderer::limit_shader_compiler_threads(api);
+            }
             if matches!(state, slint::RenderingState::AfterRendering) {
-                if !marker.replace(true) && initially_visible {
+                if !marker.replace(true) && initially_visible && profile_frames {
                     profile_stage(
                         true,
                         "startup first frame rendered/submitted",
                         startup_started,
                     );
                 }
-                if let Some(started) = pending_show_frame
-                    .lock()
-                    .unwrap_or_else(|error| error.into_inner())
-                    .take()
+                if profile_frames
+                    && let Some(started) = pending_show_frame
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .take()
                 {
                     profile_stage(true, "IPC show to first frame rendered/submitted", started);
                 }
+                #[cfg(debug_assertions)]
+                if let Some(path) = pending_snapshot.borrow_mut().take()
+                    && let Some(ui) = weak.upgrade()
+                {
+                    // FemtoVG reads the current GL back buffer. Capture after
+                    // drawing and before swapping, while its contents are valid.
+                    save_preview_snapshot(&ui, &path);
+                }
             }
-        }) {
-            eprintln!("[rayslash profile] frame-render telemetry unavailable: {error}");
+        });
+        #[cfg(debug_assertions)]
+        {
+            rendering_notifier_available = notifier.is_ok();
+        }
+        if let Err(error) = notifier {
+            eprintln!("[rayslash profile] rendering observer unavailable: {error}");
         }
     }
 
@@ -814,7 +842,7 @@ fn run_gui(
                 ui.set_active_search_keyword("".into());
                 ui.set_active_search_name("".into());
                 ui.set_active_search_has_accent(false);
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+                ui.set_search_busy(false);
                 ui.set_settings_open(false);
                 refresh_result_view(
                     &ui,
@@ -900,7 +928,7 @@ fn run_gui(
             ui.set_active_search_has_accent(has_accent);
             ui.set_active_search_accent(accent);
             ui.set_query_text("".into());
-            ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+            ui.set_search_busy(false);
             refresh_result_view(
                 &ui,
                 ResultRefreshContext {
@@ -1014,7 +1042,7 @@ fn run_gui(
                 if projects.borrow().len() + apps.borrow().len()
                     >= BACKGROUND_LOCAL_SEARCH_THRESHOLD
                 {
-                    ui.set_status_text("Searching…".into());
+                    ui.set_search_busy(true);
                     let _ = local_search_tx.send(LocalSearchJob {
                         generation,
                         query: effective_query,
@@ -1070,11 +1098,11 @@ fn run_gui(
                 }
                 let debounce = match execution_hint {
                     ProviderExecutionHint::DebouncedNetwork { debounce_ms } => {
-                        ui.set_status_text("Looking up…".into());
+                        ui.set_search_busy(true);
                         Duration::from_millis(debounce_ms)
                     }
                     ProviderExecutionHint::Local => {
-                        ui.set_status_text(DEFAULT_STATUS_TEXT.into());
+                        ui.set_search_busy(false);
                         Duration::ZERO
                     }
                 };
@@ -1348,7 +1376,9 @@ fn run_gui(
             return Err(error);
         }
         is_visible.store(true, Ordering::Release);
+        ui.set_launcher_visible(true);
     } else {
+        ui.invoke_prepare_background_window();
         // Slint creates the native window and graphics context when the event
         // loop starts, but does not render or map this hidden component.
         let weak = ui.as_weak();
@@ -1370,6 +1400,7 @@ fn run_gui(
     #[cfg(debug_assertions)]
     if let Some(snapshot_path) = std::env::var_os("RAYSLASH_PREVIEW_SNAPSHOT") {
         let weak = ui.as_weak();
+        let pending_snapshot = pending_preview_snapshot.clone();
         Timer::single_shot(Duration::from_secs(1), move || {
             if let Some(ui) = weak.upgrade() {
                 if let Ok(section) = std::env::var("RAYSLASH_PREVIEW_SETTINGS") {
@@ -1385,33 +1416,25 @@ fn run_gui(
                     == Some(std::ffi::OsStr::new("1"))
                 {
                     ui.set_settings_module_update_count(3);
-                    ui.set_status_text("".into());
+                    ui.invoke_show_notification("".into());
                 }
                 if let Ok(query) = std::env::var("RAYSLASH_PREVIEW_QUERY") {
                     ui.set_query_text(query.clone().into());
                     ui.invoke_query_changed(query.into());
                 }
+                if let Ok(message) = std::env::var("RAYSLASH_PREVIEW_NOTIFICATION") {
+                    ui.invoke_show_notification(message.into());
+                }
                 ui.window().request_redraw();
                 let weak = ui.as_weak();
                 Timer::single_shot(Duration::from_millis(500), move || {
                     if let Some(ui) = weak.upgrade() {
-                        match ui.window().take_snapshot() {
-                            Ok(pixels) => {
-                                if let Err(error) = image::save_buffer(
-                                    &snapshot_path,
-                                    pixels.as_bytes(),
-                                    pixels.width(),
-                                    pixels.height(),
-                                    image::ColorType::Rgba8,
-                                ) {
-                                    eprintln!("could not save UI preview snapshot: {error}");
-                                }
-                            }
-                            Err(error) => {
-                                eprintln!("could not capture UI preview snapshot: {error}")
-                            }
+                        if rendering_notifier_available {
+                            *pending_snapshot.borrow_mut() = Some(snapshot_path);
+                            ui.window().request_redraw();
+                        } else {
+                            save_preview_snapshot(&ui, &snapshot_path);
                         }
-                        let _ = slint::quit_event_loop();
                     }
                 });
             }
@@ -1443,6 +1466,25 @@ fn run_gui(
         }
     });
     slint::run_event_loop_until_quit()
+}
+
+#[cfg(debug_assertions)]
+fn save_preview_snapshot(ui: &AppWindow, path: &std::ffi::OsStr) {
+    match ui.window().take_snapshot() {
+        Ok(pixels) => {
+            if let Err(error) = image::save_buffer(
+                path,
+                pixels.as_bytes(),
+                pixels.width(),
+                pixels.height(),
+                image::ColorType::Rgba8,
+            ) {
+                eprintln!("could not save UI preview snapshot: {error}");
+            }
+        }
+        Err(error) => eprintln!("could not capture UI preview snapshot: {error}"),
+    }
+    let _ = slint::quit_event_loop();
 }
 
 fn module_update_count(model: &VecModel<crate::ModuleItem>) -> i32 {

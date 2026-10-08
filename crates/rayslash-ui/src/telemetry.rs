@@ -4,7 +4,7 @@ use std::{
     fs,
     hash::{DefaultHasher, Hash, Hasher},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -25,7 +25,7 @@ pub(crate) struct DiagnosticsTelemetry {
     operational: Mutex<OperationalDiagnosticStatistics>,
     last_remote_scan: Mutex<Option<(u64, Instant)>>,
     last_remote_operational: Mutex<BTreeMap<OperationalDiagnostic, Instant>>,
-    remote: Option<Arc<Client>>,
+    remote: OnceLock<Option<Arc<Client>>>,
     environment: SafeEnvironment,
 }
 
@@ -38,7 +38,7 @@ impl DiagnosticsTelemetry {
             operational: Mutex::new(OperationalDiagnosticStatistics::default()),
             last_remote_scan: Mutex::new(None),
             last_remote_operational: Mutex::new(BTreeMap::new()),
-            remote: sentry_client(),
+            remote: OnceLock::new(),
             environment,
         })
     }
@@ -131,7 +131,7 @@ impl DiagnosticsTelemetry {
         if !self.enabled.load(Ordering::SeqCst) || cfg!(test) {
             return;
         }
-        let Some(client) = self.remote.as_ref() else {
+        let Some(client) = self.remote.get_or_init(sentry_client).as_ref() else {
             return;
         };
 
@@ -181,7 +181,7 @@ impl DiagnosticsTelemetry {
         if !self.enabled.load(Ordering::SeqCst) || cfg!(test) {
             return;
         }
-        let Some(client) = self.remote.as_ref() else {
+        let Some(client) = self.remote.get_or_init(sentry_client).as_ref() else {
             return;
         };
 
@@ -466,11 +466,12 @@ mod tests {
             operational: Mutex::new(OperationalDiagnosticStatistics::default()),
             last_remote_scan: Mutex::new(None),
             last_remote_operational: Mutex::new(BTreeMap::new()),
-            remote: None,
+            remote: OnceLock::new(),
             environment: SafeEnvironment::detect(),
         };
         telemetry.application_scan_completed(&ApplicationScanStatistics::default());
         assert!(telemetry.local_summary().contains("0 candidates"));
+        assert!(telemetry.remote.get().is_none());
         assert!(
             telemetry
                 .last_remote_scan
@@ -510,7 +511,7 @@ mod tests {
             operational: Mutex::new(OperationalDiagnosticStatistics::default()),
             last_remote_scan: Mutex::new(None),
             last_remote_operational: Mutex::new(BTreeMap::new()),
-            remote: None,
+            remote: OnceLock::new(),
             environment: SafeEnvironment::detect(),
         };
         telemetry.record_cached_scan(ApplicationScanStatistics {
@@ -545,7 +546,7 @@ mod tests {
             operational: Mutex::new(OperationalDiagnosticStatistics::default()),
             last_remote_scan: Mutex::new(None),
             last_remote_operational: Mutex::new(BTreeMap::new()),
-            remote: None,
+            remote: OnceLock::new(),
             environment: SafeEnvironment::detect(),
         };
         telemetry.operational_failure(OperationalDiagnostic {
