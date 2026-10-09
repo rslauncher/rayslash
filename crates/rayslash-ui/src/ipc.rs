@@ -15,6 +15,7 @@ const SOCKET_FILE_NAME: &str = "rayslash.sock";
 pub enum IpcRequest {
     Show,
     Toggle,
+    EnsureRunning,
 }
 
 impl IpcRequest {
@@ -22,7 +23,15 @@ impl IpcRequest {
         match self {
             Self::Show => "show\n",
             Self::Toggle => "toggle\n",
+            // An empty request is already a no-op in older residents too.
+            Self::EnsureRunning => "\n",
         }
+    }
+}
+
+impl IpcRequest {
+    pub(crate) fn initially_visible(self) -> bool {
+        !matches!(self, Self::EnsureRunning)
     }
 }
 
@@ -228,7 +237,23 @@ mod tests {
             Some(IpcRequest::Toggle)
         );
         assert_eq!(parse_request_line("").unwrap(), None);
+        assert_eq!(
+            parse_request_line(IpcRequest::EnsureRunning.as_line()).unwrap(),
+            None
+        );
         assert!(parse_request_line("open\n").is_err());
+    }
+
+    #[test]
+    fn background_probe_does_not_send_a_visibility_command() {
+        let (mut client, server) = UnixStream::pair().unwrap();
+        client
+            .write_all(IpcRequest::EnsureRunning.as_line().as_bytes())
+            .unwrap();
+        assert_eq!(read_request(server).unwrap(), None);
+        assert!(!IpcRequest::EnsureRunning.initially_visible());
+        assert!(IpcRequest::Show.initially_visible());
+        assert!(IpcRequest::Toggle.initially_visible());
     }
 
     fn test_dir() -> PathBuf {

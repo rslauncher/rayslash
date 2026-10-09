@@ -1,5 +1,6 @@
 export component SearchBox inherits Rectangle {
     in-out property <string> query-text;
+    in property <bool> busy: false;
     in property <bool> light;
     in property <string> active-search-keyword;
     in property <string> active-search-name;
@@ -80,10 +81,22 @@ export component SearchBox inherits Rectangle {
         }
     }
 
+    if root.busy: Text {
+        x: parent.width - 92px;
+        width: 74px;
+        height: parent.height;
+        text: "Searching…";
+        font-size: 11px;
+        color: root.light ? #6b6b6b : #9a9a9a;
+        vertical-alignment: center;
+        horizontal-alignment: right;
+        accessible-live-region: polite;
+    }
+
     search-input := TextInput {
         x: root.search-input-x;
         y: 0px;
-        width: parent.width - root.search-input-x - 18px;
+        width: parent.width - root.search-input-x - (root.busy ? 100px : 18px);
         height: parent.height;
         vertical-alignment: center;
         color: root.light ? #1f1f1f : #f2f2f2;
@@ -350,13 +363,29 @@ export component SettingToggle inherits Rectangle {
     in property <bool> light;
     in property <bool> tooltips-enabled;
     in-out property <bool> checked;
+    in property <bool> enabled: true;
     callback toggled();
 
     height: 58px;
+    opacity: root.enabled ? 1 : 0.65;
+    forward-focus: toggle-focus;
+    accessible-role: checkbox;
+    accessible-label: root.label;
+    accessible-description: root.description;
+    accessible-checkable: true;
+    accessible-checked: root.checked;
+    accessible-enabled: root.enabled;
+    accessible-action-default => {
+        if root.enabled {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
     border-radius: 8px;
     background: root.light ? toggle-touch.has-hover ? #ffffff : #f6f6f6 : toggle-touch.has-hover ? #242424 : #202020;
     border-width: 1px;
-    border-color: root.light ? toggle-touch.has-hover ? #bdbdbd : #d4d4d4 : #363636;
+    border-color: toggle-focus.has-focus ? root.light ? #747474 : #aaaaaa
+        : root.light ? toggle-touch.has-hover ? #bdbdbd : #d4d4d4 : #363636;
 
     animate background { duration: 90ms; }
     animate border-color { duration: 90ms; }
@@ -415,6 +444,7 @@ export component SettingToggle inherits Rectangle {
     }
 
     toggle-touch := TouchArea {
+        enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => {
             root.checked = !root.checked;
@@ -428,6 +458,17 @@ export component SettingToggle inherits Rectangle {
                 tooltip-delay.running = false;
                 tooltip-popup.close();
             }
+        }
+    }
+
+    toggle-focus := FocusScope {
+        width: 0px;
+        key-pressed(event) => {
+            if root.enabled && (event.text == " " || event.text == "\n") {
+                root.checked = !root.checked;
+                root.toggled();
+                accept
+            } else { reject }
         }
     }
 

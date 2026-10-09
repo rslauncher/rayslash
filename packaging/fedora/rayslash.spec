@@ -8,7 +8,7 @@
 %endif
 
 Name:           rayslash
-Version:        0.2.14
+Version:        0.2.15
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.4
@@ -99,6 +99,11 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Fri Oct 09 2026 RaySlash contributors - 0.2.15-1
+- Add opt-in startup at login and prepare the launcher before the first shortcut.
+- Unify notifications, correct initial window bounds, and reduce retained memory.
+- Remove duplicate alternate folder opener choices with equivalent launch commands.
+
 * Tue Sep 29 2026 RaySlash contributors - 0.2.14-1
 - Keep the settings control inside the window and preserve newly selected folder sources after adding them.
 

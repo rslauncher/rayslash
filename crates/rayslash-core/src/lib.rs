@@ -4,6 +4,7 @@ pub mod actions;
 pub mod aliases;
 pub mod app_state;
 pub mod apps;
+pub mod autostart;
 pub mod config;
 pub mod diagnostics;
 pub mod modules;

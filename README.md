@@ -58,6 +58,11 @@ For regular use, bind a desktop shortcut such as `Super+\` to:
 rayslash toggle
 ```
 
+Enable **Settings → General → Start at login** to prepare the launcher in the
+background before your first shortcut. This is opt-in and starts no optional
+module hosts. You can also run `rayslash --background` manually; it starts hidden
+or leaves an existing instance as it is.
+
 Global shortcuts are managed by the desktop environment rather than captured by rayslash. A desktop entry and icon are available under [`packaging/linux`](packaging/linux) for local or package installations.
 
 The app installs or includes the [`rayslash-module-host`](https://github.com/rslauncher/rayslash-module-host) runtime so Settings → Modules can install and run modules immediately. The host is infrastructure, not a module: no official or community module is installed until you choose it.

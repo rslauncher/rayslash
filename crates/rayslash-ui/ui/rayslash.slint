@@ -1,3 +1,4 @@
+import { NotificationToast } from "./notification_toast.slint";
 import { Palette } from "std-widgets.slint";
 import { SearchBox, SettingsGearIcon } from "./components.slint";
 import { AliasItem, AppChoiceItem, ModuleItem, ResultItem, WebSearchItem } from "./models.slint";
@@ -122,23 +123,13 @@ component HintText inherits Text {
 }
 
 component LauncherHint inherits Rectangle {
-    in property <string> status-text;
     in property <bool> alternate-folder-opener-enabled;
     in property <bool> light;
 
     height: 16px;
     background: transparent;
 
-    if root.status-text != "": Text {
-        height: 16px;
-        text: root.status-text;
-        color: root.light ? #555555 : #b8b8b8;
-        font-size: 11px;
-        overflow: elide;
-        vertical-alignment: center;
-    }
-
-    if root.status-text == "": HorizontalLayout {
+    HorizontalLayout {
         height: 16px;
         spacing: 4px;
 
@@ -184,7 +175,32 @@ export component AppWindow inherits Window {
     in property <int> result-count;
     in-out property <int> selected-index: -1;
     in-out property <string> query-text: "";
-    in-out property <string> status-text: "";
+    in-out property <string> notification-text: "";
+    in-out property <bool> launcher-visible: false;
+    in-out property <bool> search-busy: false;
+    private property <bool> notification-visible: root.launcher-visible
+        && !root.settings-alias-editor-open && !root.settings-web-search-editor-open
+        && !root.settings-folder-removal-open;
+
+    public function show-notification(message: string) {
+        root.notification-text = message;
+        notification-dismiss.running = message != "" && root.notification-visible;
+        notification-dismiss.restart();
+    }
+
+    notification-dismiss := Timer {
+        interval: root.notification-duration-ms(root.notification-text) * 1ms;
+        running: false;
+        triggered => {
+            self.running = false;
+            root.notification-text = "";
+        }
+    }
+
+    changed notification-visible => {
+        notification-dismiss.running = root.notification-text != "" && root.notification-visible;
+        if notification-dismiss.running { notification-dismiss.restart(); }
+    }
     in-out property <string> result-tip-text: "";
     in-out property <bool> settings-open: false;
     in-out property <string> settings-section: "general";
@@ -232,6 +248,9 @@ export component AppWindow inherits Window {
     in-out property <int> settings-module-update-count: 0;
     in-out property <bool> settings-notify-app-updates: true;
     in-out property <bool> settings-notify-module-updates: true;
+    in-out property <bool> settings-start-at-login: false;
+    in-out property <bool> settings-startup-busy: false;
+    in-out property <string> settings-startup-error: "";
     in-out property <bool> alternate-folder-opener-enabled: true;
     in property <image> alternate-folder-opener-icon;
     in property <bool> alternate-folder-opener-has-icon: false;
@@ -278,6 +297,8 @@ export component AppWindow inherits Window {
     callback settings-check-app-update-requested();
     callback settings-install-app-update-requested();
     callback settings-update-preferences-requested(bool, bool);
+    callback settings-start-at-login-requested(bool);
+    callback settings-startup-refresh-requested();
     callback settings-open-project-url-requested();
     callback settings-alias-save-requested(int, string, string, string, string) -> bool;
     callback settings-alias-remove-requested(int) -> bool;
@@ -289,8 +310,8 @@ export component AppWindow inherits Window {
     pure callback settings-module-matches(string, string) -> bool;
     pure callback settings-visible-module-count(string, string, bool, bool, int) -> int;
     callback settings-module-sort-requested(string);
-    pure callback settings-feedback-kind(string) -> string;
-    pure callback settings-feedback-duration-ms(string) -> int;
+    pure callback notification-kind(string) -> string;
+    pure callback notification-duration-ms(string) -> int;
     callback settings-save-requested([string], string, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, string, string, string, bool, string, string);
 
     public function focus-search() {
@@ -351,6 +372,13 @@ export component AppWindow inherits Window {
     no-frame: true;
     resize-border-width: 0px;
     background: transparent;
+
+    // Apply the preferred bounds before hidden native initialization, which
+    // otherwise starts at the minimum size until the first show().
+    public function prepare-background-window() {
+        root.width = root.preferred-width;
+        root.height = root.preferred-height;
+    }
 
     Rectangle {
         width: 100%;
@@ -446,6 +474,7 @@ export component AppWindow inherits Window {
                         visible: !root.settings-open;
                         light: root.light-theme;
                         query-text <=> root.query-text;
+                        busy: root.search-busy;
                         active-search-keyword: root.active-search-keyword;
                         active-search-name: root.active-search-name;
                         active-search-has-accent: root.active-search-has-accent;
@@ -485,7 +514,6 @@ export component AppWindow inherits Window {
                     LauncherHint {
                         height: root.settings-open ? 0px : 16px;
                         visible: !root.settings-open;
-                        status-text: root.status-text;
                         alternate-folder-opener-enabled: root.alternate-folder-opener-enabled;
                         light: root.light-theme;
                     }
@@ -498,7 +526,6 @@ export component AppWindow inherits Window {
                     settings-panel := SettingsPanel {
                         open <=> root.settings-open;
                         settings-section <=> root.settings-section;
-                        status-text <=> root.status-text;
                         alternate-opener-choices: root.alternate-opener-choices;
                         folder-sources: root.settings-folder-sources;
                         aliases-text <=> root.settings-aliases-text;
@@ -545,6 +572,9 @@ export component AppWindow inherits Window {
                         module-update-count: root.settings-module-update-count;
                         notify-app-updates <=> root.settings-notify-app-updates;
                         notify-module-updates <=> root.settings-notify-module-updates;
+                        start-at-login <=> root.settings-start-at-login;
+                        startup-busy: root.settings-startup-busy;
+                        startup-error: root.settings-startup-error;
                         alternate-picker-open <=> root.settings-alternate-picker-open;
                         web-search-editor-open <=> root.settings-web-search-editor-open;
                         alias-editor-open <=> root.settings-alias-editor-open;
@@ -568,6 +598,7 @@ export component AppWindow inherits Window {
                         check-app-update-requested => { root.settings-check-app-update-requested(); }
                         install-app-update-requested => { root.settings-install-app-update-requested(); }
                         update-preferences-requested(app, modules) => { root.settings-update-preferences-requested(app, modules); }
+                        start-at-login-requested(enabled) => { root.settings-start-at-login-requested(enabled); }
                         open-project-url-requested => { root.settings-open-project-url-requested(); }
                         alias-save-requested(index, name, keyword, kind, target) => { return root.settings-alias-save-requested(index, name, keyword, kind, target); }
                         alias-remove-requested(index) => { return root.settings-alias-remove-requested(index); }
@@ -579,8 +610,6 @@ export component AppWindow inherits Window {
                         module-matches(haystack, query) => { return root.settings-module-matches(haystack, query); }
                         visible-module-count(tab, query, updates-only, saved-data-only, model-length) => { return root.settings-visible-module-count(tab, query, updates-only, saved-data-only, model-length); }
                         module-sort-requested(order) => { root.settings-module-sort-requested(order); }
-                        feedback-kind(message) => { return root.settings-feedback-kind(message); }
-                        feedback-duration-ms(message) => { return root.settings-feedback-duration-ms(message); }
                         save-requested(folder-sources, alternate-opener-command, provider-apps, provider-folders, provider-calculator, provider-aliases, provider-web-search, provider-unit-conversion, provider-currency-conversion, provider-time-lookup, provider-utility-actions, alternate-opener-enabled, ranking-learn-from-usage, send-anonymous-diagnostics, theme, density, max-results, show-tooltips, aliases-text, web-searches-text) => {
                             root.settings-save-requested(
                                 folder-sources,
@@ -630,6 +659,16 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+            }
+
+            if root.notification-text != "" && root.notification-visible: NotificationToast {
+                x: max(22px, (parent.width - self.width) / 2);
+                y: parent.height - self.height - 18px;
+                width: min(parent.width - 44px, 560px);
+                message: root.notification-text;
+                kind: root.notification-kind(root.notification-text);
+                light: root.light-theme;
+                dismissed => { root.show-notification(""); }
             }
 
             if root.scheduled-tasks-open && root.scheduled-task-labels.length > 0: Rectangle {

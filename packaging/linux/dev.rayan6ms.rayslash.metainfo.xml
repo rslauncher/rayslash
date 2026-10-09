@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.15" date="2026-10-09">
+      <description>
+        <p>Add an optional start-at-login setting to prepare the launcher before the first shortcut, unify notifications, correct the initial window size, reduce retained memory, and remove duplicate alternate folder opener choices.</p>
+      </description>
+    </release>
     <release version="0.2.14" date="2026-09-29">
       <description>
         <p>Keep the settings control inside the window and preserve newly selected folder sources after adding them.</p>

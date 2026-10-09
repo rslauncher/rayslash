@@ -13,6 +13,9 @@ use crate::ResultItem;
 
 const MAX_MEMORY_ICON_ENTRIES: usize = 256;
 const MAX_DISK_ICON_ENTRIES: usize = 64;
+// Result icons are at most 40 logical pixels; preserve detail through 3x scaling
+// without retaining full 512–1024px application bitmaps in RAM and on the GPU.
+const MAX_BITMAP_ICON_EDGE: u32 = 128;
 
 struct CachedImage {
     image: Option<Image>,
@@ -206,10 +209,46 @@ pub(crate) fn load_icon_image(path: &Path, icon_cache: &mut IconImageCache) -> O
     let image = if path.extension().is_none() {
         load_extensionless_icon_image(path)
     } else {
-        Image::load_from_path(path).ok()
+        load_sized_icon_image(path)
     };
     icon_cache.insert(path.to_path_buf(), image.clone());
     image
+}
+
+fn load_sized_icon_image(path: &Path) -> Option<Image> {
+    if path.extension().is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("svg") || extension.eq_ignore_ascii_case("svgz")
+    }) {
+        // Keep SVGs scalable rather than converting them into fixed bitmaps.
+        return Image::load_from_path(path).ok();
+    }
+    let mut reader = image::ImageReader::open(path)
+        .ok()?
+        .with_guessed_format()
+        .ok()?;
+    let mut limits = image::Limits::default();
+    limits.max_alloc = Some(32 * 1024 * 1024);
+    reader.limits(limits);
+    let decoded = reader.decode().ok()?;
+    let pixels =
+        if decoded.width() > MAX_BITMAP_ICON_EDGE || decoded.height() > MAX_BITMAP_ICON_EDGE {
+            decoded
+                .resize(
+                    MAX_BITMAP_ICON_EDGE,
+                    MAX_BITMAP_ICON_EDGE,
+                    image::imageops::FilterType::Lanczos3,
+                )
+                .to_rgba8()
+        } else {
+            decoded.to_rgba8()
+        };
+    Some(Image::from_rgba8(
+        SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
+            pixels.as_raw(),
+            pixels.width(),
+            pixels.height(),
+        ),
+    ))
 }
 
 fn load_favicon_image(path: &Path, icon_cache: &mut IconImageCache) -> Option<Image> {
@@ -236,7 +275,7 @@ fn load_extensionless_icon_image(path: &Path) -> Option<Image> {
     }
 
     let cache_path = cached_extensionless_icon_path(path)?;
-    Image::load_from_path(&cache_path).ok()
+    load_sized_icon_image(&cache_path)
 }
 
 fn cached_extensionless_icon_path(path: &Path) -> Option<PathBuf> {
@@ -422,6 +461,37 @@ fn fallback_icon_owned(kind: &'static str, text: String) -> RowIcon {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bitmap_icons_are_bounded_without_stretching_or_upscaling() {
+        let directory = std::env::temp_dir().join(format!(
+            "rayslash-icon-sizing-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        fs::create_dir_all(&directory).unwrap();
+        let large = directory.join("large.png");
+        let small = directory.join("small.png");
+        let color = image::Rgba([30, 90, 150, 128]);
+        image::RgbaImage::from_pixel(1024, 512, color)
+            .save(&large)
+            .unwrap();
+        image::RgbaImage::from_pixel(24, 16, color)
+            .save(&small)
+            .unwrap();
+        let mut cache = IconImageCache::new();
+        let icon = load_icon_image(&large, &mut cache).unwrap();
+        assert_eq!(icon.size().width, MAX_BITMAP_ICON_EDGE);
+        assert_eq!(icon.size().height, MAX_BITMAP_ICON_EDGE / 2);
+        assert_eq!(&icon.to_rgba8().unwrap().as_bytes()[..4], &color.0);
+        assert_eq!(load_icon_image(&large, &mut cache), Some(icon));
+        let icon = load_icon_image(&small, &mut cache).unwrap();
+        assert_eq!((icon.size().width, icon.size().height), (24, 16));
+        fs::remove_dir_all(directory).unwrap();
+    }
 
     #[test]
     fn refreshing_results_notifies_only_changed_rows() {

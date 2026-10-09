@@ -2,6 +2,7 @@
 pub enum CliCommand {
     Run,
     Toggle,
+    Background,
     Version,
 }
 
@@ -20,6 +21,7 @@ pub fn parse_args(args: &[String]) -> Result<CliCommand, ParseArgsError> {
     match args {
         [] => Ok(CliCommand::Run),
         [arg] if arg == "toggle" => Ok(CliCommand::Toggle),
+        [arg] if arg == "--background" => Ok(CliCommand::Background),
         [arg] if matches!(arg.as_str(), "--version" | "-V" | "version") => Ok(CliCommand::Version),
         _ => Err(ParseArgsError {
             args: args.to_vec(),
@@ -28,7 +30,7 @@ pub fn parse_args(args: &[String]) -> Result<CliCommand, ParseArgsError> {
 }
 
 pub fn usage(program: &str) -> String {
-    format!("Usage: {program} [toggle|--version]")
+    format!("Usage: {program} [toggle|--background|--version]")
 }
 
 #[cfg(test)]
@@ -43,6 +45,15 @@ mod tests {
     #[test]
     fn toggle_arg_sends_toggle() {
         assert_eq!(parse_args(&["toggle".to_string()]), Ok(CliCommand::Toggle));
+    }
+
+    #[test]
+    fn background_arg_starts_hidden() {
+        assert_eq!(
+            parse_args(&["--background".to_string()]),
+            Ok(CliCommand::Background)
+        );
+        assert!(parse_args(&["--background".to_string(), "toggle".to_string()]).is_err());
     }
 
     #[test]

@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use rayslash_core::{actions, apps};
 use slint::Color;
@@ -14,11 +17,12 @@ pub(crate) fn to_app_choice_items(
     apps: &[apps::DesktopApp],
     icon_cache: &mut IconImageCache,
 ) -> Vec<AppChoiceItem> {
+    let mut seen_commands = HashSet::new();
     apps.iter()
         .filter(|app| app.is_folder_opener_candidate())
         .filter_map(|app| {
             let command = picker_command_for_app(app);
-            if command.is_empty() {
+            if command.is_empty() || !seen_commands.insert(command.clone()) {
                 return None;
             }
 
@@ -311,6 +315,85 @@ mod tests {
                 ("Terminal".to_owned(), "xdg-terminal-exec".to_owned()),
             ]
         );
+    }
+
+    #[test]
+    fn app_choice_items_deduplicate_equivalent_desktop_exec_commands() {
+        let mut code = app(
+            "Visual Studio Code",
+            "/usr/share/code/code",
+            Vec::new(),
+            vec!["TextEditor", "Development", "IDE"],
+        );
+        code.id = "code.desktop".into();
+        code.exec = "/usr/share/code/code %U".into();
+        let mut system_code = code.clone();
+        system_code.id = "com.microsoft.VSCode.desktop".into();
+        system_code.exec = "\"/usr/share/code/code\"   %F".into();
+        let zed = app("Zed", "zed", Vec::new(), vec!["IDE"]);
+
+        let choices =
+            to_app_choice_items(&[code, system_code, zed], &mut IconImageCache::default());
+
+        assert_eq!(
+            choices
+                .iter()
+                .map(|choice| (choice.name.as_str(), choice.command.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                ("Visual Studio Code", "/usr/share/code/code"),
+                ("Zed", "zed"),
+            ]
+        );
+    }
+
+    #[test]
+    fn app_choice_items_preserve_distinct_arguments_and_executable_paths() {
+        let code = app(
+            "Visual Studio Code",
+            "/usr/share/code/code",
+            Vec::new(),
+            vec!["IDE"],
+        );
+        let mut new_window = code.clone();
+        new_window.exec = "/usr/share/code/code --new-window %U".into();
+        let other_installation = app(
+            "Visual Studio Code",
+            "/opt/code/code",
+            Vec::new(),
+            vec!["IDE"],
+        );
+
+        let choices = to_app_choice_items(
+            &[code, new_window, other_installation],
+            &mut IconImageCache::default(),
+        );
+
+        assert_eq!(
+            choices
+                .iter()
+                .map(|choice| choice.command.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "/usr/share/code/code",
+                "/usr/share/code/code --new-window",
+                "/opt/code/code",
+            ]
+        );
+    }
+
+    #[test]
+    fn app_choice_items_collapse_terminals_using_the_shared_opener() {
+        let apps = [
+            app("Terminal", "ptyxis", Vec::new(), vec!["TerminalEmulator"]),
+            app("Konsole", "konsole", Vec::new(), vec!["TerminalEmulator"]),
+        ];
+
+        let choices = to_app_choice_items(&apps, &mut IconImageCache::default());
+
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].name.as_str(), "Terminal");
+        assert_eq!(choices[0].command.as_str(), "xdg-terminal-exec");
     }
 
     #[test]

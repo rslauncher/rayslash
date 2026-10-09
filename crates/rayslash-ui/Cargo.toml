@@ -1,6 +1,6 @@
 [package]
 name = "rayslash"
-version = "0.2.14"
+version = "0.2.15"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 arboard.workspace = true
 dirs.workspace = true
+glow.workspace = true
 image.workspace = true
 nucleo-matcher.workspace = true
 notify.workspace = true

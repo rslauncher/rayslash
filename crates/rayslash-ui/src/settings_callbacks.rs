@@ -4,7 +4,6 @@ use std::{
     path::PathBuf,
     rc::Rc,
     sync::{Arc, mpsc},
-    time::Duration,
 };
 
 use rayslash_core::{
@@ -12,10 +11,12 @@ use rayslash_core::{
     diagnostics::{OperationalDiagnostic, OperationalDiagnosticCode, Telemetry},
     projects, ranking, search,
 };
-use slint::{ComponentHandle, Model, Timer, VecModel};
+use slint::{ComponentHandle, Model, VecModel};
+
+use crate::notifications::show_notification;
 
 use crate::{
-    AppChoiceItem, AppWindow, DEFAULT_STATUS_TEXT, DESKTOP_APP_REFRESH_INTERVAL, ResultItem,
+    AppChoiceItem, AppWindow, DESKTOP_APP_REFRESH_INTERVAL, ResultItem,
     result_items::IconImageCache,
     runtime_state::{
         DesktopAppRefreshContext, ResultRefreshContext, ResultSelection, effective_search_query,
@@ -68,9 +69,6 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         profile,
     } = context;
 
-    ui.on_settings_feedback_kind(|message| feedback_kind(message.as_str()).into());
-    ui.on_settings_feedback_duration_ms(|message| feedback_duration_ms(message.as_str()));
-
     ui.on_settings_requested({
         let weak = ui.as_weak();
         let config_state = config_state.clone();
@@ -120,8 +118,8 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     &socket_path,
                 );
                 ui.set_settings_diagnostics_summary(diagnostics.local_summary().into());
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
+                ui.invoke_settings_startup_refresh_requested();
                 ui.invoke_focus_settings();
             }
         }
@@ -146,7 +144,6 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     &icon_cache,
                     &socket_path,
                 );
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(false);
                 ui.invoke_focus_search();
             }
@@ -187,7 +184,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
               web_searches_text| {
             if settings_save_blocked {
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text(
+                    ui.invoke_show_notification(
                         "Could not save settings: fix config.toml and restart rayslash.".into(),
                     );
                 }
@@ -219,37 +216,45 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 Ok(config) => config,
                 Err(SettingsConfigError::EmptyAlternateFolderOpener) => {
                     if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text("Alternate folder opener cannot be empty.".into());
+                        ui.invoke_show_notification(
+                            "Alternate folder opener cannot be empty.".into(),
+                        );
                     }
                     return;
                 }
                 Err(SettingsConfigError::InvalidMaxResults) => {
                     if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text("Max results must be a positive number.".into());
+                        ui.invoke_show_notification(
+                            "Max results must be a positive number.".into(),
+                        );
                     }
                     return;
                 }
                 Err(SettingsConfigError::InvalidTheme) => {
                     if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text("Theme must be dark, dim, or light.".into());
+                        ui.invoke_show_notification("Theme must be dark, dim, or light.".into());
                     }
                     return;
                 }
                 Err(SettingsConfigError::InvalidDensity) => {
                     if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text("Density must be comfortable or compact.".into());
+                        ui.invoke_show_notification(
+                            "Density must be comfortable or compact.".into(),
+                        );
                     }
                     return;
                 }
                 Err(SettingsConfigError::InvalidAliases(message)) => {
                     if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text(format!("Could not save aliases: {message}").into());
+                        ui.invoke_show_notification(
+                            format!("Could not save aliases: {message}").into(),
+                        );
                     }
                     return;
                 }
                 Err(SettingsConfigError::InvalidWebSearches(message)) => {
                     if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text(
+                        ui.invoke_show_notification(
                             format!("Could not save search engines: {message}").into(),
                         );
                     }
@@ -267,7 +272,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 diagnostics.operational_failure(config_save_diagnostic(&error));
                 eprintln!("{error}");
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text(format!("Could not save settings: {error}").into());
+                    ui.invoke_show_notification(format!("Could not save settings: {error}").into());
                 }
                 return;
             }
@@ -308,7 +313,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     &icon_cache,
                     &socket_path,
                 );
-                set_ephemeral_status(&ui, "Settings saved.");
+                show_notification(&ui, "Settings saved.");
             }
         }
     });
@@ -318,7 +323,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         move |command| {
             if let Some(ui) = weak.upgrade() {
                 ui.set_settings_alternate_folder_opener_command(command.clone());
-                ui.set_status_text(format!("Selected alternate opener: {command}").into());
+                ui.invoke_show_notification(format!("Selected alternate opener: {command}").into());
             }
         }
     });
@@ -333,7 +338,9 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 ));
                 eprintln!("could not open project website: {error}");
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text("Could not open the Rayslash GitHub repository.".into());
+                    ui.invoke_show_notification(
+                        "Could not open the Rayslash GitHub repository.".into(),
+                    );
                 }
             }
         }
@@ -354,13 +361,15 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             };
             let mut next = config_state.borrow().clone();
             if name.trim().is_empty() || keyword.trim().is_empty() || target.trim().is_empty() {
-                ui.set_status_text("Alias name, keyword, and target are required.".into());
+                ui.invoke_show_notification("Alias name, keyword, and target are required.".into());
                 return false;
             }
             let kind_text = kind.trim();
             let kind = parse_alias_kind(kind_text);
             if !kind_text.is_empty() && kind.is_none() {
-                ui.set_status_text("Alias kind must be URL, file, folder, or command.".into());
+                ui.invoke_show_notification(
+                    "Alias kind must be URL, file, folder, or command.".into(),
+                );
                 return false;
             }
             let updated = config::AliasConfig {
@@ -450,7 +459,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             };
             let valid = rayslash_core::web_search::is_valid_template(&updated);
             if !valid {
-                ui.set_status_text(
+                ui.invoke_show_notification(
                     "Complete the name, keyword, and a valid URL containing %s before saving."
                         .into(),
                 );
@@ -547,7 +556,6 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 let current_sources = folder_sources_from_model(&ui.get_settings_folder_sources());
                 let folder_sources = append_folder_sources(&current_sources, &folders);
                 ui.set_settings_folder_sources(folder_sources_model(&folder_sources));
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
                 ui.set_settings_open(true);
                 save_settings_from_ui(&ui);
                 // Show the committed sources, or roll back if saving failed.
@@ -592,7 +600,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             match arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_text(report)) {
                 Ok(()) => {
                     if let Some(ui) = weak.upgrade() {
-                        set_ephemeral_status(&ui, "Diagnostic report copied.");
+                        show_notification(&ui, "Diagnostic report copied.");
                     }
                 }
                 Err(error) => {
@@ -601,7 +609,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     ));
                     eprintln!("failed to copy diagnostic report: {error}");
                     if let Some(ui) = weak.upgrade() {
-                        ui.set_status_text("Could not copy diagnostic report.".into());
+                        ui.invoke_show_notification("Could not copy diagnostic report.".into());
                     }
                 }
             }
@@ -615,7 +623,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
         move |notify_app_updates, notify_module_updates| {
             if settings_save_blocked {
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text(
+                    ui.invoke_show_notification(
                         "Could not save update preferences: fix config.toml and restart rayslash."
                             .into(),
                     );
@@ -632,7 +640,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 diagnostics.operational_failure(config_save_diagnostic(&error));
                 eprintln!("{error}");
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text(
+                    ui.invoke_show_notification(
                         format!("Could not save update preferences: {error}").into(),
                     );
                 }
@@ -640,7 +648,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
             }
             *config_state.borrow_mut() = next;
             if let Some(ui) = weak.upgrade() {
-                set_ephemeral_status(&ui, "Update notification preferences saved.");
+                show_notification(&ui, "Update notification preferences saved.");
             }
         }
     });
@@ -661,7 +669,9 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 diagnostics.operational_failure(ranking_clear_diagnostic(&error));
                 eprintln!("{error}");
                 if let Some(ui) = weak.upgrade() {
-                    ui.set_status_text(format!("Could not clear ranking history: {error}").into());
+                    ui.invoke_show_notification(
+                        format!("Could not clear ranking history: {error}").into(),
+                    );
                 }
                 return;
             }
@@ -697,7 +707,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     &icon_cache,
                     &socket_path,
                 );
-                ui.set_status_text("Ranking history cleared.".into());
+                ui.invoke_show_notification("Ranking history cleared.".into());
             }
         }
     });
@@ -718,12 +728,14 @@ fn save_collection_change(
     telemetry: Arc<dyn Telemetry>,
 ) -> bool {
     if blocked {
-        ui.set_status_text("Could not save settings: fix config.toml and restart rayslash.".into());
+        ui.invoke_show_notification(
+            "Could not save settings: fix config.toml and restart rayslash.".into(),
+        );
         return false;
     }
     if let Err(error) = config::save_config_with_backup(&config_to_save) {
         telemetry.operational_failure(config_save_diagnostic(&error));
-        ui.set_status_text(format!("Could not save settings: {error}").into());
+        ui.invoke_show_notification(format!("Could not save settings: {error}").into());
         return false;
     }
     *state.borrow_mut() = config_to_save.normalized();
@@ -763,7 +775,7 @@ fn save_collection_change(
         icon_cache,
         socket_path,
     );
-    set_ephemeral_status(ui, message);
+    show_notification(ui, message);
     true
 }
 
@@ -791,80 +803,6 @@ fn ranking_clear_diagnostic(error: &ranking::ClearRankingStateError) -> Operatio
     }
 }
 
-pub(crate) fn set_ephemeral_status(ui: &AppWindow, message: &str) {
-    ui.set_status_text(message.into());
-
-    let expected = message.to_owned();
-    let weak = ui.as_weak();
-    Timer::single_shot(
-        Duration::from_millis(feedback_duration_ms(message) as u64),
-        move || {
-            if let Some(ui) = weak.upgrade()
-                && ui.get_status_text().as_str() == expected
-            {
-                ui.set_status_text(DEFAULT_STATUS_TEXT.into());
-            }
-        },
-    );
-}
-
-fn feedback_duration_ms(message: &str) -> i32 {
-    let characters = message.chars().count() as i32;
-    (1_200 + (characters * 1_000 + 17) / 18).clamp(4_200, 10_000)
-}
-
-fn feedback_kind(message: &str) -> &'static str {
-    let message = message.to_ascii_lowercase();
-
-    if [
-        "could not",
-        "failed",
-        "cannot",
-        "must be",
-        "required",
-        "invalid",
-        "unknown",
-        "unavailable",
-        "read-only",
-    ]
-    .iter()
-    .any(|needle| message.contains(needle))
-    {
-        "error"
-    } else if [
-        "installing",
-        "restoring",
-        "updating",
-        "removing",
-        "repairing",
-        "confirm",
-        "new capabilities",
-    ]
-    .iter()
-    .any(|needle| message.contains(needle))
-    {
-        "warning"
-    } else if [
-        "saved",
-        "completed",
-        "enabled",
-        "disabled",
-        "installed",
-        "restored",
-        "updated",
-        "removed",
-        "cleared",
-        "selected",
-    ]
-    .iter()
-    .any(|needle| message.contains(needle))
-    {
-        "success"
-    } else {
-        "info"
-    }
-}
-
 fn save_settings_from_ui(ui: &AppWindow) {
     ui.invoke_settings_save_requested(
         ui.get_settings_folder_sources(),
@@ -888,24 +826,4 @@ fn save_settings_from_ui(ui: &AppWindow) {
         ui.get_settings_aliases_text(),
         ui.get_settings_web_searches_text(),
     );
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{feedback_duration_ms, feedback_kind};
-
-    #[test]
-    fn feedback_kind_distinguishes_status_intent() {
-        assert_eq!(feedback_kind("Calculator enabled."), "success");
-        assert_eq!(feedback_kind("Restoring Aliases…"), "warning");
-        assert_eq!(feedback_kind("Could not save settings."), "error");
-        assert_eq!(feedback_kind("No changes to apply."), "info");
-    }
-
-    #[test]
-    fn feedback_duration_scales_from_a_readable_minimum() {
-        assert_eq!(feedback_duration_ms("Saved."), 4_200);
-        assert!(feedback_duration_ms(&"warning ".repeat(15)) > 4_200);
-        assert_eq!(feedback_duration_ms(&"very long ".repeat(100)), 10_000);
-    }
 }
