@@ -60,8 +60,10 @@ rayslash toggle
 
 Enable **Settings → General → Start at login** to prepare the launcher in the
 background before your first shortcut. This is opt-in and starts no optional
-module hosts. You can also run `rayslash --background` manually; it starts hidden
-or leaves an existing instance as it is.
+module hosts. The native window is created only when you open the launcher, so
+the background resident has no taskbar entry. You can also run
+`rayslash --background` manually; it starts hidden or leaves an existing instance
+as it is.
 
 Global shortcuts are managed by the desktop environment rather than captured by rayslash. A desktop entry and icon are available under [`packaging/linux`](packaging/linux) for local or package installations.
 
@@ -126,6 +128,15 @@ cargo test --workspace
 cargo build --workspace
 packaging/validate-metadata.sh
 ```
+
+In a Wayland session, also run the native background startup regression:
+
+```sh
+cargo test --locked -p rayslash native_window::tests --jobs 1 -- --ignored --test-threads=1
+```
+
+It checks that the hidden resident creates no native window, that timers continue
+to run, and that the launcher opens at 660×440 and supports show/hide/show.
 
 Rust CI caches dependencies separately for checks, Fedora RPMs, and each native
 release architecture. Main-branch CI warms the native release caches so later tags

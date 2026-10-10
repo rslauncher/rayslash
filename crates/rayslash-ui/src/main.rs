@@ -3,6 +3,7 @@ mod app_updates;
 mod cli;
 mod ipc;
 mod module_settings;
+mod native_window;
 mod notifications;
 mod opener_visual;
 mod persistence;
@@ -38,6 +39,7 @@ use module_settings::{
     ModuleSettingsCallbackContext, installed_modules_load_diagnostic, load_runtime_modules,
     module_items, register_module_settings_callback, save_modules_diagnostic,
 };
+use native_window::NativeWindowHandler;
 use notifications::show_notification;
 use notify::{RecursiveMode, Watcher};
 use opener_visual::accent_color_for_icon;
@@ -238,9 +240,13 @@ fn run_gui(
 ) -> Result<(), slint::PlatformError> {
     let profile = profile_enabled();
     let startup_started = Instant::now();
+    let initially_visible = initial_request.initially_visible();
+    let is_visible = visible_flag(false);
 
     let stage_started = Instant::now();
-    slint::BackendSelector::new().select()?;
+    slint::BackendSelector::new()
+        .with_winit_custom_application_handler(NativeWindowHandler::new(is_visible.clone()))
+        .select()?;
     slint::set_xdg_app_id(rayslash_core::APP_ID)?;
     profile_stage(profile, "backend select and app ID", stage_started);
 
@@ -249,8 +255,6 @@ fn run_gui(
     notifications::register(&ui);
     profile_stage(profile, "ui construct", stage_started);
 
-    let initially_visible = initial_request.initially_visible();
-    let is_visible = visible_flag(false);
     let suppress_next_focus_hide = Rc::new(Cell::new(false));
 
     let stage_started = Instant::now();
@@ -1379,23 +1383,7 @@ fn run_gui(
         ui.set_launcher_visible(true);
     } else {
         ui.invoke_prepare_background_window();
-        // Slint creates the native window and graphics context when the event
-        // loop starts, but does not render or map this hidden component.
-        let weak = ui.as_weak();
-        let visibility = is_visible.clone();
-        slint::spawn_local(async move {
-            if let Some(ui) = weak.upgrade() {
-                let native_window = ui.window().winit_window().await;
-                if native_window.is_ok() && !visibility.load(Ordering::Acquire) {
-                    profile_stage(
-                        profile,
-                        "startup hidden native window ready",
-                        startup_started,
-                    );
-                }
-            }
-        })
-        .map_err(|error| slint::PlatformError::from(error.to_string()))?;
+        profile_stage(profile, "startup background model ready", startup_started);
     }
     #[cfg(debug_assertions)]
     if let Some(snapshot_path) = std::env::var_os("RAYSLASH_PREVIEW_SNAPSHOT") {
