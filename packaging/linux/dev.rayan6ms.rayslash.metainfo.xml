@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.16" date="2026-10-09">
+      <description>
+        <p>Keep the background launcher off the taskbar after login while preparing its catalogs, result models, and icons before the first shortcut.</p>
+      </description>
+    </release>
     <release version="0.2.15" date="2026-10-09">
       <description>
         <p>Add an optional start-at-login setting to prepare the launcher before the first shortcut, unify notifications, correct the initial window size, reduce retained memory, and remove duplicate alternate folder opener choices.</p>

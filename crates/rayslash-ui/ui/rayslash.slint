@@ -373,8 +373,7 @@ export component AppWindow inherits Window {
     resize-border-width: 0px;
     background: transparent;
 
-    // Apply the preferred bounds before hidden native initialization, which
-    // otherwise starts at the minimum size until the first show().
+    // Prepare the preferred bounds without creating a native window at login.
     public function prepare-background-window() {
         root.width = root.preferred-width;
         root.height = root.preferred-height;
