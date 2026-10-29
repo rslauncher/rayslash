@@ -4,6 +4,7 @@ members = [
     "crates/rayslash-ui",
 ]
 resolver = "2"
+exclude = ["third_party/softbuffer", "tools/rustd-smoke"]
 
 [workspace.package]
 edition = "2024"
@@ -36,10 +37,15 @@ slint = { version = "1.17.1", default-features = false, features = [
     "unstable-winit-030",
 ] }
 slint-build = "1.17.1"
+# Preserve the alpha that Slint's software renderer already writes.
+softbuffer = { version = "=0.4.8", default-features = false, features = ["wayland-premultiplied-alpha"] }
 toml = "1.1.2"
 tar = "0.4.44"
 ureq = { version = "3.3.0", features = ["json"] }
 zstd = "0.13.3"
+
+[patch.crates-io]
+softbuffer = { path = "third_party/softbuffer" }
 
 [profile.release]
 lto = "thin"

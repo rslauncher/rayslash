@@ -39,6 +39,51 @@ jobs:
       - name: Validate packaging metadata
         run: packaging/validate-metadata.sh
 
+  # rustd is a prototype: report compatibility without replacing rustc's
+  # correctness checks or production release optimization.
+  rustd-compatibility:
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:24.04
+      options: --memory=4g --memory-swap=4g --cpus=2
+    continue-on-error: true
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: 1
+      RAYON_NUM_THREADS: 2
+      RUSTD_IDLE_SECS: 60
+      RUSTD_CACHE: "off"
+      RAYSLASH_RUSTD_CONTAINED: 1
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            ca-certificates curl gcc git libfontconfig1-dev make pkg-config
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rustd-1.99.0-ebcd234a
+          workspaces: . -> target/rustd
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install checksum-pinned rustd
+        run: tools/rustd setup
+      - name: Check rustd installation on a small program
+        run: |
+          tools/rustd build --locked --manifest-path tools/rustd-smoke/Cargo.toml
+          target/rustd/debug/rayslash-rustd-smoke
+      - name: Check launcher compatibility with rustd
+        run: |
+          tools/rustd build --locked -p rayslash
+          target/rustd/debug/rayslash --version
+      - name: Stop the project daemon
+        if: always()
+        continue-on-error: true
+        run: tools/rustd stop
+
   fedora-rpm-offline:
     strategy:
       fail-fast: false

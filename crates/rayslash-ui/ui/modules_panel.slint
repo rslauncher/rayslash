@@ -214,14 +214,14 @@ component ModuleCard inherits Rectangle {
                     border-radius: 5px;
                     background: root.light ? #e7e7e7 : #353535;
                     horizontal-stretch: 0;
-                    Text { text: "Official"; color: root.light ? #4e4e4e : #cfcfcf; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    Text { width: 100%; height: 100%; text: "Official"; color: root.light ? #4e4e4e : #cfcfcf; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                 }
 
                 if root.item.update_available: Rectangle {
                     width: 76px; height: 18px; border-radius: 5px;
                     background: root.light ? #fff4d6 : #45391e;
                     horizontal-stretch: 0;
-                    Text { text: "Update ready"; color: root.light ? #805e12 : #e6c76e; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    Text { width: 100%; height: 100%; text: "Update ready"; color: root.light ? #805e12 : #e6c76e; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
                 }
 
                 Rectangle { horizontal-stretch: 1; background: transparent; }
