@@ -1,0 +1,104 @@
+#!/bin/sh
+# Project-local, checksum-pinned rustd. Never enables the global Cargo wrapper.
+set -eu
+
+root_dir="$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)"
+revision=ebcd234a02f769e380875b8b80e18164bba1b353
+toolchain=1.99.0
+install_dir="${RAYSLASH_RUSTD_DIR:-$root_dir/target/tools/rustd-$revision}"
+
+case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64)
+        target=x86_64-unknown-linux-gnu
+        digest=23d80371b38cddee271fa19f5ebd2f401634aef97fa8d5e8b996ca24652d96bb
+        ;;
+    Linux-aarch64)
+        target=aarch64-unknown-linux-gnu
+        digest=403c402888ba752dcbe25d3e62ca067d3a3ad82295eb8241605daf60c281b1e7
+        ;;
+    *) echo "This rustd integration supports Linux x86_64 and aarch64." >&2; exit 2 ;;
+esac
+
+if [ "${1:-}" = setup ]; then
+    rustup toolchain install "$toolchain" --profile minimal --component rust-src
+    installed=true
+    for binary in rustd cargo-rustd rustd-rustc rustd-rustc-first; do
+        [ -x "$install_dir/$binary" ] || installed=false
+    done
+    if [ ! -f "$install_dir/archive-sha256" ] \
+        || [ "$(cat "$install_dir/archive-sha256")" != "$digest" ] \
+        || [ "$installed" = false ]; then
+        temporary_dir="$(mktemp -d)"
+        trap 'rm -rf "$temporary_dir"' EXIT HUP INT TERM
+        archive="rustd-$target.tar.gz"
+        curl --fail --location --proto '=https' --tlsv1.2 \
+            --output "$temporary_dir/$archive" \
+            "https://github.com/DioxusLabs/rustd/releases/download/nightly/$archive"
+        printf '%s  %s\n' "$digest" "$temporary_dir/$archive" | sha256sum --check --strict
+        tar -xzf "$temporary_dir/$archive" -C "$temporary_dir"
+        mkdir -p "$install_dir"
+        for binary in rustd cargo-rustd rustd-rustc rustd-rustc-first; do
+            install -m0755 "$temporary_dir/rustd-$target/$binary" "$install_dir/$binary"
+        done
+        for license in LICENSE-MIT LICENSE-APACHE; do
+            install -m0644 "$temporary_dir/rustd-$target/$license" "$install_dir/$license"
+        done
+        printf '%s\n' "$digest" > "$install_dir/archive-sha256"
+    fi
+    echo "Installed checksum-pinned rustd (upstream release target $revision) for Rust $toolchain in $install_dir"
+    exit 0
+fi
+
+if [ "$#" -eq 0 ]; then
+    echo "usage: tools/rustd setup | build [flags] | run [flags] | check [flags] | status | stop" >&2
+    exit 2
+fi
+case "$1" in
+    build|run|check|status|stop) ;;
+    *) echo "Use Cargo/rustc for tests, Clippy, and production release builds." >&2; exit 2 ;;
+esac
+for argument in "$@"; do
+    case "$argument" in
+        --release|-r|--profile|--profile=*)
+            echo "Use Cargo/rustc for optimized profiles; rustd does not support our thin LTO." >&2
+            exit 2
+            ;;
+    esac
+done
+for binary in rustd cargo-rustd rustd-rustc rustd-rustc-first; do
+    if [ ! -x "$install_dir/$binary" ]; then
+        echo "Run tools/rustd setup first." >&2
+        exit 2
+    fi
+done
+
+# Keep daemon state separate from other projects and bound its idle residency.
+project_key="$(printf '%s' "$root_dir" | sha256sum | cut -c1-12)"
+umask 077
+export RUSTD_HOME="${RUSTD_HOME:-${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/rayslash-rustd-$(id -u)-$project_key}"
+export RUSTD_IDLE_SECS="${RUSTD_IDLE_SECS:-120}"
+export RUSTD_SPARE=0
+export RUSTD_CACHE="${RUSTD_CACHE:-off}"
+export RUSTD_CACHE_MAX="${RUSTD_CACHE_MAX:-256M}"
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
+export RAYON_NUM_THREADS="${RAYON_NUM_THREADS:-2}"
+export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$root_dir/target/rustd}"
+export PATH="$install_dir:$PATH"
+cd "$root_dir"
+# A rust-analyzer database for this workspace can exceed 4 GiB. Keep it in
+# its own cgroup; a compiler allocation failure must not exhaust the desktop.
+# CI sets CONTAINED only inside a job container with the same resource limits.
+case "$1" in
+    build|run|check)
+        if [ "${RAYSLASH_RUSTD_CONTAINED:-0}" != 1 ]; then
+            if ! command -v systemd-run >/dev/null 2>&1; then
+                echo "A systemd user scope or a resource-limited container is required for rustd builds." >&2
+                exit 2
+            fi
+            exec systemd-run --user --scope --collect --quiet \
+                -p MemoryMax=4G -p MemorySwapMax=0 -p CPUQuota=200% -p TasksMax=256 \
+                cargo "+$toolchain" rustd "$@"
+        fi
+        ;;
+esac
+exec cargo "+$toolchain" rustd "$@"

@@ -758,12 +758,12 @@ export component SettingsPanel inherits FocusScope {
                         }
                         Rectangle { width: min(100px, max(52px, alias-keyword-label.preferred-width + 18px)); height: 50px; background: transparent;
                             Rectangle { y: 14px; width: 100%; height: 22px; border-radius: 6px; background: root.light ? #e7e7e7 : #2d2d2d; border-width: 1px; border-color: root.field-border;
-                                alias-keyword-label := Text { text: alias.keyword; color: root.text-soft; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                                alias-keyword-label := Text { width: 100%; height: 100%; text: alias.keyword; color: root.text-soft; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                             }
                         }
                         Rectangle { width: 62px; height: 50px; background: transparent;
                             Rectangle { y: 14px; width: 100%; height: 22px; border-radius: 6px; background: transparent; border-width: 1px; border-color: root.field-border;
-                                Text { text: alias.kind == "" ? "auto" : alias.kind; color: root.text-muted; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                                Text { width: 100%; height: 100%; text: alias.kind == "" ? "auto" : alias.kind; color: root.text-muted; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                             }
                         }
                         Rectangle { width: 42px; height: 50px; background: transparent;
@@ -806,7 +806,7 @@ export component SettingsPanel inherits FocusScope {
                     }
                     Rectangle { width: min(110px, max(54px, keyword-label.preferred-width + 18px)); height: 50px; background: transparent;
                         Rectangle { y: 14px; width: 100%; height: 22px; border-radius: 6px; background: root.light ? #e7e7e7 : #2d2d2d; border-width: 1px; border-color: root.field-border;
-                            keyword-label := Text { text: engine.keyword == "" ? "keyword" : engine.keyword; color: root.text-soft; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
+                            keyword-label := Text { width: 100%; height: 100%; text: engine.keyword == "" ? "keyword" : engine.keyword; color: root.text-soft; font-size: 10px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; overflow: elide; }
                         }
                     }
                     Rectangle { width: 42px; height: 50px; background: transparent;

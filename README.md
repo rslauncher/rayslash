@@ -137,6 +137,44 @@ cargo build --workspace
 packaging/validate-metadata.sh
 ```
 
+An opt-in rustd development wrapper and compatibility probe are available:
+
+```sh
+tools/rustd setup
+tools/rustd build --locked --manifest-path tools/rustd-smoke/Cargo.toml
+target/rustd/debug/rayslash-rustd-smoke
+tools/rustd build --locked -p rayslash
+tools/rustd run --locked -p rayslash -- --version
+tools/rustd stop
+```
+
+The wrapper pins the archive checksums from the upstream release targeting
+`ebcd234a02f769e380875b8b80e18164bba1b353`. It installs Rust 1.99.0 with
+`rust-src`, keeps artifacts in `target/rustd`, and leaves your global Cargo
+configuration untouched. It uses one Cargo job, disables the spare worker and
+disk store, and exits after two minutes idle. `tools/rustd stop` releases the
+project's daemon immediately. Compiler workers can use substantially more RAM
+than the launcher itself; this does not change the shipped app's runtime.
+Local builds run inside a systemd user scope capped at 4 GiB and two CPU cores.
+CI uses a container with equivalent limits. On other setups, run inside a
+resource-limited container and set `RAYSLASH_RUSTD_CONTAINED=1` there.
+
+rustd is an experimental compiler and compatibility varies by project. Its
+current release cannot handle our thin LTO or replace rustc's borrow checking.
+Tests, Clippy, and optimized packages therefore continue to use Cargo/rustc.
+The standalone compiler smoke passes. Loading the full launcher currently
+exceeds the 4 GiB budget; an additional mailbox-code probe also hit an unsupported
+frontend operation. Use normal Cargo for the full app until compatibility
+improves. CI includes a separate nonblocking `rustd-compatibility` job that
+checks the small program, attempts the launcher build, and checks `--version`
+if it succeeds, exposing unsupported features or memory-limit failures.
+The published upstream `nightly` asset is mutable; if its checksum changes, setup
+fails until the pinned revision and hashes are deliberately updated.
+
+The software renderer preserves rounded-window transparency on Wayland through
+a small opt-in [softbuffer patch](third_party/softbuffer/RAYSLASH-PATCH.md). It
+uses the same shared-memory buffers and retains the low-memory software path.
+
 In a Wayland session, also run the native background startup regression:
 
 ```sh

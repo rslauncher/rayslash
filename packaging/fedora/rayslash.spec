@@ -8,7 +8,7 @@
 %endif
 
 Name:           rayslash
-Version:        0.2.17
+Version:        0.2.18
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.4
@@ -99,6 +99,11 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Thu Oct 29 2026 RaySlash contributors - 0.2.18-1
+- Restore transparent rounded corners on Wayland while keeping software rendering.
+- Align module status and settings keyword badges within their bounds.
+- Add optional rustd development tooling and a nonblocking compatibility CI job.
+
 * Thu Oct 29 2026 RaySlash contributors - 0.2.17-1
 - Lower resident RAM with software rendering, hidden image cleanup, and bounded caches and search queues.
 - Preserve X11 focus-loss dismissal while ignoring the initial unfocused event.
