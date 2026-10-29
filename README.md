@@ -65,6 +65,14 @@ the background resident has no taskbar entry. You can also run
 `rayslash --background` manually; it starts hidden or leaves an existing instance
 as it is.
 
+The launcher uses software rendering by default to avoid retaining a graphics
+driver stack for its small window. To use GPU rendering instead, start the
+resident with `SLINT_BACKEND=winit-femtovg rayslash --background`. An explicit
+`SLINT_BACKEND` selection is respected. Renderer changes apply when the resident
+next starts; a shortcut client does not change an already running instance.
+After 30 seconds hidden, unused image references are released and glibc builds
+return free allocator pages to the system. Images are restored when you reopen.
+
 Global shortcuts are managed by the desktop environment rather than captured by rayslash. A desktop entry and icon are available under [`packaging/linux`](packaging/linux) for local or package installations.
 
 The app installs or includes the [`rayslash-module-host`](https://github.com/rslauncher/rayslash-module-host) runtime so Settings → Modules can install and run modules immediately. The host is infrastructure, not a module: no official or community module is installed until you choose it.

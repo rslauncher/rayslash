@@ -12,6 +12,7 @@ use slint::{Image, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
 use crate::ResultItem;
 
 const MAX_MEMORY_ICON_ENTRIES: usize = 256;
+const MAX_MEMORY_ICON_BYTES: usize = 4 * 1024 * 1024;
 const MAX_DISK_ICON_ENTRIES: usize = 64;
 // Result icons are at most 40 logical pixels; preserve detail through 3x scaling
 // without retaining full 512–1024px application bitmaps in RAM and on the GPU.
@@ -21,6 +22,7 @@ struct CachedImage {
     image: Option<Image>,
     last_used: u64,
     stamp: Option<IconStamp>,
+    bytes: usize,
 }
 
 #[derive(PartialEq, Eq)]
@@ -41,6 +43,7 @@ fn icon_stamp(path: &Path) -> Option<IconStamp> {
 pub(crate) struct IconImageCache {
     entries: HashMap<PathBuf, CachedImage>,
     clock: u64,
+    bytes: usize,
 }
 
 impl IconImageCache {
@@ -50,33 +53,52 @@ impl IconImageCache {
 
     fn get(&mut self, path: &Path) -> Option<&Option<Image>> {
         self.clock = self.clock.wrapping_add(1);
-        let entry = self.entries.get_mut(path)?;
-        if entry.stamp != icon_stamp(path) {
+        if self
+            .entries
+            .get(path)
+            .is_some_and(|entry| entry.stamp != icon_stamp(path))
+        {
+            self.remove(path);
             return None;
         }
+        let entry = self.entries.get_mut(path)?;
         entry.last_used = self.clock;
         Some(&entry.image)
     }
 
     fn insert(&mut self, path: PathBuf, image: Option<Image>) {
         self.clock = self.clock.wrapping_add(1);
-        if self.entries.len() >= MAX_MEMORY_ICON_ENTRIES
-            && !self.entries.contains_key(&path)
-            && let Some(oldest) = self
+        self.remove(&path);
+        let stamp = icon_stamp(&path);
+        let bytes = image
+            .as_ref()
+            .map_or(0, |image| image_weight(image, &path, stamp.as_ref()));
+        // An oversized image can still be displayed; don't retain another
+        // cache reference that exceeds the whole budget.
+        if bytes > MAX_MEMORY_ICON_BYTES {
+            return;
+        }
+        while self.entries.len() >= MAX_MEMORY_ICON_ENTRIES
+            || self.bytes.saturating_add(bytes) > MAX_MEMORY_ICON_BYTES
+        {
+            let Some(oldest) = self
                 .entries
                 .iter()
                 .min_by_key(|(_, entry)| entry.last_used)
                 .map(|(path, _)| path.clone())
-        {
-            self.entries.remove(&oldest);
+            else {
+                break;
+            };
+            self.remove(&oldest);
         }
-        let stamp = icon_stamp(&path);
+        self.bytes += bytes;
         self.entries.insert(
             path,
             CachedImage {
                 image,
                 last_used: self.clock,
                 stamp,
+                bytes,
             },
         );
     }
@@ -84,7 +106,38 @@ impl IconImageCache {
     pub(crate) fn invalidate_changed(&mut self) {
         self.entries
             .retain(|path, entry| entry.stamp == icon_stamp(path));
+        self.bytes = self.entries.values().map(|entry| entry.bytes).sum();
     }
+
+    fn remove(&mut self, path: &Path) {
+        if let Some(entry) = self.entries.remove(path) {
+            self.bytes -= entry.bytes;
+        }
+    }
+
+    pub(crate) fn clear(&mut self) {
+        *self = Self::default();
+    }
+}
+
+fn image_weight(image: &Image, path: &Path, stamp: Option<&IconStamp>) -> usize {
+    let image_path = image.path().unwrap_or(path);
+    if image_path.extension().is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("svg") || extension.eq_ignore_ascii_case("svgz")
+    }) {
+        // Slint exposes no parsed-SVG allocation size. Budget a conservative
+        // estimate from source size while keeping vectors scalable. This is
+        // an estimate, not a bound on the framework's own SVG/image caches.
+        let source_bytes = stamp.map_or(0, |stamp| stamp.len);
+        return usize::try_from(source_bytes)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(8)
+            .saturating_add(4096);
+    }
+    let size = image.size();
+    (size.width as usize)
+        .saturating_mul(size.height as usize)
+        .saturating_mul(4)
 }
 
 pub(crate) fn update_result_items_model(model: &VecModel<ResultItem>, items: Vec<ResultItem>) {
@@ -666,6 +719,47 @@ mod tests {
                 .entries
                 .contains_key(Path::new(&format!("/icon/{MAX_MEMORY_ICON_ENTRIES}")))
         );
+    }
+
+    #[test]
+    fn bitmap_byte_budget_evicts_old_images_while_preserving_display_references() {
+        let mut cache = IconImageCache::new();
+        let image = Image::from_rgba8(SharedPixelBuffer::new(128, 128));
+        let capacity = MAX_MEMORY_ICON_BYTES / (128 * 128 * 4);
+        for index in 0..capacity {
+            cache.insert(PathBuf::from(format!("/icon/{index}")), Some(image.clone()));
+        }
+        assert!(cache.get(Path::new("/icon/0")).is_some());
+        cache.insert(PathBuf::from("/icon/new"), Some(image.clone()));
+        assert!(cache.get(Path::new("/icon/0")).is_some());
+        assert!(cache.get(Path::new("/icon/1")).is_none());
+        assert_eq!(cache.entries.len(), capacity);
+        assert_eq!(cache.bytes, MAX_MEMORY_ICON_BYTES);
+        cache.clear();
+        assert_eq!(cache.bytes, 0);
+        assert!(cache.entries.is_empty());
+        assert_eq!(image.size().width, 128);
+    }
+
+    #[test]
+    fn replacement_and_oversized_images_do_not_inflate_cache_accounting() {
+        let mut cache = IconImageCache::new();
+        let path = PathBuf::from("/icon/replaced");
+        cache.insert(
+            path.clone(),
+            Some(Image::from_rgba8(SharedPixelBuffer::new(128, 128))),
+        );
+        cache.insert(
+            path.clone(),
+            Some(Image::from_rgba8(SharedPixelBuffer::new(1, 1))),
+        );
+        assert_eq!(cache.bytes, 4);
+        cache.insert(
+            path.clone(),
+            Some(Image::from_rgba8(SharedPixelBuffer::new(1025, 1025))),
+        );
+        assert_eq!(cache.bytes, 0);
+        assert!(cache.get(&path).is_none());
     }
 
     #[test]

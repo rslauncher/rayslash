@@ -283,6 +283,8 @@ export component AppWindow inherits Window {
     callback apply-app-update-state();
     callback activate-selected-result(int, bool);
     callback reset-requested();
+    callback launcher-visibility-changed();
+    changed launcher-visible => { root.launcher-visibility-changed(); }
     callback search-keyword-trigger-requested(string) -> bool;
     callback search-keyword-cleared();
     callback settings-requested();

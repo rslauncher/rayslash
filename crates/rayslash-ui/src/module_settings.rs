@@ -21,11 +21,11 @@ use semver::Version;
 use slint::{ComponentHandle, Model, VecModel};
 
 use crate::{
-    AppWindow, ModuleItem, ResultItem,
+    AppWindow, ModuleItem, RemoteResultSender, ResultItem,
     result_items::IconImageCache,
     runtime_state::{
-        ResultRefreshContext, ResultSelection, SearchResultSet, effective_search_query,
-        refresh_result_view, refresh_settings_dependent_ui, search_result_set,
+        ResultRefreshContext, ResultSelection, effective_search_query, refresh_result_view,
+        refresh_settings_dependent_ui, search_result_set,
     },
 };
 
@@ -755,7 +755,7 @@ pub(crate) struct ModuleSettingsCallbackContext {
     pub icon_cache: Rc<RefCell<IconImageCache>>,
     pub socket_path: PathBuf,
     pub remote_search_generation: Arc<AtomicU64>,
-    pub remote_result_tx: mpsc::Sender<(u64, String, SearchResultSet, Instant)>,
+    pub remote_result_tx: RemoteResultSender,
     pub diagnostics: Arc<dyn Telemetry>,
     pub profile: bool,
 }
