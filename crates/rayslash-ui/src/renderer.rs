@@ -1,5 +1,15 @@
 use glow::HasContext;
 
+pub(crate) fn configure_backend(selector: slint::BackendSelector) -> slint::BackendSelector {
+    // Respect explicit Slint backend/renderer selection. Avoid setting process
+    // environment variables after worker threads have started.
+    if std::env::var_os("SLINT_BACKEND").is_some_and(|value| !value.is_empty()) {
+        selector
+    } else {
+        selector.renderer_name("software".into())
+    }
+}
+
 // Mesa can retain a compiler worker per CPU on large machines. A launcher has
 // few shaders, so ask supporting drivers to use two workers for this context.
 // This is a GL hint, scoped to rayslash; it does not change driver environment

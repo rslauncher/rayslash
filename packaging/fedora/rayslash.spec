@@ -8,7 +8,7 @@
 %endif
 
 Name:           rayslash
-Version:        0.2.16
+Version:        0.2.17
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.4
@@ -99,6 +99,10 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Thu Oct 29 2026 RaySlash contributors - 0.2.17-1
+- Lower resident RAM with software rendering, hidden image cleanup, and bounded caches and search queues.
+- Preserve X11 focus-loss dismissal while ignoring the initial unfocused event.
+
 * Fri Oct 09 2026 RaySlash contributors - 0.2.16-1
 - Keep background startup off the taskbar by creating native windows only on demand.
 - Preserve prepared launcher models and background timer wakeups.
