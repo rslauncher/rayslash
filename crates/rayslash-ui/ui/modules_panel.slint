@@ -1,5 +1,6 @@
 import { ModuleItem } from "./models.slint";
 import { ModuleGlyph } from "./module_icons.slint";
+import { Badge } from "./badge.slint";
 
 component ModuleTab inherits Rectangle {
     in property <string> label;
@@ -207,21 +208,23 @@ component ModuleCard inherits Rectangle {
                     horizontal-stretch: 0;
                 }
 
-                Rectangle {
+                Badge {
                     width: root.item.official ? 50px : 0px;
-                    height: 18px;
+                    height: 16px;
                     visible: root.item.official;
                     border-radius: 5px;
                     background: root.light ? #e7e7e7 : #353535;
-                    horizontal-stretch: 0;
-                    Text { width: 100%; height: 100%; text: "Official"; color: root.light ? #4e4e4e : #cfcfcf; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    text: "Official";
+                    text-color: root.light ? #4e4e4e : #cfcfcf;
+                    text-size: 9px;
                 }
 
-                if root.item.update_available: Rectangle {
-                    width: 76px; height: 18px; border-radius: 5px;
+                if root.item.update_available: Badge {
+                    width: 76px; height: 16px; border-radius: 5px;
                     background: root.light ? #fff4d6 : #45391e;
-                    horizontal-stretch: 0;
-                    Text { width: 100%; height: 100%; text: "Update ready"; color: root.light ? #805e12 : #e6c76e; font-size: 9px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                    text: "Update ready";
+                    text-color: root.light ? #805e12 : #e6c76e;
+                    text-size: 9px;
                 }
 
                 Rectangle { horizontal-stretch: 1; background: transparent; }

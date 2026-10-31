@@ -747,7 +747,10 @@ fn save_collection_change(
         }
         if let Err(error) = weak.upgrade_in_event_loop(move |ui| {
             let model = ui.get_settings_web_searches();
-            for (index, updated) in web_search_items(&favicon_searches).into_iter().enumerate() {
+            for (index, updated) in web_search_items(&favicon_searches, ui.window().scale_factor())
+                .into_iter()
+                .enumerate()
+            {
                 let Some(current) = model.row_data(index) else {
                     continue;
                 };

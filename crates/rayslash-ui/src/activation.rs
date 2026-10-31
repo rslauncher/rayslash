@@ -84,13 +84,14 @@ pub(crate) fn register_activation_callback(ui: &AppWindow, context: ActivationCa
                             .actions
                             .alternate_folder_opener_enabled;
                     let outcome = if alternate {
-                        actions::open_project_in_editor(
-                            &path,
+                        let command = crate::opener_visual::resolve_alternate_opener_command(
                             &config_state
                                 .borrow()
                                 .actions
                                 .alternate_folder_opener_command,
-                        )
+                            &apps.borrow(),
+                        );
+                        actions::open_project_in_editor(&path, &command)
                     } else {
                         actions::open_project_folder(&path)
                     };
