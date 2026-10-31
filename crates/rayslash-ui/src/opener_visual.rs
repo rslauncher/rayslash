@@ -33,6 +33,11 @@ pub(crate) fn to_app_choice_items(
 
             Some(AppChoiceItem {
                 name: app.name.clone().into(),
+                command_label: if is_flatpak_app(app) {
+                    "Flatpak".into()
+                } else {
+                    command.clone().into()
+                },
                 command: command.into(),
                 icon: icon.clone().unwrap_or_default(),
                 has_icon: icon.is_some(),
@@ -46,8 +51,37 @@ fn picker_command_for_app(app: &apps::DesktopApp) -> String {
         return "xdg-terminal-exec".to_owned();
     }
 
+    if is_flatpak_app(app) {
+        // GLib expands desktop-entry file codes and Flatpak's forwarding
+        // markers with the folder in the correct position. Appending a path
+        // to a stripped Exec line puts it outside the forwarding markers.
+        return command_text(&actions::CommandSpec {
+            program: "gio".into(),
+            args: vec!["launch".into(), app.desktop_file.as_os_str().to_owned()],
+        });
+    }
+
     let command = apps::parse_exec_command(&app.exec).unwrap_or_else(|| app.command.clone());
     command_text(&command)
+}
+
+fn is_flatpak_app(app: &apps::DesktopApp) -> bool {
+    apps::parse_exec_command(&app.exec).is_some_and(|command| {
+        Path::new(&command.program)
+            .file_name()
+            .is_some_and(|name| name == "flatpak")
+            && command
+                .args
+                .first()
+                .is_some_and(|argument| argument == "run")
+    })
+}
+
+pub(crate) fn resolve_alternate_opener_command(command: &str, apps: &[apps::DesktopApp]) -> String {
+    alternate_opener_app(command, apps)
+        .filter(|app| is_flatpak_app(app))
+        .map(picker_command_for_app)
+        .unwrap_or_else(|| command.to_owned())
 }
 
 fn command_text(command: &actions::CommandSpec) -> String {
@@ -95,8 +129,24 @@ fn alternate_opener_app<'a>(
         return None;
     }
 
+    let parsed = actions::parse_action_command(command);
     apps.iter()
-        .find(|app| command_basename(&app.command.program.to_string_lossy()) == command_name)
+        .find(|app| {
+            parsed.is_some()
+                && (actions::parse_action_command(&picker_command_for_app(app)) == parsed
+                    || apps::parse_exec_command(&app.exec) == parsed
+                    || parsed.as_ref() == Some(&app.command))
+        })
+        .or_else(|| {
+            // A wrapper executable alone does not identify the application.
+            (!matches!(command_name.as_str(), "flatpak" | "gio"))
+                .then(|| {
+                    apps.iter().find(|app| {
+                        command_basename(&app.command.program.to_string_lossy()) == command_name
+                    })
+                })
+                .flatten()
+        })
         .or_else(|| {
             (command_name == "xdg-terminal-exec")
                 .then(|| terminal_like_app(apps))
@@ -421,6 +471,61 @@ mod tests {
         let choices = to_app_choice_items(&[files, analyzer], &mut IconImageCache::default());
         assert_eq!(choices[0].command.as_str(), "nautilus --new-window");
         assert_eq!(choices[1].command.as_str(), "baobab");
+    }
+
+    #[test]
+    fn flatpak_picker_preserves_the_name_and_uses_desktop_file_forwarding() {
+        let desktop_file =
+            PathBuf::from("/var/lib/flatpak/exports/share/applications/io.bassi.Amberol.desktop");
+        let amberol = apps::parse_desktop_entry(
+            "[Desktop Entry]\nType=Application\nName=Amberol\nExec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=amberol --file-forwarding io.bassi.Amberol @@u %U @@\nMimeType=audio/mpeg;inode/directory;\nCategories=GNOME;GTK;Music;Audio;AudioVideo;\n",
+            "io.bassi.Amberol.desktop".into(), desktop_file.clone(),
+        ).unwrap();
+        let choices = to_app_choice_items(&[amberol], &mut IconImageCache::default());
+        assert_eq!(choices.len(), 1);
+        assert_eq!(choices[0].name.as_str(), "Amberol");
+        assert_eq!(choices[0].command_label.as_str(), "Flatpak");
+        let folder = Path::new("/home/example/Music with spaces/日本語");
+        let command = actions::open_project_in_editor_command(folder, &choices[0].command);
+        assert_eq!(command.program, "gio");
+        assert_eq!(
+            command.args,
+            vec![
+                "launch".into(),
+                desktop_file.into_os_string(),
+                folder.as_os_str().to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn flatpak_wrapper_does_not_confuse_different_apps_or_saved_commands() {
+        let mut amberol = app(
+            "Amberol",
+            "/usr/bin/flatpak",
+            vec!["inode/directory"],
+            Vec::new(),
+        );
+        amberol.desktop_file =
+            "/var/lib/flatpak/exports/share/applications/io.bassi.Amberol.desktop".into();
+        amberol.exec = "/usr/bin/flatpak run --file-forwarding io.bassi.Amberol @@u %U @@".into();
+        let mut editor = app(
+            "Editor",
+            "/usr/bin/flatpak",
+            vec!["inode/directory"],
+            Vec::new(),
+        );
+        editor.desktop_file =
+            "/var/lib/flatpak/exports/share/applications/org.example.Editor.desktop".into();
+        editor.exec = "/usr/bin/flatpak run --file-forwarding org.example.Editor @@ %F @@".into();
+        let saved = command_text(&apps::parse_exec_command(&editor.exec).unwrap());
+        let picker = picker_command_for_app(&editor);
+        let apps = [amberol, editor];
+        assert_eq!(alternate_opener_app(&saved, &apps).unwrap().name, "Editor");
+        assert_eq!(alternate_opener_app(&picker, &apps).unwrap().name, "Editor");
+        assert_eq!(resolve_alternate_opener_command(&saved, &apps), picker);
+        assert!(alternate_opener_app("flatpak run org.example.Unknown", &apps).is_none());
+        assert!(alternate_opener_app("gio launch /missing.desktop", &apps).is_none());
     }
 
     #[test]

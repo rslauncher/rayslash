@@ -309,17 +309,9 @@ fn load_favicon_image(path: &Path, icon_cache: &mut IconImageCache) -> Option<Im
         return cached.clone();
     }
 
-    let image = image::open(path).ok().map(|decoded| {
-        let resized = resize_favicon(&decoded.to_rgba8());
-        let buffer = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(resized.as_raw(), 32, 32);
-        Image::from_rgba8(buffer)
-    });
+    let image = crate::favicons::load_image(path, 32, 1.0);
     icon_cache.insert(path.to_path_buf(), image.clone());
     image
-}
-
-fn resize_favicon(source: &image::RgbaImage) -> image::RgbaImage {
-    image::imageops::resize(source, 32, 32, image::imageops::FilterType::Lanczos3)
 }
 
 fn load_extensionless_icon_image(path: &Path) -> Option<Image> {
@@ -782,14 +774,6 @@ mod tests {
 
         let icon = result_icon(&result, &mut IconImageCache::new(), true);
         assert_eq!(icon.kind, "web-search");
-    }
-
-    #[test]
-    fn favicons_are_prefiltered_to_their_display_size() {
-        let source = image::RgbaImage::new(144, 144);
-        let resized = resize_favicon(&source);
-
-        assert_eq!(resized.dimensions(), (32, 32));
     }
 
     #[test]

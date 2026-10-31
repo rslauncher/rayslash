@@ -1,0 +1,27 @@
+// Small labels need optical centering: the font's unused descent otherwise
+// leaves more space below the visible letters than above them.
+export component Badge inherits Rectangle {
+    in property <string> text;
+    in property <color> text-color;
+    in property <length> text-size: 10px;
+    out property <length> natural-width: label.preferred-width + 18px;
+    width: root.natural-width;
+    height: 22px;
+    border-radius: 6px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+    clip: true;
+
+    label := Text {
+        x: 8px;
+        y: -self.font-metrics.descent / 2;
+        width: max(0px, parent.width - 16px); height: 100%;
+        text: root.text;
+        color: root.text-color;
+        font-size: root.text-size;
+        font-weight: 700;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}

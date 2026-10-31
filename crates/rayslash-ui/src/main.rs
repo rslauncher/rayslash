@@ -1,6 +1,7 @@
 mod activation;
 mod app_updates;
 mod cli;
+mod favicons;
 mod ipc;
 mod latest_channel;
 mod memory;
@@ -808,8 +809,26 @@ fn run_gui(
         let first_redraw_profiled = first_redraw_profiled.clone();
         let diagnostics = diagnostics.clone();
         let pending_show_redraw = pending_show_redraw.clone();
+        let config_state = config_state.clone();
         let focus = Arc::new(Mutex::new(WindowFocus::default()));
         move |window, event| {
+            if matches!(event, winit::event::WindowEvent::ScaleFactorChanged { .. }) {
+                let weak = weak.clone();
+                let config_state = config_state.clone();
+                // This filter runs before Slint processes the native event.
+                // Use its effective scale afterwards, including any override.
+                Timer::single_shot(Duration::ZERO, move || {
+                    if let Some(ui) = weak.upgrade() {
+                        ui.set_settings_web_searches(
+                            Rc::new(VecModel::from(settings::web_search_items(
+                                &config_state.borrow().web_searches,
+                                ui.window().scale_factor(),
+                            )))
+                            .into(),
+                        );
+                    }
+                });
+            }
             if matches!(&event, winit::event::WindowEvent::RedrawRequested)
                 && is_visible.load(Ordering::Acquire)
             {

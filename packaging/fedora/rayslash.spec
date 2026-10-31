@@ -8,7 +8,7 @@
 %endif
 
 Name:           rayslash
-Version:        0.2.18
+Version:        0.2.19
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.4
@@ -99,6 +99,11 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Sat Oct 31 2026 RaySlash contributors - 0.2.19-1
+- Correct module badge bounds and center settings keyword labels.
+- Filter favicons at display scale while retaining low-memory software rendering.
+- Keep Flatpak opener names visible and use desktop entries for folder forwarding.
+
 * Thu Oct 29 2026 RaySlash contributors - 0.2.18-1
 - Restore transparent rounded corners on Wayland while keeping software rendering.
 - Align module status and settings keyword badges within their bounds.

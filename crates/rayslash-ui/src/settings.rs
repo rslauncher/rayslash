@@ -6,7 +6,7 @@ use std::{
 use rayslash_core::{config, search};
 
 use crate::{AliasItem, AppWindow, WebSearchItem};
-use slint::{Image, Model, ModelRc, SharedString, VecModel};
+use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SettingsConfigError {
@@ -32,7 +32,11 @@ pub(crate) fn set_settings_properties(
     ui.set_settings_web_searches_text(web_searches_text(&config.web_searches).into());
     ui.set_settings_aliases(Rc::new(VecModel::from(alias_items(&config.aliases))).into());
     ui.set_settings_web_searches(
-        Rc::new(VecModel::from(web_search_items(&config.web_searches))).into(),
+        Rc::new(VecModel::from(web_search_items(
+            &config.web_searches,
+            ui.window().scale_factor(),
+        )))
+        .into(),
     );
     ui.set_settings_alternate_folder_opener_command(
         config
@@ -80,12 +84,15 @@ fn alias_items(aliases: &[config::AliasConfig]) -> Vec<AliasItem> {
         .collect()
 }
 
-pub(crate) fn web_search_items(searches: &[config::WebSearchConfig]) -> Vec<WebSearchItem> {
+pub(crate) fn web_search_items(
+    searches: &[config::WebSearchConfig],
+    scale_factor: f32,
+) -> Vec<WebSearchItem> {
     searches
         .iter()
         .map(|search| {
             let icon = rayslash_core::web_search::cached_favicon_path(search)
-                .and_then(|path| Image::load_from_path(&path).ok());
+                .and_then(|path| crate::favicons::load_image(&path, 28, scale_factor));
             WebSearchItem {
                 name: search.name.clone().into(),
                 keyword: search.keyword.clone().into(),
