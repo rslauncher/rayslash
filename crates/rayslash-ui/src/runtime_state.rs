@@ -18,7 +18,7 @@ use rayslash_core::{
     providers::ProviderExecutionHint,
     ranking, search, web_search,
 };
-use slint::{Model, VecModel};
+use slint::{ComponentHandle, Model, VecModel};
 
 use crate::{
     AppChoiceItem, AppWindow, ResultItem,
@@ -399,10 +399,12 @@ pub(crate) fn module_settings(config: &config::Config) -> BTreeMap<String, Strin
     settings
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn refresh_desktop_apps(
     apps_state: &Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     choices_model: &Rc<VecModel<AppChoiceItem>>,
+    scale_factor: f32,
     icon_cache: &Rc<RefCell<IconImageCache>>,
     telemetry: Arc<dyn Telemetry>,
     profile: bool,
@@ -415,6 +417,7 @@ pub(crate) fn refresh_desktop_apps(
         apps_state,
         app_install_state,
         choices_model,
+        scale_factor,
         icon_cache,
         scan.apps,
         (profile, label, stage_started),
@@ -422,10 +425,12 @@ pub(crate) fn refresh_desktop_apps(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_desktop_apps(
     apps_state: &Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     app_install_state: &Rc<RefCell<app_state::AppInstallState>>,
     choices_model: &Rc<VecModel<AppChoiceItem>>,
+    scale_factor: f32,
     icon_cache: &Rc<RefCell<IconImageCache>>,
     discovered_apps: Vec<apps::DesktopApp>,
     profile_info: (bool, &str, Instant),
@@ -440,6 +445,7 @@ pub(crate) fn apply_desktop_apps(
     if choices_model.row_count() > 0 {
         choices_model.set_vec(to_app_choice_items(
             &discovered_apps,
+            scale_factor,
             &mut icon_cache.borrow_mut(),
         ));
     }
@@ -456,6 +462,7 @@ pub(crate) struct DesktopAppRefreshContext<'a> {
     pub apps_state: &'a Rc<RefCell<Arc<Vec<apps::DesktopApp>>>>,
     pub app_install_state: &'a Rc<RefCell<app_state::AppInstallState>>,
     pub choices_model: &'a Rc<VecModel<AppChoiceItem>>,
+    pub scale_factor: f32,
     pub icon_cache: &'a Rc<RefCell<IconImageCache>>,
     pub telemetry: Arc<dyn Telemetry>,
     pub last_refresh: &'a Rc<RefCell<Instant>>,
@@ -479,6 +486,7 @@ pub(crate) fn refresh_desktop_apps_if_stale(
         context.apps_state,
         context.app_install_state,
         context.choices_model,
+        context.scale_factor,
         context.icon_cache,
         context.telemetry,
         context.profile,
@@ -526,7 +534,11 @@ pub(crate) fn refresh_result_view(
     let count = results.len();
 
     let item_started = Instant::now();
-    let result_items = to_result_items(&results, &mut context.icon_cache.borrow_mut());
+    let result_items = to_result_items(
+        &results,
+        ui.window().scale_factor(),
+        &mut context.icon_cache.borrow_mut(),
+    );
     profile_stage(
         context.profile,
         "result refresh item conversion",

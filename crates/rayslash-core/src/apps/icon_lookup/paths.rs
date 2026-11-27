@@ -44,6 +44,9 @@ fn resolve_desktop_icon_in_dir(icon: &str, dir: &Path) -> Option<PathBuf> {
     for theme_root in icon_theme_roots(dir) {
         for relative_dir in icon_theme_app_dirs() {
             let app_dir = theme_root.join(&relative_dir);
+            if !app_dir.is_dir() {
+                continue;
+            }
             for name in &names {
                 if let Some(path) = supported_existing_icon(&app_dir.join(name)) {
                     return Some(path);
@@ -71,24 +74,63 @@ fn icon_theme_roots(dir: &Path) -> Vec<PathBuf> {
 
 fn icon_theme_app_dirs() -> Vec<PathBuf> {
     [
-        "42x42/apps",
-        "48x48/apps",
-        "32x32/apps",
-        "24x24/apps",
-        "22x22/apps",
-        "64x64/apps",
-        "84x84/apps",
-        "96x96/apps",
-        "128x128/apps",
-        "256x256/apps",
-        "512x512/apps",
-        "16x16/apps",
-        "16x16/symbolic/apps",
-        "22x22/symbolic/apps",
-        "24x24/symbolic/apps",
-        "32x32/symbolic/apps",
+        // Prefer vector SVGs first so the renderer rasterizes at exact physical pixels.
         "scalable/apps",
         "apps/scalable",
+        // Next prefer high-resolution full-color bitmaps (>= 2x launcher size) for crisp
+        // downscaling across 1x-3x scaling without decoding oversized 512/1024px icons first.
+        "128x128/apps",
+        "128x128@2/apps",
+        "128x128@2x/apps",
+        "64x64@2/apps",
+        "64x64@2x/apps",
+        "apps/128",
+        "96x96/apps",
+        "96x96@2/apps",
+        "96x96@2x/apps",
+        "48x48@2/apps",
+        "48x48@2x/apps",
+        "apps/96",
+        "256x256/apps",
+        "256x256@2/apps",
+        "256x256@2x/apps",
+        "apps/256",
+        "64x64/apps",
+        "apps/64",
+        "84x84/apps",
+        "192x192/apps",
+        "192x192@2/apps",
+        "192x192@2x/apps",
+        "512x512/apps",
+        "apps/512",
+        "1024x1024/apps",
+        "48x48/apps",
+        "apps/48",
+        "42x42/apps",
+        // Fall back to smaller rasters only when no scalable or >= 42px full-color icon exists.
+        "32x32@2/apps",
+        "32x32@2x/apps",
+        "32x32/apps",
+        "apps/32",
+        "24x24@2/apps",
+        "24x24@2x/apps",
+        "24x24/apps",
+        "apps/24",
+        "22x22@2/apps",
+        "22x22@2x/apps",
+        "22x22/apps",
+        "apps/22",
+        "16x16@2/apps",
+        "16x16@2x/apps",
+        "16x16/apps",
+        "apps/16",
+        // Symbolic monochrome icons are a last resort.
+        "symbolic/apps",
+        "apps/symbolic",
+        "32x32/symbolic/apps",
+        "24x24/symbolic/apps",
+        "22x22/symbolic/apps",
+        "16x16/symbolic/apps",
     ]
     .into_iter()
     .map(PathBuf::from)
@@ -102,7 +144,7 @@ fn icon_candidate_file_names(icon: &str) -> Vec<String> {
         return vec![icon.to_owned()];
     }
 
-    ["svg", "png", "jpg", "jpeg"]
+    ["svg", "svgz", "png", "jpg", "jpeg"]
         .into_iter()
         .map(|extension| format!("{icon}.{extension}"))
         .collect()
@@ -163,7 +205,7 @@ fn is_supported_icon_extension(extension: &std::ffi::OsStr) -> bool {
     extension.to_str().is_some_and(|extension| {
         matches!(
             extension.to_ascii_lowercase().as_str(),
-            "svg" | "png" | "jpg" | "jpeg"
+            "svg" | "svgz" | "png" | "jpg" | "jpeg"
         )
     })
 }

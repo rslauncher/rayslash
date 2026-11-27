@@ -14,7 +14,7 @@ use super::{
     icon_lookup::{DesktopIconResolver, desktop_icon_dirs},
 };
 
-const DESKTOP_CACHE_VERSION: u32 = 4;
+const DESKTOP_CACHE_VERSION: u32 = 5;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -306,7 +306,7 @@ fn cached_desktop_apps_from_bytes(contents: &[u8], environment: &str) -> Option<
     }
     match cache.version {
         1 | 2 => Some(cache.apps),
-        3 | DESKTOP_CACHE_VERSION => {
+        3 | 4 | DESKTOP_CACHE_VERSION => {
             let mut apps = cache
                 .entries
                 .into_iter()

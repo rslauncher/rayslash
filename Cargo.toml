@@ -18,7 +18,7 @@ chrono = { version = "0.4.42", default-features = false, features = ["std"] }
 dirs = "6.0.0"
 glow = "0.17.0"
 ed25519-dalek = "2.2.0"
-image = { version = "0.25.10", default-features = false, features = ["ico", "png"] }
+image = { version = "0.25.10", default-features = false, features = ["ico", "jpeg", "png"] }
 nucleo-matcher = "0.3.1"
 notify = { version = "8.2.0", default-features = false }
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }

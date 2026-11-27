@@ -1,7 +1,7 @@
 mod activation;
 mod app_updates;
 mod cli;
-mod favicons;
+mod icon_raster;
 mod ipc;
 mod latest_channel;
 mod memory;
@@ -464,6 +464,7 @@ fn run_gui(
     let stage_started = Instant::now();
     let results_model = Rc::new(VecModel::from(to_initial_result_items(
         &current_results.borrow(),
+        ui.window().scale_factor(),
         &mut icon_cache.borrow_mut(),
     )));
     profile_stage(profile, "initial result item build", stage_started);
@@ -506,7 +507,11 @@ fn run_gui(
             let previous_count = current_results.borrow().len();
             update_result_items_model(
                 &results_model,
-                to_result_items(&results, &mut icon_cache.borrow_mut()),
+                to_result_items(
+                    &results,
+                    ui.window().scale_factor(),
+                    &mut icon_cache.borrow_mut(),
+                ),
             );
             *current_results.borrow_mut() = results;
             ui.set_result_count(count as i32);
@@ -810,19 +815,57 @@ fn run_gui(
         let diagnostics = diagnostics.clone();
         let pending_show_redraw = pending_show_redraw.clone();
         let config_state = config_state.clone();
+        let apps = apps.clone();
+        let current_results = current_results.clone();
+        let results_model = results_model.clone();
+        let alternate_opener_choices = alternate_opener_choices.clone();
+        let icon_cache = icon_cache.clone();
         let focus = Arc::new(Mutex::new(WindowFocus::default()));
         move |window, event| {
             if matches!(event, winit::event::WindowEvent::ScaleFactorChanged { .. }) {
                 let weak = weak.clone();
                 let config_state = config_state.clone();
+                let apps = apps.clone();
+                let current_results = current_results.clone();
+                let results_model = results_model.clone();
+                let alternate_opener_choices = alternate_opener_choices.clone();
+                let icon_cache = icon_cache.clone();
                 // This filter runs before Slint processes the native event.
                 // Use its effective scale afterwards, including any override.
                 Timer::single_shot(Duration::ZERO, move || {
                     if let Some(ui) = weak.upgrade() {
+                        let mut cache = icon_cache.borrow_mut();
+                        cache.clear_scaled_bitmaps();
+                        // Avoid repopulating released images while hidden; show_launcher
+                        // rebuilds all views at the current scale factor on next open.
+                        if !ui.get_launcher_visible() {
+                            return;
+                        }
+                        let scale_factor = ui.window().scale_factor();
+                        update_result_items_model(
+                            &results_model,
+                            to_result_items(&current_results.borrow(), scale_factor, &mut cache),
+                        );
+                        if alternate_opener_choices.row_count() > 0 {
+                            alternate_opener_choices.set_vec(opener_visual::to_app_choice_items(
+                                &apps.borrow(),
+                                scale_factor,
+                                &mut cache,
+                            ));
+                        }
+                        opener_visual::set_alternate_opener_visual(
+                            &ui,
+                            &config_state
+                                .borrow()
+                                .actions
+                                .alternate_folder_opener_command,
+                            &apps.borrow(),
+                            &mut cache,
+                        );
                         ui.set_settings_web_searches(
                             Rc::new(VecModel::from(settings::web_search_items(
                                 &config_state.borrow().web_searches,
-                                ui.window().scale_factor(),
+                                scale_factor,
                             )))
                             .into(),
                         );
@@ -1163,7 +1206,11 @@ fn run_gui(
                     let previous_count = previous_results.len();
                     update_result_items_model(
                         &results_model,
-                        to_result_items(&previous_results, &mut icon_cache.borrow_mut()),
+                        to_result_items(
+                            &previous_results,
+                            ui.window().scale_factor(),
+                            &mut icon_cache.borrow_mut(),
+                        ),
                     );
                     *current_results.borrow_mut() = previous_results;
                     ui.set_result_count(previous_count as i32);
@@ -1341,10 +1388,12 @@ fn run_gui(
                     ui.set_settings_diagnostics_summary(diagnostics.local_summary().into());
                 }
                 if discovered_scan.apps.as_slice() != apps.borrow().as_slice() {
+                    let scale_factor = weak.upgrade().map_or(1.0, |ui| ui.window().scale_factor());
                     apply_desktop_apps(
                         &apps,
                         &app_install_state,
                         &alternate_opener_choices,
+                        scale_factor,
                         &icon_cache,
                         discovered_scan.apps,
                         (profile, "background reconciliation", Instant::now()),
@@ -1512,6 +1561,7 @@ fn run_gui(
     if initially_visible {
         remaining_icons.start(slint::TimerMode::Repeated, Duration::from_millis(16), {
             let timer = Rc::downgrade(&remaining_icons);
+            let weak = ui.as_weak();
             let next_row = Cell::new(STARTUP_ICON_ROWS);
             move || {
                 if !is_visible.load(Ordering::Acquire) {
@@ -1520,10 +1570,12 @@ fn run_gui(
                     }
                     return;
                 }
+                let scale_factor = weak.upgrade().map_or(1.0, |ui| ui.window().scale_factor());
                 let start = next_row.get();
                 hydrate_result_icon_rows(
                     &results_model,
                     &current_results.borrow(),
+                    scale_factor,
                     &mut icon_cache.borrow_mut(),
                     start,
                     4,

@@ -235,14 +235,16 @@ fn trusted_key(key_id: &str) -> Option<String> {
 }
 
 fn registry_url_allowed(url: &str) -> bool {
-    if url.starts_with("https://") {
-        return true;
-    }
     #[cfg(all(debug_assertions, feature = "registry-dev-override"))]
-    return std::env::var("RAYSLASH_DEV_REGISTRY_ROOT").is_ok()
-        && url.starts_with("http://127.0.0.1:");
+    {
+        url.starts_with("https://")
+            || (std::env::var("RAYSLASH_DEV_REGISTRY_ROOT").is_ok()
+                && url.starts_with("http://127.0.0.1:"))
+    }
     #[cfg(not(all(debug_assertions, feature = "registry-dev-override")))]
-    false
+    {
+        url.starts_with("https://")
+    }
 }
 
 fn reject_registry_rollback(new_root: &RegistryRoot) -> Result<(), RegistryError> {

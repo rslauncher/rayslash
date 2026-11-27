@@ -30,6 +30,11 @@
   </categories>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.2.20" date="2026-11-26">
+      <description>
+        <p>Render sharp app, opener, picker, and favicon icons by pre-filtering rasters at exact physical display pixels in linear premultiplied light, preferring scalable SVGs and high-resolution icon theme assets, enabling JPEG icon decoding, and refreshing scaled icons cleanly across HiDPI changes.</p>
+      </description>
+    </release>
     <release version="0.2.19" date="2026-10-31">
       <description>
         <p>Correct module badge bounds and keyword alignment, smooth scaled favicons with the low-memory software renderer, and keep Flatpak opener names visible while forwarding folders through their desktop entries.</p>

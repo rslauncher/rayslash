@@ -6,8 +6,12 @@ use std::{
 use rayslash_core::{actions, apps};
 use slint::Color;
 
-use crate::result_items::{IconImageCache, load_icon_image};
-use crate::{AppChoiceItem, AppWindow};
+use crate::{
+    AppChoiceItem, AppWindow,
+    icon_raster::{ALTERNATE_OPENER_ICON_EDGE, SETTINGS_APP_CHOICE_ICON_EDGE},
+    result_items::{IconImageCache, load_icon_image},
+};
+use slint::ComponentHandle;
 
 pub(crate) fn app_icon_count(apps: &[apps::DesktopApp]) -> usize {
     apps.iter().filter(|app| app.icon_path.is_some()).count()
@@ -15,6 +19,7 @@ pub(crate) fn app_icon_count(apps: &[apps::DesktopApp]) -> usize {
 
 pub(crate) fn to_app_choice_items(
     apps: &[apps::DesktopApp],
+    scale_factor: f32,
     icon_cache: &mut IconImageCache,
 ) -> Vec<AppChoiceItem> {
     let mut seen_commands = HashSet::new();
@@ -26,10 +31,14 @@ pub(crate) fn to_app_choice_items(
                 return None;
             }
 
-            let icon = app
-                .icon_path
-                .as_ref()
-                .and_then(|path| load_icon_image(path, icon_cache));
+            let icon = app.icon_path.as_ref().and_then(|path| {
+                load_icon_image(
+                    path,
+                    SETTINGS_APP_CHOICE_ICON_EDGE,
+                    scale_factor,
+                    icon_cache,
+                )
+            });
 
             Some(AppChoiceItem {
                 name: app.name.clone().into(),
@@ -112,7 +121,10 @@ pub(crate) fn set_alternate_opener_visual(
 ) {
     let app = alternate_opener_app(command, apps);
     let icon_path = app.and_then(|app| app.icon_path.as_ref());
-    let icon = icon_path.and_then(|path| load_icon_image(path, icon_cache));
+    let scale_factor = ui.window().scale_factor();
+    let icon = icon_path.and_then(|path| {
+        load_icon_image(path, ALTERNATE_OPENER_ICON_EDGE, scale_factor, icon_cache)
+    });
 
     ui.set_alternate_folder_opener_icon(icon.clone().unwrap_or_default());
     ui.set_alternate_folder_opener_has_icon(icon.is_some());
@@ -352,7 +364,7 @@ mod tests {
         ];
         let mut icon_cache = IconImageCache::default();
 
-        let choices = to_app_choice_items(&apps, &mut icon_cache);
+        let choices = to_app_choice_items(&apps, 1.0, &mut icon_cache);
 
         assert_eq!(
             choices
@@ -382,8 +394,11 @@ mod tests {
         system_code.exec = "\"/usr/share/code/code\"   %F".into();
         let zed = app("Zed", "zed", Vec::new(), vec!["IDE"]);
 
-        let choices =
-            to_app_choice_items(&[code, system_code, zed], &mut IconImageCache::default());
+        let choices = to_app_choice_items(
+            &[code, system_code, zed],
+            1.0,
+            &mut IconImageCache::default(),
+        );
 
         assert_eq!(
             choices
@@ -416,6 +431,7 @@ mod tests {
 
         let choices = to_app_choice_items(
             &[code, new_window, other_installation],
+            1.0,
             &mut IconImageCache::default(),
         );
 
@@ -439,7 +455,7 @@ mod tests {
             app("Konsole", "konsole", Vec::new(), vec!["TerminalEmulator"]),
         ];
 
-        let choices = to_app_choice_items(&apps, &mut IconImageCache::default());
+        let choices = to_app_choice_items(&apps, 1.0, &mut IconImageCache::default());
 
         assert_eq!(choices.len(), 1);
         assert_eq!(choices[0].name.as_str(), "Terminal");
@@ -468,7 +484,7 @@ mod tests {
         ];
         analyzer.dbus_activatable = true;
 
-        let choices = to_app_choice_items(&[files, analyzer], &mut IconImageCache::default());
+        let choices = to_app_choice_items(&[files, analyzer], 1.0, &mut IconImageCache::default());
         assert_eq!(choices[0].command.as_str(), "nautilus --new-window");
         assert_eq!(choices[1].command.as_str(), "baobab");
     }
@@ -481,7 +497,7 @@ mod tests {
             "[Desktop Entry]\nType=Application\nName=Amberol\nExec=/usr/bin/flatpak run --branch=stable --arch=x86_64 --command=amberol --file-forwarding io.bassi.Amberol @@u %U @@\nMimeType=audio/mpeg;inode/directory;\nCategories=GNOME;GTK;Music;Audio;AudioVideo;\n",
             "io.bassi.Amberol.desktop".into(), desktop_file.clone(),
         ).unwrap();
-        let choices = to_app_choice_items(&[amberol], &mut IconImageCache::default());
+        let choices = to_app_choice_items(&[amberol], 1.0, &mut IconImageCache::default());
         assert_eq!(choices.len(), 1);
         assert_eq!(choices[0].name.as_str(), "Amberol");
         assert_eq!(choices[0].command_label.as_str(), "Flatpak");

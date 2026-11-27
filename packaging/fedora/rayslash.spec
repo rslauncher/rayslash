@@ -8,7 +8,7 @@
 %endif
 
 Name:           rayslash
-Version:        0.2.19
+Version:        0.2.20
 Release:        1%{?dist}
 Summary:        Fast native Linux desktop launcher
 %global         module_host_version 0.1.4
@@ -99,6 +99,11 @@ test -x %{buildroot}%{_libexecdir}/rayslash/rayslash-module-compiler
 %{_metainfodir}/dev.rayan6ms.rayslash.metainfo.xml
 
 %changelog
+* Thu Nov 26 2026 RaySlash contributors - 0.2.20-1
+- Pre-filter raster app, opener, picker, and favicon icons in linear premultiplied light at exact physical display pixels.
+- Prefer scalable SVGs and high-resolution theme icons over low-resolution bitmaps and enable JPEG icon decoding.
+- Refresh scaled bitmap icons on HiDPI scale changes without repopulating hidden-idle caches.
+
 * Sat Oct 31 2026 RaySlash contributors - 0.2.19-1
 - Correct module badge bounds and center settings keyword labels.
 - Filter favicons at display scale while retaining low-memory software rendering.

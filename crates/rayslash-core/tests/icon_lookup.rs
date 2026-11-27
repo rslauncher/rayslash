@@ -47,20 +47,51 @@ fn resolve_desktop_icon_checks_hicolor_app_directories() {
 }
 
 #[test]
-fn resolve_desktop_icon_prefers_launcher_sized_hicolor_icons() {
+fn resolve_desktop_icon_prefers_scalable_and_high_res_hicolor_icons() {
     let dir = TempDir::new("rayslash-icons-preferred-size");
-    let icon_48 = dir
-        .write("hicolor/48x48/apps/example.png", "not a real png")
+    dir.write("hicolor/32x32/apps/example.png", "not a real png")
+        .expect("write 32px icon");
+    dir.write("hicolor/48x48/apps/example.png", "not a real png")
         .expect("write 48px icon");
-    dir.write(
-        "hicolor/scalable/apps/example.svg",
-        "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
-    )
-    .expect("write scalable icon");
+    let icon_scalable = dir
+        .write(
+            "hicolor/scalable/apps/example.svg",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .expect("write scalable icon");
 
     assert_eq!(
         resolve_desktop_icon_in_dirs("example", &[dir.path().to_path_buf()]),
-        Some(icon_48)
+        Some(icon_scalable)
+    );
+
+    let bitmap_dir = TempDir::new("rayslash-icons-preferred-bitmap-size");
+    bitmap_dir
+        .write("hicolor/32x32/apps/bitmap.png", "not a real png")
+        .expect("write 32px icon");
+    bitmap_dir
+        .write("hicolor/48x48/apps/bitmap.png", "not a real png")
+        .expect("write 48px icon");
+    let icon_128 = bitmap_dir
+        .write("hicolor/128x128/apps/bitmap.png", "not a real png")
+        .expect("write 128px icon");
+
+    assert_eq!(
+        resolve_desktop_icon_in_dirs("bitmap", &[bitmap_dir.path().to_path_buf()]),
+        Some(icon_128)
+    );
+
+    let hidpi_dir = TempDir::new("rayslash-icons-preferred-hidpi-size");
+    hidpi_dir
+        .write("hicolor/32x32/apps/hidpi.png", "not a real png")
+        .expect("write 32px icon");
+    let icon_hidpi = hidpi_dir
+        .write("hicolor/256x256@2/apps/hidpi.png", "not a real png")
+        .expect("write 256@2 icon");
+
+    assert_eq!(
+        resolve_desktop_icon_in_dirs("hidpi", &[hidpi_dir.path().to_path_buf()]),
+        Some(icon_hidpi)
     );
 }
 
