@@ -163,13 +163,13 @@ fn set_executable(path: &PathBuf) {
 fn set_executable(_path: &PathBuf) {}
 
 #[test]
-fn icon_theme_fixture_prefers_launcher_sized_hicolor_assets() {
+fn icon_theme_fixture_prefers_scalable_hicolor_assets() {
     let dir = TempDir::new("rayslash-icon-theme-fixture");
-    let icon_48 = write_hicolor_app_icon(&dir, "48x48", "example", "png");
-    write_hicolor_app_icon(&dir, "scalable", "example", "svg");
+    write_hicolor_app_icon(&dir, "48x48", "example", "png");
+    let icon_scalable = write_hicolor_app_icon(&dir, "scalable", "example", "svg");
 
     assert_eq!(
         resolve_desktop_icon_in_dirs("example", &[dir.path().to_path_buf()]),
-        Some(icon_48)
+        Some(icon_scalable)
     );
 }

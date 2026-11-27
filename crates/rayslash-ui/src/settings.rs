@@ -91,8 +91,13 @@ pub(crate) fn web_search_items(
     searches
         .iter()
         .map(|search| {
-            let icon = rayslash_core::web_search::cached_favicon_path(search)
-                .and_then(|path| crate::favicons::load_image(&path, 28, scale_factor));
+            let icon = rayslash_core::web_search::cached_favicon_path(search).and_then(|path| {
+                crate::icon_raster::load_image(
+                    &path,
+                    crate::icon_raster::SETTINGS_FAVICON_EDGE,
+                    scale_factor,
+                )
+            });
             WebSearchItem {
                 name: search.name.clone().into(),
                 keyword: search.keyword.clone().into(),

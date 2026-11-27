@@ -89,11 +89,13 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                     return;
                 }
 
+                let scale_factor = ui.window().scale_factor();
                 refresh_desktop_apps_if_stale(
                     DesktopAppRefreshContext {
                         apps_state: &apps,
                         app_install_state: &app_install_state,
                         choices_model: &alternate_opener_choices,
+                        scale_factor,
                         icon_cache: &icon_cache,
                         telemetry: diagnostics.clone(),
                         last_refresh: &last_desktop_app_refresh,
@@ -105,6 +107,7 @@ pub(crate) fn register_settings_callbacks(ui: &AppWindow, context: SettingsCallb
                 if alternate_opener_choices.row_count() == 0 {
                     alternate_opener_choices.set_vec(crate::opener_visual::to_app_choice_items(
                         &apps.borrow(),
+                        scale_factor,
                         &mut icon_cache.borrow_mut(),
                     ));
                 }

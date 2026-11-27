@@ -7,16 +7,24 @@ use std::{
 };
 
 use rayslash_core::{modules, search};
-use slint::{Image, Model, Rgba8Pixel, SharedPixelBuffer, VecModel};
+use slint::{Image, Model, VecModel};
 
-use crate::ResultItem;
+use crate::{
+    ResultItem,
+    icon_raster::{
+        RESULT_APP_ICON_EDGE, RESULT_FAVICON_EDGE, load_bitmap_at_physical_edge, physical_icon_edge,
+    },
+};
 
 const MAX_MEMORY_ICON_ENTRIES: usize = 256;
 const MAX_MEMORY_ICON_BYTES: usize = 4 * 1024 * 1024;
 const MAX_DISK_ICON_ENTRIES: usize = 64;
-// Result icons are at most 40 logical pixels; preserve detail through 3x scaling
-// without retaining full 512–1024px application bitmaps in RAM and on the GPU.
-const MAX_BITMAP_ICON_EDGE: u32 = 128;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct IconCacheKey {
+    path: PathBuf,
+    physical_edge: u32,
+}
 
 struct CachedImage {
     image: Option<Image>,
@@ -41,7 +49,7 @@ fn icon_stamp(path: &Path) -> Option<IconStamp> {
 
 #[derive(Default)]
 pub(crate) struct IconImageCache {
-    entries: HashMap<PathBuf, CachedImage>,
+    entries: HashMap<IconCacheKey, CachedImage>,
     clock: u64,
     bytes: usize,
 }
@@ -51,28 +59,28 @@ impl IconImageCache {
         Self::default()
     }
 
-    fn get(&mut self, path: &Path) -> Option<&Option<Image>> {
+    fn get(&mut self, key: &IconCacheKey) -> Option<&Option<Image>> {
         self.clock = self.clock.wrapping_add(1);
         if self
             .entries
-            .get(path)
-            .is_some_and(|entry| entry.stamp != icon_stamp(path))
+            .get(key)
+            .is_some_and(|entry| entry.stamp != icon_stamp(&key.path))
         {
-            self.remove(path);
+            self.remove(key);
             return None;
         }
-        let entry = self.entries.get_mut(path)?;
+        let entry = self.entries.get_mut(key)?;
         entry.last_used = self.clock;
         Some(&entry.image)
     }
 
-    fn insert(&mut self, path: PathBuf, image: Option<Image>) {
+    fn insert(&mut self, key: IconCacheKey, image: Option<Image>) {
         self.clock = self.clock.wrapping_add(1);
-        self.remove(&path);
-        let stamp = icon_stamp(&path);
+        self.remove(&key);
+        let stamp = icon_stamp(&key.path);
         let bytes = image
             .as_ref()
-            .map_or(0, |image| image_weight(image, &path, stamp.as_ref()));
+            .map_or(0, |image| image_weight(image, &key.path, stamp.as_ref()));
         // An oversized image can still be displayed; don't retain another
         // cache reference that exceeds the whole budget.
         if bytes > MAX_MEMORY_ICON_BYTES {
@@ -85,7 +93,7 @@ impl IconImageCache {
                 .entries
                 .iter()
                 .min_by_key(|(_, entry)| entry.last_used)
-                .map(|(path, _)| path.clone())
+                .map(|(key, _)| key.clone())
             else {
                 break;
             };
@@ -93,7 +101,7 @@ impl IconImageCache {
         }
         self.bytes += bytes;
         self.entries.insert(
-            path,
+            key,
             CachedImage {
                 image,
                 last_used: self.clock,
@@ -105,12 +113,17 @@ impl IconImageCache {
 
     pub(crate) fn invalidate_changed(&mut self) {
         self.entries
-            .retain(|path, entry| entry.stamp == icon_stamp(path));
+            .retain(|key, entry| entry.stamp == icon_stamp(&key.path));
         self.bytes = self.entries.values().map(|entry| entry.bytes).sum();
     }
 
-    fn remove(&mut self, path: &Path) {
-        if let Some(entry) = self.entries.remove(path) {
+    pub(crate) fn clear_scaled_bitmaps(&mut self) {
+        self.entries.retain(|key, _| key.physical_edge == 0);
+        self.bytes = self.entries.values().map(|entry| entry.bytes).sum();
+    }
+
+    fn remove(&mut self, key: &IconCacheKey) {
+        if let Some(entry) = self.entries.remove(key) {
             self.bytes -= entry.bytes;
         }
     }
@@ -120,11 +133,15 @@ impl IconImageCache {
     }
 }
 
+fn is_svg_path(path: &Path) -> bool {
+    path.extension().is_some_and(|extension| {
+        extension.eq_ignore_ascii_case("svg") || extension.eq_ignore_ascii_case("svgz")
+    })
+}
+
 fn image_weight(image: &Image, path: &Path, stamp: Option<&IconStamp>) -> usize {
     let image_path = image.path().unwrap_or(path);
-    if image_path.extension().is_some_and(|extension| {
-        extension.eq_ignore_ascii_case("svg") || extension.eq_ignore_ascii_case("svgz")
-    }) {
+    if is_svg_path(image_path) {
         // Slint exposes no parsed-SVG allocation size. Budget a conservative
         // estimate from source size while keeping vectors scalable. This is
         // an estimate, not a bound on the framework's own SVG/image caches.
@@ -161,6 +178,7 @@ pub(crate) fn update_result_items_model(model: &VecModel<ResultItem>, items: Vec
 pub(crate) fn hydrate_result_icon_rows(
     model: &VecModel<ResultItem>,
     results: &[search::SearchResult],
+    scale_factor: f32,
     icon_cache: &mut IconImageCache,
     start: usize,
     count: usize,
@@ -169,7 +187,7 @@ pub(crate) fn hydrate_result_icon_rows(
     if start >= end {
         return;
     }
-    for (offset, item) in to_result_items(&results[start..end], icon_cache)
+    for (offset, item) in to_result_items(&results[start..end], scale_factor, icon_cache)
         .into_iter()
         .enumerate()
     {
@@ -200,20 +218,23 @@ pub(crate) const STARTUP_ICON_ROWS: usize = 8;
 
 pub(crate) fn to_initial_result_items(
     results: &[search::SearchResult],
+    scale_factor: f32,
     icon_cache: &mut IconImageCache,
 ) -> Vec<ResultItem> {
-    to_result_items_with_image_limit(results, icon_cache, STARTUP_ICON_ROWS)
+    to_result_items_with_image_limit(results, scale_factor, icon_cache, STARTUP_ICON_ROWS)
 }
 
 pub(crate) fn to_result_items(
     results: &[search::SearchResult],
+    scale_factor: f32,
     icon_cache: &mut IconImageCache,
 ) -> Vec<ResultItem> {
-    to_result_items_with_image_limit(results, icon_cache, usize::MAX)
+    to_result_items_with_image_limit(results, scale_factor, icon_cache, usize::MAX)
 }
 
 fn to_result_items_with_image_limit(
     results: &[search::SearchResult],
+    scale_factor: f32,
     icon_cache: &mut IconImageCache,
     image_limit: usize,
 ) -> Vec<ResultItem> {
@@ -221,7 +242,7 @@ fn to_result_items_with_image_limit(
         .iter()
         .enumerate()
         .map(|(index, result)| {
-            let icon = result_icon(result, icon_cache, index < image_limit);
+            let icon = result_icon(result, scale_factor, icon_cache, index < image_limit);
 
             ResultItem {
                 title: result.title.clone().into(),
@@ -251,8 +272,22 @@ fn subtitle_tooltip(result: &search::SearchResult) -> String {
     }
 }
 
-pub(crate) fn load_icon_image(path: &Path, icon_cache: &mut IconImageCache) -> Option<Image> {
-    if let Some(cached) = icon_cache.get(path) {
+pub(crate) fn load_icon_image(
+    path: &Path,
+    logical_edge: u32,
+    scale_factor: f32,
+    icon_cache: &mut IconImageCache,
+) -> Option<Image> {
+    let physical_edge = if is_svg_path(path) {
+        0
+    } else {
+        physical_icon_edge(logical_edge, scale_factor)
+    };
+    let key = IconCacheKey {
+        path: path.to_path_buf(),
+        physical_edge,
+    };
+    if let Some(cached) = icon_cache.get(&key) {
         return cached.clone();
     }
 
@@ -260,67 +295,30 @@ pub(crate) fn load_icon_image(path: &Path, icon_cache: &mut IconImageCache) -> O
     // candidates first so unrelated non-image files fail quietly and use the
     // normal fallback icon, while named image files retain useful diagnostics.
     let image = if path.extension().is_none() {
-        load_extensionless_icon_image(path)
+        load_extensionless_icon_image(path, physical_edge)
     } else {
-        load_sized_icon_image(path)
+        load_sized_icon_image(path, physical_edge)
     };
-    icon_cache.insert(path.to_path_buf(), image.clone());
+    icon_cache.insert(key, image.clone());
     image
 }
 
-fn load_sized_icon_image(path: &Path) -> Option<Image> {
-    if path.extension().is_some_and(|extension| {
-        extension.eq_ignore_ascii_case("svg") || extension.eq_ignore_ascii_case("svgz")
-    }) {
-        // Keep SVGs scalable rather than converting them into fixed bitmaps.
+fn load_sized_icon_image(path: &Path, physical_edge: u32) -> Option<Image> {
+    if is_svg_path(path) {
+        // Keep SVGs scalable so Slint's renderer rasterizes them directly at
+        // the exact physical display size.
         return Image::load_from_path(path).ok();
     }
-    let mut reader = image::ImageReader::open(path)
-        .ok()?
-        .with_guessed_format()
-        .ok()?;
-    let mut limits = image::Limits::default();
-    limits.max_alloc = Some(32 * 1024 * 1024);
-    reader.limits(limits);
-    let decoded = reader.decode().ok()?;
-    let pixels =
-        if decoded.width() > MAX_BITMAP_ICON_EDGE || decoded.height() > MAX_BITMAP_ICON_EDGE {
-            decoded
-                .resize(
-                    MAX_BITMAP_ICON_EDGE,
-                    MAX_BITMAP_ICON_EDGE,
-                    image::imageops::FilterType::Lanczos3,
-                )
-                .to_rgba8()
-        } else {
-            decoded.to_rgba8()
-        };
-    Some(Image::from_rgba8(
-        SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
-            pixels.as_raw(),
-            pixels.width(),
-            pixels.height(),
-        ),
-    ))
+    load_bitmap_at_physical_edge(path, physical_edge)
 }
 
-fn load_favicon_image(path: &Path, icon_cache: &mut IconImageCache) -> Option<Image> {
-    if let Some(cached) = icon_cache.get(path) {
-        return cached.clone();
-    }
-
-    let image = crate::favicons::load_image(path, 32, 1.0);
-    icon_cache.insert(path.to_path_buf(), image.clone());
-    image
-}
-
-fn load_extensionless_icon_image(path: &Path) -> Option<Image> {
+fn load_extensionless_icon_image(path: &Path, physical_edge: u32) -> Option<Image> {
     if path.extension().is_some() {
         return None;
     }
 
     let cache_path = cached_extensionless_icon_path(path)?;
-    load_sized_icon_image(&cache_path)
+    load_sized_icon_image(&cache_path, physical_edge)
 }
 
 fn cached_extensionless_icon_path(path: &Path) -> Option<PathBuf> {
@@ -423,6 +421,7 @@ struct RowIcon {
 
 fn result_icon(
     result: &search::SearchResult,
+    scale_factor: f32,
     icon_cache: &mut IconImageCache,
     load_image: bool,
 ) -> RowIcon {
@@ -447,9 +446,9 @@ fn result_icon(
                 fallback_icon(module_kind, "")
             } else if load_image
                 && let Some(image) = if module_kind == "web-search" {
-                    load_favicon_image(path, icon_cache)
+                    load_icon_image(path, RESULT_FAVICON_EDGE, scale_factor, icon_cache)
                 } else {
-                    load_icon_image(path, icon_cache)
+                    load_icon_image(path, RESULT_APP_ICON_EDGE, scale_factor, icon_cache)
                 }
             {
                 RowIcon {
@@ -466,7 +465,10 @@ fn result_icon(
             fallback_icon_owned(module_kind, label.clone())
         }
         search::SearchResultIcon::App { path: Some(path) } => {
-            if load_image && let Some(image) = load_icon_image(path, icon_cache) {
+            if load_image
+                && let Some(image) =
+                    load_icon_image(path, RESULT_APP_ICON_EDGE, scale_factor, icon_cache)
+            {
                 RowIcon {
                     image,
                     has_image: true,
@@ -506,9 +508,17 @@ fn fallback_icon_owned(kind: &'static str, text: String) -> RowIcon {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use slint::SharedPixelBuffer;
+
+    fn key(path: impl Into<PathBuf>) -> IconCacheKey {
+        IconCacheKey {
+            path: path.into(),
+            physical_edge: RESULT_APP_ICON_EDGE,
+        }
+    }
 
     #[test]
-    fn bitmap_icons_are_bounded_without_stretching_or_upscaling() {
+    fn bitmap_icons_are_rescaled_to_exact_physical_display_size() {
         let directory = std::env::temp_dir().join(format!(
             "rayslash-icon-sizing-{}-{}",
             std::process::id(),
@@ -520,22 +530,60 @@ mod tests {
         fs::create_dir_all(&directory).unwrap();
         let large = directory.join("large.png");
         let small = directory.join("small.png");
-        let color = image::Rgba([30, 90, 150, 128]);
+        let exact = directory.join("exact.png");
+        let color = image::Rgba([30, 90, 150, 255]);
         image::RgbaImage::from_pixel(1024, 512, color)
             .save(&large)
             .unwrap();
         image::RgbaImage::from_pixel(24, 16, color)
             .save(&small)
             .unwrap();
+        image::RgbaImage::from_pixel(40, 40, color)
+            .save(&exact)
+            .unwrap();
+
         let mut cache = IconImageCache::new();
-        let icon = load_icon_image(&large, &mut cache).unwrap();
-        assert_eq!(icon.size().width, MAX_BITMAP_ICON_EDGE);
-        assert_eq!(icon.size().height, MAX_BITMAP_ICON_EDGE / 2);
-        assert_eq!(&icon.to_rgba8().unwrap().as_bytes()[..4], &color.0);
-        assert_eq!(load_icon_image(&large, &mut cache), Some(icon));
-        let icon = load_icon_image(&small, &mut cache).unwrap();
-        assert_eq!((icon.size().width, icon.size().height), (24, 16));
+        let icon_1x = load_icon_image(&large, RESULT_APP_ICON_EDGE, 1.0, &mut cache).unwrap();
+        assert_eq!((icon_1x.size().width, icon_1x.size().height), (40, 20));
+        assert_eq!(&icon_1x.to_rgba8().unwrap().as_bytes()[..4], &color.0);
+        assert_eq!(
+            load_icon_image(&large, RESULT_APP_ICON_EDGE, 1.0, &mut cache),
+            Some(icon_1x)
+        );
+
+        let icon_2x = load_icon_image(&large, RESULT_APP_ICON_EDGE, 2.0, &mut cache).unwrap();
+        assert_eq!((icon_2x.size().width, icon_2x.size().height), (80, 40));
+
+        let icon_small = load_icon_image(&small, RESULT_APP_ICON_EDGE, 1.0, &mut cache).unwrap();
+        assert_eq!(
+            (icon_small.size().width, icon_small.size().height),
+            (40, 27)
+        );
+
+        let icon_exact = load_icon_image(&exact, RESULT_APP_ICON_EDGE, 1.0, &mut cache).unwrap();
+        assert_eq!(
+            (icon_exact.size().width, icon_exact.size().height),
+            (40, 40)
+        );
+        assert_eq!(&icon_exact.to_rgba8().unwrap().as_bytes()[..4], &color.0);
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn clear_scaled_bitmaps_keeps_svg_entries_while_dropping_raster_sizes() {
+        let mut cache = IconImageCache::new();
+        let svg_key = IconCacheKey {
+            path: PathBuf::from("/icons/app.svg"),
+            physical_edge: 0,
+        };
+        let bitmap_key = key("/icons/app.png");
+        let image = Image::from_rgba8(SharedPixelBuffer::new(40, 40));
+        cache.insert(svg_key.clone(), Some(image.clone()));
+        cache.insert(bitmap_key.clone(), Some(image));
+
+        cache.clear_scaled_bitmaps();
+        assert!(cache.entries.contains_key(&svg_key));
+        assert!(!cache.entries.contains_key(&bitmap_key));
     }
 
     #[test]
@@ -631,20 +679,20 @@ mod tests {
         fs::write(&changed, b"old").unwrap();
         let image = Image::from_rgba8(SharedPixelBuffer::new(1, 1));
         let mut cache = IconImageCache::new();
-        cache.insert(unchanged.clone(), Some(image.clone()));
-        cache.insert(changed.clone(), None);
-        cache.insert(missing.clone(), None);
-        assert_eq!(cache.get(&unchanged), Some(&Some(image.clone())));
-        assert_eq!(cache.get(&changed), Some(&None));
-        assert_eq!(cache.get(&missing), Some(&None));
+        cache.insert(key(&unchanged), Some(image.clone()));
+        cache.insert(key(&changed), None);
+        cache.insert(key(&missing), None);
+        assert_eq!(cache.get(&key(&unchanged)), Some(&Some(image.clone())));
+        assert_eq!(cache.get(&key(&changed)), Some(&None));
+        assert_eq!(cache.get(&key(&missing)), Some(&None));
 
         fs::write(&changed, b"updated image").unwrap();
         fs::write(&missing, b"new image").unwrap();
-        assert!(cache.get(&changed).is_none());
-        assert!(cache.get(&missing).is_none());
+        assert!(cache.get(&key(&changed)).is_none());
+        assert!(cache.get(&key(&missing)).is_none());
         cache.invalidate_changed();
         assert_eq!(cache.entries.len(), 1);
-        assert_eq!(cache.get(&unchanged), Some(&Some(image)));
+        assert_eq!(cache.get(&key(&unchanged)), Some(&Some(image)));
 
         fs::remove_file(&unchanged).unwrap();
         cache.invalidate_changed();
@@ -657,7 +705,7 @@ mod tests {
         let path = PathBuf::from("/test/app.png");
         let image = Image::from_rgba8(SharedPixelBuffer::new(1, 1));
         let mut cache = IconImageCache::new();
-        cache.insert(path.clone(), Some(image.clone()));
+        cache.insert(key(&path), Some(image.clone()));
         let result = search::SearchResult {
             title: "App".into(),
             flair: String::new(),
@@ -666,17 +714,17 @@ mod tests {
             kind: search::SearchResultKind::Placeholder,
         };
         let results = vec![result; STARTUP_ICON_ROWS + 1];
-        let rows = to_initial_result_items(&results, &mut cache);
+        let rows = to_initial_result_items(&results, 1.0, &mut cache);
         assert!(rows[0].has_icon);
         assert_eq!(rows[0].icon, image.clone());
         assert!(rows[STARTUP_ICON_ROWS - 1].has_icon);
         assert!(!rows[STARTUP_ICON_ROWS].has_icon);
         let model = VecModel::from(rows);
-        hydrate_result_icon_rows(&model, &results, &mut cache, STARTUP_ICON_ROWS, 4);
+        hydrate_result_icon_rows(&model, &results, 1.0, &mut cache, STARTUP_ICON_ROWS, 4);
         assert!(model.row_data(STARTUP_ICON_ROWS).unwrap().has_icon);
         assert_eq!(model.row_data(0).unwrap().icon, image);
         // A query can shrink the list before the next hydration batch.
-        hydrate_result_icon_rows(&model, &[], &mut cache, STARTUP_ICON_ROWS, 4);
+        hydrate_result_icon_rows(&model, &[], 1.0, &mut cache, STARTUP_ICON_ROWS, 4);
         assert_eq!(model.row_count(), results.len());
     }
 
@@ -701,15 +749,15 @@ mod tests {
     fn memory_icon_cache_evicts_the_least_recently_used_entry() {
         let mut cache = IconImageCache::new();
         for index in 0..=MAX_MEMORY_ICON_ENTRIES {
-            cache.insert(PathBuf::from(format!("/icon/{index}")), None);
+            cache.insert(key(format!("/icon/{index}")), None);
         }
 
         assert_eq!(cache.entries.len(), MAX_MEMORY_ICON_ENTRIES);
-        assert!(!cache.entries.contains_key(Path::new("/icon/0")));
+        assert!(!cache.entries.contains_key(&key("/icon/0")));
         assert!(
             cache
                 .entries
-                .contains_key(Path::new(&format!("/icon/{MAX_MEMORY_ICON_ENTRIES}")))
+                .contains_key(&key(format!("/icon/{MAX_MEMORY_ICON_ENTRIES}")))
         );
     }
 
@@ -719,12 +767,12 @@ mod tests {
         let image = Image::from_rgba8(SharedPixelBuffer::new(128, 128));
         let capacity = MAX_MEMORY_ICON_BYTES / (128 * 128 * 4);
         for index in 0..capacity {
-            cache.insert(PathBuf::from(format!("/icon/{index}")), Some(image.clone()));
+            cache.insert(key(format!("/icon/{index}")), Some(image.clone()));
         }
-        assert!(cache.get(Path::new("/icon/0")).is_some());
-        cache.insert(PathBuf::from("/icon/new"), Some(image.clone()));
-        assert!(cache.get(Path::new("/icon/0")).is_some());
-        assert!(cache.get(Path::new("/icon/1")).is_none());
+        assert!(cache.get(&key("/icon/0")).is_some());
+        cache.insert(key("/icon/new"), Some(image.clone()));
+        assert!(cache.get(&key("/icon/0")).is_some());
+        assert!(cache.get(&key("/icon/1")).is_none());
         assert_eq!(cache.entries.len(), capacity);
         assert_eq!(cache.bytes, MAX_MEMORY_ICON_BYTES);
         cache.clear();
@@ -736,22 +784,22 @@ mod tests {
     #[test]
     fn replacement_and_oversized_images_do_not_inflate_cache_accounting() {
         let mut cache = IconImageCache::new();
-        let path = PathBuf::from("/icon/replaced");
+        let cache_key = key("/icon/replaced");
         cache.insert(
-            path.clone(),
+            cache_key.clone(),
             Some(Image::from_rgba8(SharedPixelBuffer::new(128, 128))),
         );
         cache.insert(
-            path.clone(),
+            cache_key.clone(),
             Some(Image::from_rgba8(SharedPixelBuffer::new(1, 1))),
         );
         assert_eq!(cache.bytes, 4);
         cache.insert(
-            path.clone(),
+            cache_key.clone(),
             Some(Image::from_rgba8(SharedPixelBuffer::new(1025, 1025))),
         );
         assert_eq!(cache.bytes, 0);
-        assert!(cache.get(&path).is_none());
+        assert!(cache.get(&cache_key).is_none());
     }
 
     #[test]
@@ -772,7 +820,7 @@ mod tests {
             },
         };
 
-        let icon = result_icon(&result, &mut IconImageCache::new(), true);
+        let icon = result_icon(&result, 1.0, &mut IconImageCache::new(), true);
         assert_eq!(icon.kind, "web-search");
     }
 
@@ -800,7 +848,7 @@ mod tests {
                 },
             };
 
-            let icon = result_icon(&result, &mut IconImageCache::new(), true);
+            let icon = result_icon(&result, 1.0, &mut IconImageCache::new(), true);
             assert_eq!(icon.kind, expected);
             assert!(!icon.has_image);
         }
